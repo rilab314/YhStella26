@@ -104,12 +104,13 @@ def custom_collate_fn(batch: List[dict]):
         width = item["width"]
         t["size"] = torch.tensor([height, width])
         t["image_id"] = torch.tensor([i])
+        t["filename"] = item["filename"]
         targets.append(t)
 
     return samples, targets
 
 
-def create_dataloader(cfg, dataset, split='train'):
+def create_dataloader(cfg, dataset, split='train', persistent_workers=True):
     """
     위성 이미지 데이터셋을 위한 특화된 데이터로더 생성 함수
     """
@@ -119,6 +120,7 @@ def create_dataloader(cfg, dataset, split='train'):
         shuffle=True if split == 'train' else False,
         num_workers=cfg.training.num_workers,
         collate_fn=custom_collate_fn,
-        persistent_workers=True,
+        drop_last=True,
+        persistent_workers=persistent_workers,
     )
     return dataloader

@@ -4,9 +4,8 @@ import cv2
 import numpy as np
 import torch
 from torch.utils.data import Dataset
-import torch.nn.functional as F
-import json
-from tqdm import tqdm
+from torchvision import transforms
+from timm.data import resolve_model_data_config
 
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if project_root not in sys.path:
@@ -25,12 +24,13 @@ class SatelliteImagesDataset(Dataset):
         self.root_path = dataset_path
         self.split = split
         self.device = torch.device(device)
-        self.image_dir = str(os.path.join(dataset_path, self.split, 'image')    )
+        self.image_dir = str(os.path.join(dataset_path, self.split, 'image'))
         self.label_dir = str(os.path.join(dataset_path, self.split, 'label'))
         image_files = sorted(os.listdir(self.image_dir))
         self.image_files = [file for file in image_files if file.endswith(('.png'))]
         # self.augment = composer_factory(cfg, split)
         self.num_classes = num_classes
+        self.transform = transforms.Compose([transforms.ToTensor()])
 
     def __len__(self):
         return len(self.image_files)
@@ -43,8 +43,7 @@ class SatelliteImagesDataset(Dataset):
         #     image, labels = self.apply_augmentation(image, labels)
         
         if isinstance(image, np.ndarray):
-            image = torch.from_numpy(image.transpose(2, 0, 1)).float()
-        image = image.to(self.device)
+            image = self.transform(image)
         labels_tensor = torch.tensor(labels, dtype=torch.float32, device=self.device)
 
         target_dict = dict()

@@ -36,33 +36,38 @@ def evaluate(version: int = -1):
     model.to(device)
     predictions = []
 
-    for batch_idx, batch in enumerate(val_loader):
-        samples, targets = batch
-        samples = samples.to(device)
-        with torch.no_grad():
-            outputs = model(samples)
+    # 인스턴스 제네레이터 용도로 사용
+    # 러닝 레이트, 스케쥴러 -> 제너레이ㅓ 만들고 evaluate 하는 부분 정리할 것
+    # 학습 파이프 라인에 안넣고 모델 생성 이후 바로 inference 하는 코드 작성할 것
+    # 파이프 라인에 추가하는 코드로 새로 작성할 것
 
-        # COCO 평가를 위한 형식 변환
-        target_sizes, image_ids = get_sizes_and_ids(targets, outputs["pred_logits"].device)
-        coco_dets = model.postprocessors["bbox"](outputs, target_sizes, image_ids)
-        predictions.extend(coco_dets)
-        break
+    # for batch_idx, batch in enumerate(val_loader):
+    #     samples, targets = batch
+    #     samples = samples.to(device)
+    #     with torch.no_grad():
+    #         outputs = model(samples)
 
-    return
-    pred_json = os.path.join(log_dir, "val_predictions.json")
-    with open(pred_json, 'w') as f:
-        json.dump(predictions, f)
+    #     # COCO 평가를 위한 형식 변환
+    #     target_sizes, image_ids = get_sizes_and_ids(targets, outputs["pred_logits"].device)
+    #     coco_dets = model.postprocessors["bbox"](outputs, target_sizes, image_ids)
+    #     predictions.extend(coco_dets)
+    #     break
 
-    coco_gt = COCO(annotation_path)
-    coco_dt = coco_gt.loadRes(pred_json)
-    coco_eval = COCOeval(coco_gt, coco_dt, iouType='bbox')
-    coco_eval.evaluate()
-    coco_eval.accumulate()
-    coco_eval.summarize()
+    # return
+    # pred_json = os.path.join(log_dir, "val_predictions.json")
+    # with open(pred_json, 'w') as f:
+    #     json.dump(predictions, f)
 
-    map_50_95 = coco_eval.stats[0]
-    map_50    = coco_eval.stats[1]
-    print(f"[Evaluate] COCO AP: {map_50_95:.4f}, AP50: {map_50:.4f}")
+    # coco_gt = COCO(annotation_path)
+    # coco_dt = coco_gt.loadRes(pred_json)
+    # coco_eval = COCOeval(coco_gt, coco_dt, iouType='bbox')
+    # coco_eval.evaluate()
+    # coco_eval.accumulate()
+    # coco_eval.summarize()
+
+    # map_50_95 = coco_eval.stats[0]
+    # map_50    = coco_eval.stats[1]
+    # print(f"[Evaluate] COCO AP: {map_50_95:.4f}, AP50: {map_50:.4f}")
 
 
 def get_log_dir(cfg, version: int):

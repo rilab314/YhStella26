@@ -121,6 +121,6 @@ class PointMatcher(nn.Module):
         straight_dist = torch.norm(stacked_original - stacked_target, dim=2).sum(dim=1)  # [N]
         reverse_dist = torch.norm(stacked_swapped - stacked_target, dim=2).sum(dim=1)  # [N]
         stacked_dist = torch.stack([straight_dist, reverse_dist], dim=1)  # [N, 2]
-        reverse_match = torch.argmin(stacked_dist, dim=1)  # [N]
-        straight_match = 1 - reverse_match
+        reverse_match = torch.argmin(stacked_dist, dim=1)  # [N], straight: 0, reverse: 1
+        straight_match = 1 - reverse_match  # straight: 1, reverse: 0
         return straight_match

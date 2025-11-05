@@ -26,7 +26,6 @@ def _get_clones(module, N):
 
 
 class DefmLaneDetector(nn.Module):
-
     @staticmethod
     def build_from_cfg(cfg):
         backbone = build_instance(cfg.backbone.module_name, cfg.backbone.class_name, cfg)
@@ -90,7 +89,7 @@ class DefmLaneDetector(nn.Module):
             nn.Linear(self.hidden_dim, self.hidden_dim),
             nn.LayerNorm(self.hidden_dim),
             nn.ReLU(),
-            nn.Linear(self.hidden_dim, self.num_classes + 3)  # 3: background, right endness, left endness
+            nn.Linear(self.hidden_dim, self.num_classes + 2)  # 2: right endness, left endness
         )
         reg_proj = nn.Sequential(
             nn.Linear(self.hidden_dim, self.hidden_dim),
@@ -106,13 +105,13 @@ class DefmLaneDetector(nn.Module):
         output_proj = nn.ModuleDict({'cls': cls_proj, 'reg': reg_proj})
         return output_proj
 
-    def forward(self, samples: NestedTensor):
+    def forward(self, samples: NestedTensor, auxin=None):
         '''
         The forward expects a NestedTensor, which consists of:
                - samples.tensor: batched images, of shape [batch_size x 3 x H x W]
                - samples.mask: a binary mask of shape [batch_size x H x W], containing 1 on padded pixels
         '''
-        features, pos = self.backbone(samples)
+        features, pos = self.backbone(samples, auxin=None)
         # assume that cfg.backbone.output_layers=['layer1', 'layer2', 'layer3', 'layer4'],
         # features: NestedTensor [[B, C, H/4, W/4], [B, 2C, H/8, W/8], [B, 4C, H/16, W/16], [B, 8C, H/32, W/32]], C=128 for SwinV2_384
         # pos: tensor [[B, D, H/4, W/4], [B, D, H/8, W/8], [B, D, H/16, W/16], [B, D, H/32, W/32]], D=256
@@ -134,13 +133,12 @@ class DefmLaneDetector(nn.Module):
         """
         Process the transformer outputs to generate predictions compatible with the matcher.
         Args:
-            memory: Transformer output of shape [batch_size, num_queries, hidden_dim].
+            memory: Transformer output of shape [batch_size, sum(H*W), hidden_dim].
             feat_hw: Tuple representing the height and width of the feature map (H, W).
         Returns: TODO
         """
         num_feat = feat_hw[0] * feat_hw[1]
         src = memory[:, :num_feat, :]
-        side_scale = 4.0
         
         cls_out = self.output_proj['cls'](src)
         cls_out = cls_out.reshape(cls_out.shape[0], feat_hw[0], feat_hw[1], -1)
@@ -150,11 +148,23 @@ class DefmLaneDetector(nn.Module):
 
         reg_out = self.output_proj['reg'](src)
         reg_out = reg_out.reshape(reg_out.shape[0], feat_hw[0], feat_hw[1], -1)
-        center_point = F.sigmoid(reg_out[..., 0:2])
+        center_point = F.sigmoid(reg_out[..., 0:2]) * 1.2 - 0.1  # -0.1 ~ 1.1
         left_point = F.sigmoid(reg_out[..., 2:4]) * 3 - 1  # -1 ~ 2
         right_point = F.sigmoid(reg_out[..., 4:6]) * 3 - 1  # -1 ~ 2
 
-        # TODO: add meshgrid, scale to 0~1
+        H, W = feat_hw
+        # indexing='ij': HxW 형태의 행렬 인덱싱 방식을 따르도록 합니다.
+        gy, gx = torch.meshgrid(torch.arange(H), torch.arange(W), indexing='ij')
+        # 각 픽셀 위치에 [x좌표, y좌표] 형태의 값을 갖는 그리드가 생성됩니다.-> shape: (H, W, 2)
+        grid = torch.stack((gx, gy), dim=-1).float()
+        # 브로드캐스팅을 위해 그리드에 배치 차원을 추가해줍니다. (H, W, 2) -> (1, H, W, 2)
+        grid = grid.unsqueeze(0).to(reg_out.device) # reg_out과 동일한 디바이스로 이동
+        wh_tensor = torch.tensor([W, H], device=reg_out.device, dtype=torch.float32)
+        # 각 포인트의 지역 좌표에 그리드 좌표를 더해 전역 좌표를 계산합니다.
+        # (B, H, W, 2) + (1, H, W, 2) -> (B, H, W, 2)
+        center_point = (center_point + grid) / wh_tensor
+        left_point = (left_point + grid) / wh_tensor
+        right_point = (right_point + grid) / wh_tensor
 
         batch_size = src.shape[0]   
         outputs_list = []

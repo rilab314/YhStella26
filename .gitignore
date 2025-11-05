@@ -6,3 +6,4 @@ dist
 *_out.*
 config/*.yaml
 .python-version
+*.png

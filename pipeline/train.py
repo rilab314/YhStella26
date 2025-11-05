@@ -14,7 +14,7 @@ from pipeline.dataloader import create_dataloader
 from util.misc import build_instance
 
 
-def train():
+def train(resume=False):
     torch.use_deterministic_algorithms(False)
     cfg = CfgNode.from_file('satellite_detr')
     pl.seed_everything(cfg.runtime.seed, workers=True)  # reproducibility
@@ -43,10 +43,8 @@ def train():
     progress_bar = pl.callbacks.TQDMProgressBar(refresh_rate=10)
     train_dataset = build_instance(cfg.dataset.module_name, cfg.dataset.class_name, cfg, split='train')
     train_loader = create_dataloader(cfg, train_dataset, 'train')
-    print('train__loader fin')
-    exit()
     val_dataset = build_instance(cfg.dataset.module_name, cfg.dataset.class_name, cfg, split='validation')
-    val_loader = create_dataloader(cfg, val_dataset, 'validation')
+    val_loader = create_dataloader(cfg, val_dataset, 'validation', persistent_workers=True)
     model = build_instance(cfg.lightning_model.module_name, cfg.lightning_model.class_name, cfg)
     
     trainer = pl.Trainer(
@@ -55,17 +53,21 @@ def train():
         callbacks=[checkpoint_callback, progress_bar],
         accelerator='gpu',
         devices=2,
-        strategy='ddp_find_unused_parameters_true',
+        strategy='ddp_find_unused_parameters_false',
         precision=cfg.training.get('precision', 32),
         gradient_clip_val=cfg.training.get('gradient_clip_val', 0.0),
-        accumulate_grad_batches=cfg.training.get('accumulate_grad_batches', 1),
+        accumulate_grad_batches=cfg.training.get('accumulate_grad_batches', 8),
         log_every_n_steps=50,
-        val_check_interval=0.25,
+        val_check_interval=1.,
+        check_val_every_n_epoch=1,
         deterministic=False,
     )
-    
-    # 학습 시작
-    trainer.fit(model, train_loader, val_loader)
+
+    if resume == True:
+        trainer.fit(model, train_dataloaders=train_loader, val_dataloaders=val_loader, ckpt_path="last")
+    else:
+        # 학습 시작
+        trainer.fit(model, train_loader, val_loader)
 
 
 if __name__ == "__main__":

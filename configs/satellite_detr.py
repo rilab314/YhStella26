@@ -1,5 +1,7 @@
 import os
+from datetime import datetime
 workspace_path = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+timestamp = datetime.now().strftime('%y%m%d_%H%M')
 
 _base_ = ['dataset/satellite_images.py']
 
@@ -10,7 +12,7 @@ params = dict(
         lr_backbone=0.00002,
         lr_linear_proj_names=['reference_points', 'sampling_offsets'], # 삭제 -> 오류 발생하는 것 확인할 것
         lr_linear_proj_mult=0.1,
-        batch_size=2,
+        batch_size=1,
         weight_decay=0.0001,
         epochs=20,
         lr_drop=8,
@@ -97,14 +99,18 @@ params = dict(
         cls_loss=1,
         end_loss=1,
         point_loss=10,
-        focal_alpha=0.25
+        focal_alpha=0.25,
+        focal_gamma=2.,
+        neg_smooth_scale=.5,
+        min_neg_w=1e-3,
+        min_alpha_pos=1e-2, 
     ),
     evaluation=dict(
         topk=100,
         score_thresh=0.1
     ),
     runtime=dict(
-        output_dir=os.path.join(workspace_path, 'tblog'),
+        output_dir=os.path.join(workspace_path, f'tblog_{timestamp}'),
         logger_name='defm_detr',
         device='cuda',
         seed=42,

@@ -47,7 +47,18 @@ class TimmModel(nn.Module):
         for layer_info in output_layers:
             self._hooks.append(layer_info.module.register_forward_hook(lambda module, input, output, layer_name=layer_info.name: hook_fn(module, input, output, layer_name)))
     
-    def forward(self, sample: NestedTensor):
+    def check_stats(self, tensors, auxin, title):
+        if auxin is None:
+            return
+        result_dict_schema = {'min':torch.min, 'max':torch.max, 'std':torch.std, 'mean':torch.mean}
+        result = {'title': title}
+        result.update(auxin.copy())
+        result['shape'] = tensors.shape
+        for key in ['min', 'max', 'std', 'mean']:
+            result[key] = result_dict_schema[key](tensors).item()
+        print('='*10 + f'check_status\n{result}\n')
+
+    def forward(self, sample: NestedTensor, auxin=None):
         """
         samples: NestedTensor
             - samples.tensor: batched images, [B, 3, H, W]
@@ -160,8 +171,8 @@ class Joiner(nn.Sequential):
         self.strides = backbone.strides
         self.num_channels = backbone.num_channels
 
-    def forward(self, tensor_list: NestedTensor):
-        xs = self[0](tensor_list)
+    def forward(self, tensor_list: NestedTensor, auxin=None):
+        xs = self[0](tensor_list, auxin)
         out: List[NestedTensor] = []
         pos = []
         for name, x in sorted(xs.items()):
