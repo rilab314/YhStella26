@@ -58,7 +58,6 @@ def draw_label_map(img_file, labels, cfg):
         if label_map is None:
             continue
         label_map_accum = accumulate_label_map(label_map_accum, label_map)
-    
     return label_map_accum
 
 
@@ -94,34 +93,67 @@ def make_label_map(image, points, map_mask, category):
         return None
     map_coords = (points / MAP_SCALE).astype(np.int32)
     mask_value = map_mask[map_coords[:, 1], map_coords[:, 0]]
-    points = points[mask_value > 0]
+    valid_indices = mask_value > 0
+    points = points[valid_indices]
+    map_coords = map_coords[valid_indices]
+
     if points.shape[0] < 4:
         return None
-    map_coords = (points / MAP_SCALE).astype(np.int32)
 
     h, w, _ = image.shape
-    norm_points = points / np.array([w, h])
-    point_map = np.zeros((h//MAP_SCALE, w//MAP_SCALE, 2), dtype=np.float32)
-    point_map[map_coords[1:-1, 1], map_coords[1:-1, 0]] = norm_points[1:-1]
-    prev_point_map = point_map.copy()
-    prev_point_map[map_coords[1:-1, 1], map_coords[1:-1, 0]] = norm_points[:-2]
-    next_point_map = point_map.copy()
-    next_point_map[map_coords[1:-1, 1], map_coords[1:-1, 0]] = norm_points[2:]
+    grid_h, grid_w = h // MAP_SCALE, w // MAP_SCALE
+    grid_origins = map_coords * MAP_SCALE
+    curr_origins = grid_origins[1:-1]
+
+    norm_curr = (points[1:-1] - curr_origins) / MAP_SCALE
+    norm_prev = (points[:-2] - curr_origins) / MAP_SCALE
+    norm_next = (points[2:] - curr_origins) / MAP_SCALE
+
+    point_map = np.zeros((grid_h, grid_w, 2), dtype=np.float32)
+    prev_point_map = np.zeros((grid_h, grid_w, 2), dtype=np.float32)
+    next_point_map = np.zeros((grid_h, grid_w, 2), dtype=np.float32)
     
-    class_map = np.zeros((h//MAP_SCALE, w//MAP_SCALE, 3), dtype=np.float32)
-    class_map[map_coords[1, 1], map_coords[1, 0], 1] = 1  # is prev point end
-    class_map[map_coords[-2, 1], map_coords[-2, 0], 0] = 1  # is next point end
-    class_map[map_coords[1:-1, 1], map_coords[1:-1, 0], 2] = category
-    label_map = np.concat([point_map, prev_point_map, next_point_map, class_map], axis=2)
-
-    mask_orig = np.zeros_like(image)
-    mask_redc = np.zeros((h//MAP_SCALE, w//MAP_SCALE), dtype=np.uint8)
-    points = points.astype(np.int32)
-    mask_orig[points[:, 1], points[:, 0]] = 255
-    mask_redc[map_coords[:, 1], map_coords[:, 0]] = 255
-    mask_redc = cv2.resize(mask_redc, (w, h), interpolation=cv2.INTER_NEAREST)
-
+    rows = map_coords[1:-1, 1]
+    cols = map_coords[1:-1, 0]
+    point_map[rows, cols] = norm_curr
+    prev_point_map[rows, cols] = norm_prev
+    next_point_map[rows, cols] = norm_next
+    class_map = np.zeros((grid_h, grid_w, 3), dtype=np.float32)
+    class_map[rows[0], cols[0], 0] = 1
+    class_map[rows[-1], cols[-1], 1] = 1
+    class_map[rows, cols, 2] = category
+    label_map = np.concatenate([point_map, prev_point_map, next_point_map, class_map], axis=2)
+    
     return label_map
+
+
+def visualize_label_map(image, label_map, points):
+    if label_map is None:
+        return
+    vis_img = image.copy()
+    rows, cols = np.nonzero(label_map[:, :, 8] > 0)
+    if len(rows) == 0:
+        return vis_img
+    valid_data = label_map[rows, cols, :]  # (N, 9)
+    origins = np.stack([cols, rows], axis=1) * MAP_SCALE
+
+    curr_pts = (valid_data[:, 0:2] * MAP_SCALE + origins).astype(np.int32)
+    prev_pts = (valid_data[:, 2:4] * MAP_SCALE + origins).astype(np.int32)
+    next_pts = (valid_data[:, 4:6] * MAP_SCALE + origins).astype(np.int32)
+
+    line_color = (0, 255, 255) # Yellow
+    pt_color = (0, 0, 255)     # Red    
+    for i in range(len(rows)):
+        p_curr = tuple(curr_pts[i])
+        p_prev = tuple(prev_pts[i])
+        p_next = tuple(next_pts[i])
+        cv2.line(vis_img, p_prev, p_curr, line_color, 2)
+        cv2.line(vis_img, p_curr, p_next, line_color, 2)
+        cv2.circle(vis_img, p_curr, 2, pt_color, -1)
+
+    cv2.imshow('labelmap', vis_img)
+    cv2.waitKey(0)
+    return vis_img
 
 
 def accumulate_label_map(label_map_accum, label_map):
