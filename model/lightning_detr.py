@@ -90,7 +90,7 @@ class LitDeformableDETR(pl.LightningModule):
         image_name = targets[0]['filename']
         with_img = cv2.imread(image_name)
         visualized_image = self.visualizer.visualize(outputs[0], targets[0], with_img=with_img)
-        save_path = os.path.join(self.cfg.runtime.output_dir, 'vlog', f'ep{epoch}_{image_name.split("/")[-1]}.png')
+        save_path = os.path.join(self.cfg.runtime.output_dir, 'vlog', f'ep{epoch}_{image_name.split("/")[-1]}')
         cv2.imwrite(save_path, visualized_image)
 
     def on_validation_epoch_end(self):

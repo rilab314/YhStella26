@@ -7,8 +7,7 @@ import torch
 class LineString:
     class_id: int
     points: torch.Tensor
-    scores: torch.Tensor
-
+    scores: torch.Tensor = None
 
 @dataclass
 class LaneDetOutput:
@@ -17,3 +16,23 @@ class LaneDetOutput:
     center_point: torch.Tensor  # (B, H, W, 2), point on line in this grid
     side_points: List[torch.Tensor]  # [(B, H, W, 2), (B, H, W, 2)], point on line in side grids
     line_strings: List[List[LineString]] = None
+
+@dataclass
+class LineNode:
+    id: int
+    cls: int
+    score: float
+
+    grid_y: int
+    grid_x: int
+
+    x: float
+    y: float
+
+    left_x: float
+    left_y: float
+    right_x: float
+    right_y: float
+
+    is_left_end: bool
+    is_right_end: bool

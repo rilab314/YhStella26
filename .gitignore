@@ -7,3 +7,5 @@ dist
 config/*.yaml
 .python-version
 *.png
+*.pt
+*.mp4

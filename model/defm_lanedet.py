@@ -19,7 +19,7 @@ from dataclasses import dataclass
 
 from util.misc import NestedTensor
 from util.misc import MLP, build_instance
-from model.dto import LaneDetOutput, LineString
+from model.dto import LineString
 
 def _get_clones(module, N):
     return nn.ModuleList([copy.deepcopy(module) for i in range(N)])
