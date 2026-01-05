@@ -9,7 +9,7 @@ from pycocotools.cocoeval import COCOeval
 from util.misc import get_sizes_and_ids, build_instance
 from util.target_logit_visualizer import TargetLogitVisualizer
 import cv2
-from model.instance_generator import LineStringInstanceGenerator
+from model.instance_generator import GeneratePolylineInstances
 
 
 def match_name_keywords(n, name_keywords):
@@ -43,7 +43,7 @@ class LitDeformableDETR(pl.LightningModule):
         self.cfg = cfg
         self.loss_weights = {k: v for k, v in cfg.losses.to_dict().items() if k.endswith('_loss')}
         self.save_hyperparameters(ignore=['model', 'criterion'])
-        self.instance_generator = LineStringInstanceGenerator(cfg)
+        self.instance_generator = GeneratePolylineInstances(cfg.dataset.labels)
         self.visualizer = TargetLogitVisualizer(self.cfg.dataset.labels)
         n_parameters = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
         print(f"[LitDeformableDETR] Number of params: {n_parameters}")
@@ -51,8 +51,6 @@ class LitDeformableDETR(pl.LightningModule):
             if name in ("backbone.0._model.norm", "backbone.0._model.head"):
                 for p in module.parameters():
                     p.requires_grad = False
-        os.makedirs(os.path.join(self.cfg.runtime.output_dir, 'vlog'), exist_ok=True)
-
 
     def forward(self, samples, auxin=None):
         return self.model(samples, auxin)
@@ -77,11 +75,14 @@ class LitDeformableDETR(pl.LightningModule):
             self.log(f"val_{k}", v * factor, prog_bar=False, batch_size=self.cfg.training.batch_size, sync_dist=True)
         total_loss = sum(loss_dict[k] * self.loss_weights.get(k, 0) for k in loss_dict)
         self.log(f"val_total_loss", total_loss, prog_bar=False, batch_size=self.cfg.training.batch_size, sync_dist=True)
-
+        
+        # TODO: how to compute loss between instance(model output) and np data(label)
+        try:
+            pred_instances = self.instance_generator(outputs)
+        except:
+            pass
         self.save_visual_log(outputs, targets, self.current_epoch, batch_idx)
-        # TODO eval per frame performance
 
-        # TODO : LineStringInstanceGenerator 로 lane instance 추출해서 수집 or segmentation map 수집
         return total_loss
     
     def save_visual_log(self, outputs, targets, epoch, batch_idx):
@@ -95,6 +96,7 @@ class LitDeformableDETR(pl.LightningModule):
 
     def on_validation_epoch_end(self):
         # TODO implement performance eval
+        # TODO eval per frame performance
         self.model.parameters()
         
         pass
@@ -149,3 +151,7 @@ class LitDeformableDETR(pl.LightningModule):
                 "monitor": "val_total_loss"  # or "coco/AP"
             }
         }
+
+    def setup(self, stage: str):
+        if stage == "fit":
+            os.makedirs(os.path.join(self.cfg.runtime.output_dir, 'vlog'), exist_ok=True)

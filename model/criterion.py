@@ -93,13 +93,6 @@ class SegmentationCriterion(nn.Module):
         classes = torch.arange(self.num_classes, device=p.device, dtype=y.dtype).view(1, 1, C)
         oh = (y.unsqueeze(-1) == classes).to(p.dtype)
         pt = (p * oh).sum(-1)
-        # counts = oh.reshape(-1, C).sum(0)
-        # p_pos = counts / float(H * W)
-        # alpha_pos = (1.0 - p_pos).clamp_min(self.min_alpha_pos)
-        # alpha_pos = alpha_pos / alpha_pos.max().clamp_min(1e-6)
-        # w_map = (oh * alpha_pos.view(1, 1, C)).sum(-1)
-        # focal = (1.0 - pt).clamp_min(0) ** self.focal_gamma
-        # loss_map = -w_map * focal * torch.log(pt.clamp_min(1e-8))
         focal = (1.0 - pt).clamp_min(0) ** self.focal_gamma
         loss_map = - focal * torch.log(pt.clamp_min(1e-8))
         ignore_mask = (y == 0)

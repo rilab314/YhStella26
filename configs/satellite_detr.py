@@ -10,7 +10,7 @@ params = dict(
         lr=0.00002,
         lr_backbone_names=['backbone.0'],
         lr_backbone=0.00002,
-        lr_linear_proj_names=['reference_points', 'sampling_offsets'], # 삭제 -> 오류 발생하는 것 확인할 것
+        lr_linear_proj_names=['reference_points', 'sampling_offsets'],
         lr_linear_proj_mult=0.1,
         batch_size=1,
         weight_decay=0.0001,
@@ -58,7 +58,8 @@ params = dict(
         dilation=False,
         position_embedding=dict(
             type='sine',
-            scale=6.283185307179586
+            scale=6.283185307179586,
+            normalize=True
         ),
     ),
     transformer=dict(
@@ -77,10 +78,10 @@ params = dict(
         segmentation=False,
         frozen_weights=False
     ),
-    postprocessors=dict( # TODO: 사용 X
+    postprocessors=dict(
         line=dict(
             module_name='model.instance_generator',
-            class_name='LineStringInstanceGenerator', 
+            class_name='GeneratePolylineInstances', 
             topk=100,
             score_threshold=0.05),
     ),

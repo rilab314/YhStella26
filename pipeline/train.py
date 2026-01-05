@@ -17,11 +17,10 @@ from util.misc import build_instance
 def train(resume=False):
     torch.use_deterministic_algorithms(False)
     cfg = CfgNode.from_file('satellite_detr')
-    pl.seed_everything(cfg.runtime.seed, workers=True)  # reproducibility
+    pl.seed_everything(cfg.runtime.seed, workers=True)
     tb_logger = TensorBoardLogger(save_dir=cfg.runtime.output_dir, name=cfg.runtime.logger_name)
     csv_logger = CSVLogger(save_dir=cfg.runtime.output_dir, name=cfg.runtime.logger_name)
     
-    # 체크포인트 콜백 설정
     checkpoint_callback = pl.callbacks.ModelCheckpoint(
         dirpath=os.path.join(cfg.runtime.output_dir, 'checkpoints'),
         filename='{epoch:02d}-{val_loss:.4f}',
@@ -31,7 +30,6 @@ def train(resume=False):
         save_last=True,
     )
     
-    # 조기 종료 콜백 설정
     early_stop_callback = pl.callbacks.EarlyStopping(
         monitor='train_loss_total',
         patience=5,
@@ -39,7 +37,6 @@ def train(resume=False):
         verbose=True
     )
     
-    # 학습 진행률 표시 콜백
     progress_bar = pl.callbacks.TQDMProgressBar(refresh_rate=10)
     train_dataset = build_instance(cfg.dataset.module_name, cfg.dataset.class_name, cfg, split='train')
     train_loader = create_dataloader(cfg, train_dataset, 'train')
@@ -66,7 +63,6 @@ def train(resume=False):
     if resume == True:
         trainer.fit(model, train_dataloaders=train_loader, val_dataloaders=val_loader, ckpt_path="last")
     else:
-        # 학습 시작
         trainer.fit(model, train_loader, val_loader)
 
 

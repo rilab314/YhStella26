@@ -109,33 +109,22 @@ class Predictor:
 
 
 def main():
-    ckpt_dir = '/workspace/SatelliteDet/tblog_251109_0906/checkpoints'
-    ckpt_list = os.listdir(ckpt_dir)
-    img_dir = '/workspace/SatelliteDet/dataset/satellite_lane/validation/image'
-    img_list = [os.path.join(img_dir, i) for i in os.listdir(img_dir)]
+    ckpt_path = 'PATH_TO_CKPT'
+    img_path = 'PATH_TO_IMAGE'
 
-    for vis_type in ['accuracy', 'output', 'arrow']:
-        for ckpt_path in ckpt_list:
-            ckpt_path = os.path.join(ckpt_dir, ckpt_path)
-            if not os.path.isfile(ckpt_path):
-                continue
-            save_path = ckpt_path.split('-')[0] if 'last' not in ckpt_path else ckpt_path.replace('.ckpt', '')
-            save_path = save_path.replace('epoch', 'epoch_'+vis_type)
-            os.makedirs(save_path, exist_ok=True)
+    vis_type = '' # output, arrow, accurracy
 
-            cfg = CfgNode.from_file("satellite_detr")
-            print(f'{vis_type}, {ckpt_path}, pred')
-            predictor = Predictor.from_cfg(cfg, ckpt_path=ckpt_path)
+    cfg = CfgNode.from_file("satellite_detr")
+    predictor = Predictor.from_cfg(cfg, ckpt_path=ckpt_path)
+    visualizer = TargetLogitVisualizer(cfg.dataset.labels)
 
-            for img_path in tqdm(img_list):
-                img_bgr = cv2.imread(img_path)
-                img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
-                output = predictor.predict(img_rgb, apply_softmax=True)
-                output = output[0]
-                visualizer = TargetLogitVisualizer(cfg.dataset.labels)
-                result_img = visualizer.create_visualization_panel(output, vis_type, img_bgr)
+    img_bgr = cv2.imread(img_path)
+    img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+    output = predictor.predict(img_rgb, apply_softmax=True)
 
-                cv2.imwrite(os.path.join(save_path, os.path.basename(img_path)), result_img)
+    result_img = visualizer.create_visualization_panel(output, vis_type, img_bgr)
+
+    cv2.imshow(f'{vis_type} img result', result_img)
 
 
 

@@ -87,10 +87,14 @@ class PositionEmbeddingLearned(nn.Module):
 
 
 def build_position_encoding(cfg):
+    pe_cfg = cfg.backbone.position_embedding
     N_steps = cfg.transformer.hidden_dim // 2
-    if cfg.backbone.position_embedding.type in ('sine', 'v2'):
-        # TODO find a better way of exposing other arguments
-        position_embedding = PositionEmbeddingSine(N_steps, normalize=True)
+    if pe_cfg.type in ('sine', 'v2'):
+        position_embedding = PositionEmbeddingSine(
+            num_pos_feats=N_steps,
+            normalize=pe_cfg.get('normalize', True),
+            scale=pe_cfg.get('scale', 6.283185307179586)
+        )
     elif cfg.backbone.position_embedding.type in ('learned', 'v3'):
         position_embedding = PositionEmbeddingLearned(N_steps)
     else:
