@@ -111,7 +111,7 @@ params = dict(
         score_thresh=0.1
     ),
     runtime=dict(
-        output_dir=os.path.join(workspace_path, f'tblog_{timestamp}'),
+        output_dir=os.path.join(workspace_path, 'results', f'tblog_{timestamp}'),
         logger_name='defm_detr',
         device='cuda',
         seed=42,

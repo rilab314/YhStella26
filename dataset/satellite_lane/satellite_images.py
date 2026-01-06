@@ -58,6 +58,7 @@ class SatelliteImagesDataset(Dataset):
         return {
             'image': image,
             'targets': target_dict,
+            # TODO 'inst_targets': inst_target_dict,
             'height': height,
             'width': width,
             'filename': os.path.join(self.image_dir, image_filename)

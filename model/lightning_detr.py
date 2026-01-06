@@ -21,6 +21,8 @@ def match_name_keywords(n, name_keywords):
 
 
 class LitDeformableDETR(pl.LightningModule):
+    vlog_frame_interval = 100
+
     @staticmethod
     def build_from_cfg(cfg):
         model = build_instance(cfg.core_model.module_name, cfg.core_model.class_name, cfg)
@@ -86,7 +88,7 @@ class LitDeformableDETR(pl.LightningModule):
         return total_loss
     
     def save_visual_log(self, outputs, targets, epoch, batch_idx):
-        if (batch_idx + 1) % 100 != 0:
+        if (batch_idx + 1) % self.vlog_frame_interval != 0:
             return
         image_name = targets[0]['filename']
         with_img = cv2.imread(image_name)
