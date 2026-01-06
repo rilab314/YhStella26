@@ -7,16 +7,14 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
 # ------------------------------------------------------------------------
 
+import timm
 import torch
 import torch.nn.functional as F
 from torch import nn
 from torchvision import transforms
 from typing import Dict, List
-import timm
 from dataclasses import dataclass
-
-from util.misc import is_main_process
-from .position_encoding import build_position_encoding
+from transformers import AutoModel, CLIPImageProcessor
 
 
 @dataclass
@@ -157,3 +155,45 @@ class SwinV2_768(TimmModel):
             feature = feature.permute(0, 3, 1, 2).contiguous()
             tensors.append(feature)
         return tensors
+
+
+
+class InternImage_L384(nn.Module):
+    @staticmethod
+    def build_from_cfg(cfg):
+        backbone = InternImage_L384()
+        return backbone
+
+    def __init__(self, model_name="OpenGVLab/internimage_l_22k_384"):
+        super().__init__()
+        self.model = AutoModel.from_pretrained(model_name, trust_remote_code=True)
+        # 전처리기 로드 및 설정 추출
+        self.processor = CLIPImageProcessor.from_pretrained(model_name, trust_remote_code=True)
+        self._preprocess = transforms.Normalize(
+            mean=self.processor.image_mean, 
+            std=self.processor.image_std
+        )
+        if hasattr(self.model, 'conv_head'):
+            self.model.conv_head = nn.Identity()
+        if hasattr(self.model, 'head'):
+            self.model.head = nn.Identity()
+
+        self._num_channels = [160, 320, 640, 1280]
+        self._strides = [4, 8, 16, 32]
+
+    def forward(self, x, auxin=None):
+        """
+        x: list of [B, 3, H/s, W/s]
+        """
+        x = self._preprocess(x)
+        outputs = self.model(x)
+        features = outputs['hidden_states']
+        return list(features)
+
+    @property
+    def num_channels(self):
+        return self._num_channels
+
+    @property
+    def strides(self):
+        return self._strides

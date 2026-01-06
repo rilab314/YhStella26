@@ -53,7 +53,7 @@ params = dict(
     ),
     backbone=dict(
         module_name='model.backbone',
-        class_name=['ResNet50_Clip', 'SwinV2_384', 'SwinV2_768'][2],
+        class_name=['ResNet50_Clip', 'SwinV2_384', 'SwinV2_768', 'InternImage_L384'][3],
         output_layers=['layer1', 'layer2', 'layer3', 'layer4'],
         dilation=False,
     ),
