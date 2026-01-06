@@ -57,7 +57,7 @@ class DeformableTransformerEncoderOnly(nn.Module):
                 m._reset_parameters()
         normal_(self.level_embed)
 
-    def forward(self, srcs, masks, pos_embeds):
+    def forward(self, srcs, pos_embeds, masks=None):
         '''
         assume that cfg.backbone.output_layers=['layer1', 'layer2', 'layer3', 'layer4'],
         srcs: list of tensors, [[B, C, H/4, W/4], [B, C, H/8, W/8], [B, C, H/16, W/16], [B, C, H/32, W/32]], C=256
@@ -66,39 +66,39 @@ class DeformableTransformerEncoderOnly(nn.Module):
         '''
         # prepare input for encoder
         src_flatten = []
-        mask_flatten = []
         lvl_pos_embed_flatten = []
         spatial_shapes = []
-        for lvl, (src, mask, pos_embed) in enumerate(zip(srcs, masks, pos_embeds)):
+        for lvl, (src, pos_embed) in enumerate(zip(srcs, pos_embeds)):
             bs, c, h, w = src.shape
             spatial_shape = (h, w)
             spatial_shapes.append(spatial_shape)
             src = src.flatten(2).transpose(1, 2)  # [B, C, H*W] -> [B, H*W, C]
-            mask = mask.flatten(1)
             pos_embed = pos_embed.flatten(2).transpose(1, 2)  # [B, C, H*W] -> [B, H*W, C]
             lvl_pos_embed = pos_embed + self.level_embed[lvl].view(1, 1, -1)  # [B, H*W, C] + [C] -> [B, H*W, C]
             lvl_pos_embed_flatten.append(lvl_pos_embed)
             src_flatten.append(src)
-            mask_flatten.append(mask)
         src_flatten = torch.cat(src_flatten, 1)  # [B, sum(H*W), C]
-        mask_flatten = torch.cat(mask_flatten, 1)  # [B, sum(H*W)]
         lvl_pos_embed_flatten = torch.cat(lvl_pos_embed_flatten, 1)  # [B, sum(H*W), C]
         spatial_shapes = torch.as_tensor(spatial_shapes, dtype=torch.long, device=src_flatten.device)  # [L, 2], L=num levels=4
         # level_start_index: [L,] [0, H0*W0, sum_i=0~1_Hi*Wi, sum_i=0~2_Hi*Wi, sum_i=0~3_Hi*Wi], e.g. [0, 9216, 11520, 12096]
         level_start_index = torch.cat((spatial_shapes.new_zeros((1, )), spatial_shapes.prod(1).cumsum(0)[:-1]))
-        valid_ratios = torch.stack([self.get_valid_ratio(m) for m in masks], 1)
+        if masks is not None:
+            valid_ratios = torch.stack([self.get_valid_ratio(m) for m in masks], 1)  # [B, L, 2]
+        else:
+            valid_ratios = torch.tensor([1, 1], dtype=torch.float32, device=src_flatten.device)  # [2,]
+            valid_ratios = torch.tile(valid_ratios, (src_flatten.shape[0], len(srcs), 1))  # [B, L, 2]
 
         # memory: [B, sum(H*W), C]
-        memory = self.encoder(src_flatten, spatial_shapes, level_start_index, valid_ratios, lvl_pos_embed_flatten, mask_flatten)
+        memory = self.encoder(src_flatten, spatial_shapes, level_start_index, valid_ratios, lvl_pos_embed_flatten)
         return memory
 
     def get_valid_ratio(self, mask):
         _, H, W = mask.shape
-        valid_H = torch.sum(~mask[:, :, 0], 1)
-        valid_W = torch.sum(~mask[:, 0, :], 1)
+        valid_H = torch.sum(~mask[:, :, 0], 1)  # [B,]
+        valid_W = torch.sum(~mask[:, 0, :], 1)  # [B,]
         valid_ratio_h = valid_H.float() / H
         valid_ratio_w = valid_W.float() / W
-        valid_ratio = torch.stack([valid_ratio_w, valid_ratio_h], -1)
+        valid_ratio = torch.stack([valid_ratio_w, valid_ratio_h], -1)  # [B, 2]
         return valid_ratio
 
 

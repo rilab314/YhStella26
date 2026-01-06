@@ -15,8 +15,8 @@ from typing import Dict, List
 import timm
 from dataclasses import dataclass
 
-from util.misc import NestedTensor, is_main_process
-from .position_encoding import build_position_encoding, NestedTensor
+from util.misc import is_main_process
+from .position_encoding import build_position_encoding
 
 
 @dataclass
@@ -30,7 +30,7 @@ class LayerInfo:
 class TimmModel(nn.Module):
     def __init__(self, model_name:str, output_names:List[str], pretrained=True, **kwargs):
         super().__init__()
-        self._model = timm.create_model(model_name, pretrained=pretrained, **kwargs)
+        self._model = timm.create_model(model_name, pretrained=pretrained, num_classes=0, **kwargs)
         self._preprocess = transforms.Compose([
             transforms.Normalize(mean=self._model.default_cfg['mean'], std=self._model.default_cfg['std'])
         ])
@@ -58,22 +58,18 @@ class TimmModel(nn.Module):
             result[key] = result_dict_schema[key](tensors).item()
         print('='*10 + f'check_status\n{result}\n')
 
-    def forward(self, sample: NestedTensor, auxin=None):
+    def forward(self, sample: torch.Tensor, auxin=None):
         """
-        samples: NestedTensor
-            - samples.tensor: batched images, [B, 3, H, W]
-            - samples.mask: batched binary mask [B, H, W], containing 1 on padded pixels
+        samples: batched images, [B, 3, H, W]
         """
-        image_tensor = self._preprocess(sample.tensors)
+        image_tensor = self._preprocess(sample)
         output = self._model(image_tensor)
         return self._post_process(self._features)
     
     def _post_process(self, features):
-        tensors = {}
+        tensors = []
         for name, feature in features.items():
-            B, C, H, W = feature.shape
-            mask = torch.zeros((B, H, W), dtype=torch.bool).to(feature.device)
-            tensors[name] = NestedTensor(feature, mask)
+            tensors.append(feature)
         return tensors
     
     def remove_hooks(self):
@@ -93,7 +89,7 @@ class ResNet50_Clip(TimmModel):
     @staticmethod
     def build_from_cfg(cfg):
         backbone = ResNet50_Clip(output_names=cfg.backbone.output_layers)
-        return build_joiner_model(backbone, cfg)
+        return backbone
 
     def __init__(self, output_names:List[str], pretrained=True):
         super().__init__(model_name='resnet50_clip.cc12m', output_names=output_names, pretrained=pretrained)
@@ -108,7 +104,7 @@ class SwinV2_384(TimmModel):
     @staticmethod
     def build_from_cfg(cfg):
         backbone = SwinV2_384(output_names=cfg.backbone.output_layers)
-        return build_joiner_model(backbone, cfg)
+        return backbone
 
     def __init__(self, output_names:List[str], pretrained=True):
         super().__init__(model_name='swin_base_patch4_window12_384.ms_in22k', output_names=output_names, pretrained=pretrained)
@@ -119,13 +115,11 @@ class SwinV2_384(TimmModel):
         self.set_hooks(self._interm_layers, self._output_layers)
 
     def _post_process(self, features):
-        tensors = {}
+        tensors = []
         for name, feature in features.items():
             # (B, H, W, C) -> (B, C, H, W)
             feature = feature.permute(0, 3, 1, 2).contiguous()
-            B, C, H, W = feature.shape
-            mask = torch.zeros((B, H, W), dtype=torch.bool).to(feature.device)
-            tensors[name] = NestedTensor(feature, mask)
+            tensors.append(feature)
         return tensors
 
 
@@ -133,7 +127,7 @@ class SwinV2_768(TimmModel):
     @staticmethod
     def build_from_cfg(cfg):
         backbone = SwinV2_768(output_names=cfg.backbone.output_layers)
-        return build_joiner_model(backbone, cfg)
+        return backbone
 
     def __init__(self, output_names:List[str], pretrained=False):
         super().__init__(model_name='swin_base_patch4_window12_384.ms_in22k', 
@@ -148,6 +142,8 @@ class SwinV2_768(TimmModel):
                 if 'attn_mask' in k:
                     del state_dict[k]
             self._model.load_state_dict(state_dict, strict=False)
+        self._model.norm = nn.Identity()
+        self._model.head = nn.Identity()
 
         self._interm_layers = [LayerInfo(name='layer1', stride=4, channels=128, module=self._model.layers[0]),
                                LayerInfo(name='layer2', stride=8, channels=256, module=self._model.layers[1]),
@@ -156,38 +152,8 @@ class SwinV2_768(TimmModel):
         self.set_hooks(self._interm_layers, self._output_layers)
 
     def _post_process(self, features):
-        tensors = {}
+        tensors = []
         for name, feature in features.items():
             feature = feature.permute(0, 3, 1, 2).contiguous()
-            B, C, H, W = feature.shape
-            mask = torch.zeros((B, H, W), dtype=torch.bool).to(feature.device)
-            tensors[name] = NestedTensor(feature, mask)
+            tensors.append(feature)
         return tensors
-
-
-class Joiner(nn.Sequential):
-    def __init__(self, backbone, position_embedding):
-        super().__init__(backbone, position_embedding)
-        self.strides = backbone.strides
-        self.num_channels = backbone.num_channels
-
-    def forward(self, tensor_list: NestedTensor, auxin=None):
-        xs = self[0](tensor_list, auxin)
-        out: List[NestedTensor] = []
-        pos = []
-        for name, x in sorted(xs.items()):
-            out.append(x)
-
-        # position encoding
-        for x in out:
-            pos.append(self[1](x).to(x.tensors.dtype))
-
-        return out, pos
-
-
-def build_joiner_model(backbone, cfg):
-    position_embedding = build_position_encoding(cfg)
-    model = Joiner(backbone, position_embedding)
-    device = torch.device(cfg.runtime.device)
-    model.to(device)
-    return model

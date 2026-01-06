@@ -56,11 +56,12 @@ params = dict(
         class_name=['ResNet50_Clip', 'SwinV2_384', 'SwinV2_768'][2],
         output_layers=['layer1', 'layer2', 'layer3', 'layer4'],
         dilation=False,
-        position_embedding=dict(
-            type='sine',
-            scale=6.283185307179586,
-            normalize=True
-        ),
+    ),
+    position_embedding=dict(
+        module_name='model.position_encoding',
+        class_name='PositionEmbeddingSine',
+        scale=6.283185307179586,
+        normalize=True
     ),
     transformer=dict(
         module_name='model.transformer_enc_only',

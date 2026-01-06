@@ -30,13 +30,10 @@ def custom_collate_fn(batch: List[dict]):
     ]
     
     이걸 Deformable DETR가 원하는 형태로 맞춘다:
-        samples = NestedTensor(batch_images, batch_masks)
         targets = List[Dict], 각 이미지별 line_block, label, size 등
     """
-    # NestedTensor 생성
-    images = [item['image'] for item in batch]
-    samples = nested_tensor_from_tensor_list(images)
-
+    images = torch.stack([item['image'] for item in batch], dim=0)
+    
     targets = []
     for i, item in enumerate(batch):
         t = {}
@@ -53,7 +50,7 @@ def custom_collate_fn(batch: List[dict]):
         t["filename"] = item["filename"]
         targets.append(t)
 
-    return samples, targets
+    return images, targets
 
 
 def create_dataloader(cfg, dataset, split='train', persistent_workers=True):

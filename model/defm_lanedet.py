@@ -17,7 +17,6 @@ import math
 import copy
 from dataclasses import dataclass
 
-from util.misc import NestedTensor
 from util.misc import MLP, build_instance
 from model.dto import LineString
 
@@ -29,16 +28,17 @@ class DefmLaneDetector(nn.Module):
     @staticmethod
     def build_from_cfg(cfg):
         backbone = build_instance(cfg.backbone.module_name, cfg.backbone.class_name, cfg)
+        position_embedding = build_instance(cfg.position_embedding.module_name, cfg.position_embedding.class_name, cfg)
         transformer = build_instance(cfg.transformer.module_name, cfg.transformer.class_name, cfg)
-        model = DefmLaneDetector(backbone, transformer, 
-                             num_classes=cfg.dataset.num_classes, 
-                             num_feature_levels=cfg.transformer.num_feature_levels, 
-                             )
+        model = DefmLaneDetector(backbone, position_embedding, transformer, 
+                                 num_classes=cfg.dataset.num_classes, 
+                                 num_feature_levels=cfg.transformer.num_feature_levels, 
+                                 )
         device = torch.device(cfg.runtime.device)
         model.to(device)
         return model
 
-    def __init__(self, backbone, transformer, num_classes: int, num_feature_levels: int):
+    def __init__(self, backbone, position_embedding, transformer, num_classes: int, num_feature_levels: int):
         ''' Initializes the model.
         Parameters:
             backbone: torch module of the backbone to be used. See backbone.py
@@ -54,6 +54,7 @@ class DefmLaneDetector(nn.Module):
         self.input_proj = self._get_input_proj(backbone, num_feature_levels)
         self.output_proj = self._get_output_proj()
         self.backbone = backbone
+        self.position_embedding = position_embedding
 
     def _get_input_proj(self, backbone, num_feature_levels):
         if num_feature_levels > 1:
@@ -105,24 +106,21 @@ class DefmLaneDetector(nn.Module):
         output_proj = nn.ModuleDict({'cls': cls_proj, 'reg': reg_proj})
         return output_proj
 
-    def forward(self, samples: NestedTensor, auxin=None):
+    def forward(self, samples: torch.Tensor, auxin=None):
         '''
-        The forward expects a NestedTensor, which consists of:
-               - samples.tensor: batched images, of shape [batch_size x 3 x H x W]
-               - samples.mask: a binary mask of shape [batch_size x H x W], containing 1 on padded pixels
+        samples: batched images, of shape [batch_size x 3 x H x W]
         '''
-        features, pos = self.backbone(samples, auxin=None)
+        features = self.backbone(samples, auxin=None)
+        pos = []
+        for x in features:
+            pos.append(self.position_embedding(x).to(x.dtype))
         srcs = []
-        masks = []
         for l, feat in enumerate(features):
-            src, mask = feat.decompose()
-            srcs.append(self.input_proj[l](src))
-            masks.append(mask)
-            assert mask is not None
+            srcs.append(self.input_proj[l](feat))
 
-        memory = self.transformer(srcs, masks, pos)
+        memory = self.transformer(srcs, pos)
 
-        feat_hw = features[0].tensors.shape[2:]
+        feat_hw = features[0].shape[2:]
         outputs = self.process_outputs(memory, feat_hw)
         return outputs
 

@@ -68,6 +68,12 @@ class LitDeformableDETR(pl.LightningModule):
         self.log(f"train_total_loss", total_loss, prog_bar=False, batch_size=self.cfg.training.batch_size)
         return total_loss
 
+    def on_after_backward(self):
+        # 역전파(backward) 직후에 실행되어 그래디언트 상태를 점검함
+        for name, param in self.model.named_parameters():
+            if param.requires_grad and param.grad is None:
+                print(f"--- Unused Parameter: {name} ---")
+
     def validation_step(self, batch, batch_idx):
         samples, targets = batch
         outputs = self(samples, {'split': 'val', 'batch_idx': batch_idx, 'filename':targets[0]['filename']})

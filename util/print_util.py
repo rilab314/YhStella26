@@ -2,8 +2,6 @@ import numpy as np
 import torch.nn as nn
 import torch
 
-from util.misc import NestedTensor
-
 
 def print_data(data, indent=2, level=0, title=None):
     if title is not None:
@@ -23,8 +21,6 @@ def print_data_inner(data, key: str, indent=2, level=0):
         print(f"{prefix}tensor{tuple(data.shape)}")
     elif isinstance(data, np.ndarray):
         print(f"{prefix}np{data.shape}")
-    elif isinstance(data, NestedTensor):
-        print(f"{prefix}NestedTensor [tensor{tuple(data.tensors.shape)}, mask{tuple(data.mask.shape)}]")
     elif isinstance(data, dict):
         print(f"{prefix}{'{'}")
         for new_key, value in data.items():                    

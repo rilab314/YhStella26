@@ -10,7 +10,7 @@ if project_root not in sys.path:
 torch.set_float32_matmul_precision("medium")
 
 from configs.config import CfgNode
-from util.misc import build_instance, NestedTensor
+from util.misc import build_instance
 from util.target_logit_visualizer import TargetLogitVisualizer
 
 
@@ -65,12 +65,11 @@ class Predictor:
         else:
             batch = self._to_batch(images).to(self.device, non_blocking=True)
 
-        samples = self._to_samples(batch)
         if self.use_amp:
             with torch.autocast(device_type=str(self.device).split(':')[0], dtype=torch.float16):
-                outputs = self.model(samples)
+                outputs = self.model(batch)
         else:
-            outputs = self.model(samples)
+            outputs = self.model(batch)
 
         if apply_softmax and isinstance(outputs, dict) and "pred_logits" in outputs:
             outputs["pred_probs"] = outputs["pred_logits"].softmax(-1)
@@ -98,14 +97,6 @@ class Predictor:
         if isinstance(imgs, list):
             return torch.stack([self._to_tensor(x) for x in imgs], dim=0)
         raise TypeError("배치 입력 타입이 올바르지 않습니다.")
-
-    def _to_samples(self, batch: torch.Tensor) -> NestedTensor:
-        """역할: (B,C,H,W) → NestedTensor(B,C,H,W, mask) 변환."""
-        if batch.ndim == 3:
-            batch = batch.unsqueeze(0)
-        b, _, h, w = batch.shape
-        mask = torch.zeros((b, h, w), dtype=torch.bool, device=batch.device)
-        return NestedTensor(batch, mask)
 
 
 def main():

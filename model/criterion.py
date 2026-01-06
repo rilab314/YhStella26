@@ -10,14 +10,11 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 from typing import List
+import copy
 
-from util.misc import (NestedTensor, nested_tensor_from_tensor_list,
-                       accuracy, get_world_size, interpolate,
+from util.misc import (accuracy, get_world_size, interpolate,
                        is_dist_avail_and_initialized, inverse_sigmoid,
                        build_instance)
-
-from .segmentation import (dice_loss, sigmoid_focal_loss)
-import copy
 
 
 class SegmentationCriterion(nn.Module):

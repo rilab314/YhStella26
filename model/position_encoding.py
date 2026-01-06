@@ -14,14 +14,23 @@ import math
 import torch
 from torch import nn
 
-from util.misc import NestedTensor
-
 
 class PositionEmbeddingSine(nn.Module):
     """
     This is a more standard version of the position embedding, very similar to the one
     used by the Attention is all you need paper, generalized to work on images.
     """
+    @staticmethod
+    def build_from_cfg(cfg):
+        pe_cfg = cfg.position_embedding
+        N_steps = cfg.transformer.hidden_dim // 2  # sine, cosine
+        position_embedding = PositionEmbeddingSine(
+            num_pos_feats=N_steps,
+            normalize=pe_cfg.get('normalize', True),
+            scale=pe_cfg.get('scale', 6.283185307179586)
+        )
+        return position_embedding
+
     def __init__(self, num_pos_feats=64, temperature=10000, normalize=False, scale=None):
         super().__init__()
         self.num_pos_feats = num_pos_feats
@@ -33,10 +42,7 @@ class PositionEmbeddingSine(nn.Module):
             scale = 2 * math.pi
         self.scale = scale
 
-    def forward(self, tensor_list: NestedTensor):
-        x = tensor_list.tensors
-        mask = tensor_list.mask
-        assert mask is not None
+    def forward(self, x: torch.Tensor):
         B, _, H, W = x.shape
         y_embed = torch.linspace(0, H - 1, H, device=x.device).view(1, H, 1).expand(B, H, W)
         x_embed = torch.linspace(0, W - 1, W, device=x.device).view(1, 1, W).expand(B, H, W)
@@ -72,8 +78,7 @@ class PositionEmbeddingLearned(nn.Module):
         nn.init.uniform_(self.row_embed.weight)
         nn.init.uniform_(self.col_embed.weight)
 
-    def forward(self, tensor_list: NestedTensor):
-        x = tensor_list.tensors
+    def forward(self, x: torch.Tensor):
         h, w = x.shape[-2:]
         i = torch.arange(w, device=x.device)
         j = torch.arange(h, device=x.device)
