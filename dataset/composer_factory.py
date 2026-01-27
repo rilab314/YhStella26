@@ -1,84 +1,47 @@
-import os
-import cv2
 import numpy as np
-import torch
-from torch.utils.data import Dataset
-import albumentations as A
-from albumentations.pytorch import ToTensorV2
+import random
 
 
-def composer_factory(cfg, split: str):
-    """
-    cfg.dataset.augmentation에 정의된 설정을 기반으로 albumentations.Compose 객체를 생성합니다.
-    """
-    if cfg.dataset[split].augmentation:
-        augmentations = create_augmentations(cfg)
-    else:
-        augmentations = []
+class Composer:
+    def __init__(self, cfg, split):
+        self.transforms = []
+        if cfg.dataset[split].augmentation:
+            if hasattr(cfg.dataset.augmentation, 'horizontal_flip'):
+                self.transforms.append(HorizontalFlip(p=cfg.dataset.augmentation.horizontal_flip.p))
+            if hasattr(cfg.dataset.augmentation, 'vertical_flip'):
+                self.transforms.append(VerticalFlip(p=cfg.dataset.augmentation.vertical_flip.p))
 
-    augmentations.append(A.Resize(
-        height=cfg.dataset.image_height,
-        width=cfg.dataset.image_width,
-        interpolation=cv2.INTER_LINEAR,
-        p=1.0
-    ))
-    augmentations.append(A.ToFloat(max_value=255.0))
-    augmentations.append(ToTensorV2())
-
-    bbox_params = A.BboxParams(
-        format='yolo',  # 데이터셋의 바운딩 박스 형식에 따라 설정
-        label_fields=['category_ids']
-    )
-    transform = A.Compose(augmentations, bbox_params=bbox_params)
-    return transform
+    def __call__(self, image, labels):
+        for transform in self.transforms:
+            image, labels = transform(image, labels)
+        return {'image': image, 'labels': labels}
 
 
-def create_augmentations(cfg):
-    aug_cfg = cfg.dataset.augmentation
-    augmentations = []
-    if 'horizontal_flip' in aug_cfg:
-        params = aug_cfg.horizontal_flip
-        augmentations.append(A.HorizontalFlip(p=params.get('p', 0.5)))
+class HorizontalFlip:
+    def __init__(self, p=0.5):
+        self.p = p
 
-    if 'random_resized_crop' in aug_cfg:
-        params = aug_cfg.random_resized_crop
-        augmentations.append(A.RandomResizedCrop(
-            size=params.get('size', (384, 384)),
-            scale=params.get('scale', (0.5, 1.5)),
-            ratio=params.get('ratio', (0.75, 1.333)),
-            p=params.get('p', 1.0)
-        ))
+    def __call__(self, image, labels):
+        if random.random() < self.p:
+            # 이미지 좌우 반전 (H, W, C)
+            image = image[:, ::-1, :].copy()
+            # 라벨 배열 순서 좌우 반전 (H/4, W/4, 9)
+            labels = labels[:, ::-1, :].copy()
+            # 0, 2, 4번 채널(x 좌표) 변환: x_new = 1.0 - x_old
+            labels[:, :, [0, 2, 4]] = 1.0 - labels[:, :, [0, 2, 4]]
+        return image, labels
 
-    if 'random_brightness_contrast' in aug_cfg:
-        params = aug_cfg.random_brightness_contrast
-        augmentations.append(A.RandomBrightnessContrast(
-            brightness_limit=params.get('brightness_limit', 0.2),
-            contrast_limit=params.get('contrast_limit', 0.2),
-            p=params.get('p', 0.5)
-        ))
 
-    if 'hue_saturation_value' in aug_cfg:
-        params = aug_cfg.hue_saturation_value
-        augmentations.append(A.HueSaturationValue(
-            hue_shift_limit=params.get('hue_shift_limit', 20),
-            sat_shift_limit=params.get('sat_shift_limit', 30),
-            val_shift_limit=params.get('val_shift_limit', 20),
-            p=params.get('p', 0.5)
-        ))
+class VerticalFlip:
+    def __init__(self, p=0.5):
+        self.p = p
 
-    if 'random_gamma' in aug_cfg:
-        params = aug_cfg.random_gamma
-        augmentations.append(A.RandomGamma(
-            gamma_limit=params.get('gamma_limit', (80, 120)),
-            p=params.get('p', 0.5)
-        ))
-
-    if 'gauss_noise' in aug_cfg:
-        params = aug_cfg.gauss_noise
-        augmentations.append(A.GaussNoise(
-            std_range=params.get('std_range', (0.2, 0.44)),
-            mean_range=params.get('mean_range', (0.0, 0.0)),
-            p=params.get('p', 0.5)
-        ))
-
-    return augmentations
+    def __call__(self, image, labels):
+        if random.random() < self.p:
+            # 이미지 상하 반전
+            image = image[::-1, :, :].copy()
+            # 라벨 배열 순서 상하 반전
+            labels = labels[::-1, :, :].copy()
+            # 1, 3, 5번 채널(y 좌표) 변환: y_new = 1.0 - y_old
+            labels[:, :, [1, 3, 5]] = 1.0 - labels[:, :, [1, 3, 5]]
+        return image, labels

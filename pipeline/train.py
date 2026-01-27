@@ -14,11 +14,12 @@ from pipeline.dataloader import create_dataloader
 from util.misc import build_instance
 
 
-def train(resume=False):
+def train(resume=False, loss_param=None):
     torch.use_deterministic_algorithms(False)
     cfg = CfgNode.from_file('satellite_detr')
+    if loss_param:
+        cfg.losses.cls_loss = loss_param
     pl.seed_everything(cfg.runtime.seed, workers=True)
-    tb_logger = TensorBoardLogger(save_dir=cfg.runtime.output_dir, name=cfg.runtime.logger_name)
     csv_logger = CSVLogger(save_dir=cfg.runtime.output_dir, name=cfg.runtime.logger_name)
     
     checkpoint_callback = pl.callbacks.ModelCheckpoint(
@@ -46,7 +47,7 @@ def train(resume=False):
     
     trainer = pl.Trainer(
         max_epochs=cfg.training.epochs,
-        logger=[tb_logger, csv_logger],
+        logger=[csv_logger],
         callbacks=[checkpoint_callback, progress_bar],
         accelerator='gpu',
         devices=torch.cuda.device_count(),
@@ -67,4 +68,4 @@ def train(resume=False):
 
 
 if __name__ == "__main__":
-    train()
+    train(loss_param=20)

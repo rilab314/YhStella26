@@ -164,5 +164,44 @@ def accumulate_label_map(label_map_accum, label_map):
     return label_map_accum
 
 
+def refine_json_data():
+    cfg = CfgNode.from_file('satellite_detr')
+    labels = cfg.dataset.labels
+
+    label_map = {item['category_id']: item for item in labels}
+
+    json_file_dir = '/media/dolphin/My Book/satellite_2025/satellite_images/label'
+    json_file_list = [os.path.join(json_file_dir, file) for file in os.listdir(json_file_dir)]
+
+    for json_file in json_file_list:
+        extracted_data = extract_json_data(json_file, label_map)
+        with open('foo.json', 'w', encoding='utf-8') as f:
+            json.dump(extracted_data, f, indent=4)
+        exit()
+
+
+def extract_json_data(json_file_path, label_map):
+    with open(json_file_path, 'r', encoding='utf-8') as f:
+        source_data = json.load(f)
+    extracted_instances = []
+
+    for item in source_data:
+        if item.get('class') != 'RoadObject':
+            continue
+            
+        cat_id = item.get('category_id')
+        if cat_id in label_map:
+            ref_label = label_map[cat_id]
+            instance = {
+                "name": ref_label['name'],
+                "id": ref_label['id'],
+                "category_id": cat_id,
+                "point": item.get('image_points')
+            }
+            extracted_instances.append(instance)
+    
+    return extracted_instances
+
+
 if __name__ == "__main__":
-    generate_dataset()
+    refine_json_data()

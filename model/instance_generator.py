@@ -3,8 +3,11 @@ import torch.nn.functional as F
 import numpy as np
 import cv2
 import os, sys
-sys.path.append(os.path.abspath('/workspace/SatelliteDet/SatelliteDet2025'))
 import json
+from typing import Any, Dict, List
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if project_root not in sys.path:
+    sys.path.append(project_root)
 
 from configs.config import CfgNode
 
@@ -20,14 +23,14 @@ class GeneratePolylineInstances:
 
     def __call__(self, outputs):
         """
-        outputs: Dict[str, torch.Tensor]
+        outputs: Dict[str: torch.Tensor]
         """
         batch_results = []
-        batch_size = outputs['segm_logit'].shape[0]
-        outputs_np = {k: v.detach().cpu().numpy() for k, v in outputs.items()}
+        batch_size = len(outputs)
 
         for b in range(batch_size):
-            img_outputs = {k: v[b] for k, v in outputs_np.items()}
+            img_outputs = outputs[b] if type(outputs) == list else outputs # TODO: 정리 필요
+            img_outputs = {k: v.detach().cpu().numpy() for k, v in img_outputs.items()}
             img_outputs['segm_prob'] = self._softmax(img_outputs['segm_logit'])
             img_outputs['left_end_prob'] = self._sigmoid(img_outputs['left_end_logit'])
             img_outputs['right_end_prob'] = self._sigmoid(img_outputs['right_end_logit'])
@@ -172,16 +175,35 @@ class GeneratePolylineInstances:
         
         return polyline
 
+    def save_points_to_json(self, data: List[Dict[str, Any]], save_path: str) -> None:
+        records = data[0] # TODO: 현재 리스트 하나로 고정 여러 개 저장할 수 있도록 수정 필요
 
-def visualize_result(image_size, polylines):
-    H, W = image_size
-    vis_img = np.zeros((H, W, 3), dtype=np.uint8)
+        fixed = []
+        for rec in records:
+            fixed.append({
+                "label": int(rec["label"]),
+                "points": np.asarray(rec["points"], dtype=np.float32).tolist(),
+            })
+
+        with open(save_path, "w", encoding="utf-8") as f:
+            f.write("[\n")
+            for i, rec in enumerate(fixed):
+                f.write("  {\n")
+                f.write(f'    "label": {rec["label"]},\n')
+                f.write(f'    "points": {json.dumps(rec["points"], ensure_ascii=False, separators=(", ", ": "))}\n')
+                f.write("  }")
+                f.write(",\n" if i < len(fixed) - 1 else "\n")
+            f.write("]\n")
+
+def visualize_result(image: np.ndarray, polylines):
+    vis_img = image.copy()
+    W, H, _ = vis_img.shape
     
     colors = {0: (0, 0, 0), 1: (77, 77, 255), 2: (77, 178, 255), 3: (77, 255, 77), 4: (255, 153, 77),
                 5: (255, 77, 77), 6: (178, 77, 255), 7: (77, 255, 178), 8: (255, 178, 77),
                 9: (77, 102, 255), 10: (255, 77, 128), 11: (128, 255, 77)}
 
-    print(f"Detected {len(polylines)} polylines.")
+    # print(f"Detected {len(polylines)} polylines.")
 
     for poly_info in polylines:
         cat = poly_info['label']
@@ -202,3 +224,40 @@ def visualize_result(image_size, polylines):
             cv2.circle(vis_img, tuple(pts_pixel[-1]), 5, (0, 0, 255), -1)
 
     return vis_img
+
+
+def main():
+    img_path = '/home/gorilla/kyh_workspace/project/dataset/satellite_lane/validation/image'
+    json_path = '/home/gorilla/kyh_workspace/project/results/tblog_260117_2012/checkpoints/last_instance'
+    img_list = [os.path.join(img_path, i) for i in os.listdir(img_path)]
+    json_list = [os.path.join(json_path, i) for i in os.listdir(json_path)]
+    save_path = json_path.replace('_instance', '_intstance_img')
+    os.makedirs(save_path, exist_ok=True)
+    img_list.sort()
+    json_list.sort()
+    for img_name, json_name in zip(img_list, json_list):
+        with open(json_name, 'r') as f:
+            polyline = json.load(f)
+        img = cv2.imread(img_name)
+        result = visualize_result(img, polyline)
+        cv2.imwrite(os.path.join(save_path, os.path.basename(img_name)), result)
+    return
+
+    torch_path = '/home/gorilla/kyh_workspace/project/results/tblog_260117_2012/checkpoints/epoch=16_pt'
+    save_path = '/home/gorilla/kyh_workspace/project/results/tblog_260117_2012/checkpoints/epoch=16_instance'
+    os.makedirs(save_path, exist_ok=True)
+    torch_list = os.listdir(torch_path)
+    cfg = CfgNode.from_file("satellite_detr")
+    instance_generator = GeneratePolylineInstances.build_from_cfg(cfg)
+
+    for torch_name in torch_list:
+        data = torch.load(os.path.join(torch_path, torch_name))
+        polylines = instance_generator([data])
+        save_points_to_json(polylines[0], os.path.join(save_path, torch_name).replace('.pt', '.json'))
+
+
+
+
+if __name__ == '__main__':
+    from tqdm import tqdm
+    main()

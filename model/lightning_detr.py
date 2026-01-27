@@ -21,7 +21,7 @@ def match_name_keywords(n, name_keywords):
 
 
 class LitDeformableDETR(pl.LightningModule):
-    vlog_frame_interval = 100
+    vlog_frame_interval = 50
 
     @staticmethod
     def build_from_cfg(cfg):
@@ -85,22 +85,25 @@ class LitDeformableDETR(pl.LightningModule):
         self.log(f"val_total_loss", total_loss, prog_bar=False, batch_size=self.cfg.training.batch_size, sync_dist=True)
         
         # TODO: how to compute loss between instance(model output) and np data(label)
-        try:
-            pred_instances = self.instance_generator(outputs)
-        except:
-            pass
-        self.save_visual_log(outputs, targets, self.current_epoch, batch_idx)
+        if (batch_idx + 1) % self.vlog_frame_interval == 0:
+            self.save_visual_log(outputs[0], targets[0], self.current_epoch)
+            self.save_json_log(outputs[0], targets[0], self.current_epoch)
 
         return total_loss
     
-    def save_visual_log(self, outputs, targets, epoch, batch_idx):
-        if (batch_idx + 1) % self.vlog_frame_interval != 0:
-            return
-        image_name = targets[0]['filename']
+    def save_visual_log(self, output, target, epoch):
+        image_name = target['filename']
         with_img = cv2.imread(image_name)
-        visualized_image = self.visualizer.visualize(outputs[0], targets[0], with_img=with_img)
-        save_path = os.path.join(self.cfg.runtime.output_dir, 'vlog', f'ep{epoch}_{image_name.split("/")[-1]}')
-        cv2.imwrite(save_path, visualized_image)
+        visualized_image = self.visualizer.visualize(output, target, with_img=with_img)
+        img_save_path = os.path.join(self.cfg.runtime.output_dir, 'vlog', f'ep{epoch}_{image_name.split("/")[-1]}')
+        cv2.imwrite(img_save_path, visualized_image)
+    
+    def save_json_log(self, output, target, epoch):
+        json_name = target['filename']
+        pred_instances = self.instance_generator(output)
+        json_save_path = os.path.join(self.cfg.runtime.output_dir, 'vlog_json', f'ep{epoch}_{json_name.split("/")[-1]}'.replace('.png', '.json'))
+        self.instance_generator.save_points_to_json(pred_instances, json_save_path)
+
 
     def on_validation_epoch_end(self):
         # TODO implement performance eval
@@ -163,3 +166,4 @@ class LitDeformableDETR(pl.LightningModule):
     def setup(self, stage: str):
         if stage == "fit":
             os.makedirs(os.path.join(self.cfg.runtime.output_dir, 'vlog'), exist_ok=True)
+            os.makedirs(os.path.join(self.cfg.runtime.output_dir, 'vlog_json'), exist_ok=True)

@@ -23,9 +23,11 @@ params = dict(
     ),
     dataset=dict(
         train=dict(augmentation=True,),
-        val=dict(augmentation=False,),
+        validation=dict(augmentation=False,),
         test=dict(augmentation=False),
         augmentation=dict(
+            horizontal_flip=dict(p=0.5),
+            vertical_flip=dict(p=0.5),
             random_brightness_contrast=dict(
                 brightness_limit=0.2,
                 contrast_limit=0.2,
@@ -98,9 +100,9 @@ params = dict(
         class_name='SegmentationCriterion',
     ),
     losses=dict(
-        cls_loss=1,
+        cls_loss=50,
         end_loss=1,
-        point_loss=10,
+        point_loss=1,
         focal_alpha=0.25,
         focal_gamma=2.,
         neg_smooth_scale=.5,

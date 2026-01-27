@@ -100,22 +100,29 @@ class Predictor:
 
 
 def main():
-    ckpt_path = 'PATH_TO_CKPT'
-    img_path = 'PATH_TO_IMAGE'
+    ckpt_path = '/home/gorilla/kyh_workspace/project/results/tblog_260117_2012/checkpoints/last.ckpt'
+    img_path = '/home/gorilla/kyh_workspace/project/dataset/satellite_lane/validation/image'
 
-    vis_type = '' # output, arrow, accurracy
+    vis_type_list = ['output', 'arrow', 'accurracy']
+    save_path = ckpt_path.replace('ckpt', '')
+    os.makedirs(save_path+'_pt', exist_ok=True)
+    for vis_type in vis_type_list:
+        os.makedirs(save_path+'_'+vis_type, exist_ok=True)
 
     cfg = CfgNode.from_file("satellite_detr")
     predictor = Predictor.from_cfg(cfg, ckpt_path=ckpt_path)
     visualizer = TargetLogitVisualizer(cfg.dataset.labels)
 
-    img_bgr = cv2.imread(img_path)
-    img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
-    output = predictor.predict(img_rgb, apply_softmax=True)
+    for img_name in os.listdir(img_path):
+        img_bgr = cv2.imread(os.path.join(img_path, img_name))
+        img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+        output = predictor.predict(img_rgb, apply_softmax=True)
 
-    result_img = visualizer.create_visualization_panel(output, vis_type, img_bgr)
+        torch.save(output[0], os.path.join(save_path+'_pt', img_name.replace('.png', '.pt')))
 
-    cv2.imshow(f'{vis_type} img result', result_img)
+        # for vis_type in vis_type_list:
+        #     result_img = visualizer.create_visualization_panel(copy.deepcopy(output[0]), vis_type, img_bgr)
+        #     cv2.imwrite(os.path.join(save_path+'_'+vis_type, img_name), result_img)
 
 
 
@@ -123,5 +130,6 @@ if __name__ == "__main__":
     import cv2
     import os
     from tqdm import tqdm
+    import copy
 
     main()

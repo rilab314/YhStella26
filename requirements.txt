@@ -7,7 +7,7 @@ aiohttp==3.12.15
 aiosignal==1.4.0
 albucore==0.0.24
 albumentations==2.0.8
-annotated-types==0.7.0python -c "import torch; print('torch', torch.__version__); print('cuda available', torch.cuda.is_available()); print('cuda version', torch.version.cuda); print('device', torch.cuda.get_device_name(0) if torch.cuda.is_available() else None)"
+annotated-types==0.7.0
 
 torch==2.3.0
 torchvision==0.18.0

@@ -40,6 +40,8 @@ class TargetLogitVisualizer:
             segm_label = data["segm_label"].detach().cpu()
             return self._draw_segmentation_panel(segm_label, with_img)
 
+        data = {k: v.detach().clone() if torch.is_tensor(v) else v for k, v in data.items()}
+
         segm_label = data['segm_logit']
         segm_label = torch.argmax(data["segm_logit"], dim=-1, keepdim=True)
         segm_label_mask = segm_label > 0
