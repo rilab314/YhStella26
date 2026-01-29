@@ -7,7 +7,7 @@ from configs.config import CfgNode
 from model.predictor import Predictor
 
 if __name__ == '__main__':
-    cfg = CfgNode.from_file('satellite_detr')
+    cfg = CfgNode.from_file('stella_cfg')
 
     img_dir_path = '/workspace/SatelliteDet/dataset/satellite_lane/train/image'
     ckp_dir = '/workspace/SatelliteDet/tblog/checkpoints'

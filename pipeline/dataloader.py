@@ -3,7 +3,7 @@ from typing import List
 from util.misc import nested_tensor_from_tensor_list
 from torch.utils.data import DataLoader
 from dataset import build_dataset
-from dataset.satellite_lane.satellite_images import SatelliteImagesDataset
+from dataset.satellite_lane.seedmap_cfg import SatelliteImagesDataset
 
 
 def custom_collate_fn(batch: List[dict]):

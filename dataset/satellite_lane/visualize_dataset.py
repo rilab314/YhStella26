@@ -155,7 +155,7 @@ def draw_npy_as_points(image_bgr, npy_path, palette_bgr,
     return canvas if strong else cv2.addWeighted(canvas, 0.8, vis, 0.2, 0)
 
 
-def visualize_compare(cfg_name='satellite_detr', split='train', limit=None,
+def visualize_compare(cfg_name='stella_cfg', split='train', limit=None,
                       raw_label_dir=None, out_dirname='_vis_json_vs_npy_points',
                       json_point_radius=3, json_step=1,
                       npy_point_radius=3,
@@ -173,8 +173,8 @@ def visualize_compare(cfg_name='satellite_detr', split='train', limit=None,
     os.makedirs(out_dir, exist_ok=True)
 
     # JSON 라벨 디렉터리 추정
-    default1 = op.join(op.dirname(dataset_path), 'satellite_images', 'label')
-    default2 = op.join(op.dirname(dataset_path), 'satellite_images_', 'label')
+    default1 = op.join(op.dirname(dataset_path), 'seedmap_cfg', 'label')
+    default2 = op.join(op.dirname(dataset_path), 'seedmap_cfg_', 'label')
     json_dir = _first_existing_path([raw_label_dir, default1, default2])
     if not json_dir:
         print(f"[warn] cannot locate raw JSON label dir (tried: {raw_label_dir}, {default1}, {default2})")
@@ -219,7 +219,7 @@ if __name__ == '__main__':
     # 예시 실행
     # python -m examples.visualize_json_vs_npy  (파일명 그대로면 모듈명 변경)
     visualize_compare(
-        cfg_name='satellite_detr',
+        cfg_name='stella_cfg',
         split='train',
         limit=10,
         raw_label_dir=None,        # JSON 경로가 다르면 절대경로 지정

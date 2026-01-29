@@ -64,7 +64,7 @@ class DatasetVisualizer:
 
 
 def visualize_detection_dataset():
-    cfg = CfgNode.from_file('defm_detr_base')
+    cfg = CfgNode.from_file('stella_cfg')
     visualizer = DatasetVisualizer(cfg, 'train' )
     visualizer.display_dataset_frames()
 

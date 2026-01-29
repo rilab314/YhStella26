@@ -109,7 +109,7 @@ def main():
     for vis_type in vis_type_list:
         os.makedirs(save_path+'_'+vis_type, exist_ok=True)
 
-    cfg = CfgNode.from_file("satellite_detr")
+    cfg = CfgNode.from_file("stella")
     predictor = Predictor.from_cfg(cfg, ckpt_path=ckpt_path)
     visualizer = TargetLogitVisualizer(cfg.dataset.labels)
 

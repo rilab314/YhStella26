@@ -405,7 +405,7 @@ def build_file_triplets(img_dir: str, gt_dir: str, pred_dir: str, img_ext: str =
 def main():
     img_dir = "/home/gorilla/kyh_workspace/project/dataset/satellite_lane/validation/image"
     gt_dir = "/home/gorilla/kyh_workspace/project/dataset/satellite_lane/validation/json"
-    gt_dir = "/home/gorilla/kyh_workspace/project/SatelliteDet/dataset/satellite_images/label"
+    gt_dir = "/home/gorilla/kyh_workspace/project/SatelliteDet/dataset/seedmap_cfg/label"
     pred_dir = "/home/gorilla/kyh_workspace/project/results/tblog_260117_2012/checkpoints/last_instance"
 
     for thickness, iou_th in ((3, 0.3), (5, 0.3), (3, 0.4), (5, 0.4)):

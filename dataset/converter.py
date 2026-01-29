@@ -94,7 +94,7 @@ def create_coco_annotations(cfg, split='train', output_json='coco_annotations.js
 
 
 if __name__ == "__main__":
-    cfg = CfgNode.from_file('defm_detr_base')
+    cfg = CfgNode.from_file('stella_cfg')
     out_file = os.path.join(cfg.dataset.path, 'train', 'instances_train.json')
     create_coco_annotations(cfg=cfg, split='train', output_json=out_file)
     out_file = os.path.join(cfg.dataset.path, 'val', 'instances_val.json')

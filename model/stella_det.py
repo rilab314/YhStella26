@@ -24,13 +24,13 @@ def _get_clones(module, N):
     return nn.ModuleList([copy.deepcopy(module) for i in range(N)])
 
 
-class DefmLaneDetector(nn.Module):
+class StellaDetector(nn.Module):
     @staticmethod
     def build_from_cfg(cfg):
         backbone = build_instance(cfg.backbone.module_name, cfg.backbone.class_name, cfg)
         position_embedding = build_instance(cfg.position_embedding.module_name, cfg.position_embedding.class_name, cfg)
         transformer = build_instance(cfg.transformer.module_name, cfg.transformer.class_name, cfg)
-        model = DefmLaneDetector(backbone, position_embedding, transformer, 
+        model = StellaDetector(backbone, position_embedding, transformer, 
                                  num_classes=cfg.dataset.num_classes, 
                                  num_feature_levels=cfg.transformer.num_feature_levels, 
                                  )

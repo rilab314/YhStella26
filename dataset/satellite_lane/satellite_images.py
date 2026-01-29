@@ -128,7 +128,7 @@ from util.misc import build_instance
 
 class DatasetVisualizer:
     def __init__(self):
-        self.cfg = CfgNode.from_file('satellite_detr')
+        self.cfg = CfgNode.from_file('stella_cfg')
         self.dataset = build_instance(
             self.cfg.dataset.module_name, 
             self.cfg.dataset.class_name, 

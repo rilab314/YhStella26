@@ -12,19 +12,19 @@ from pycocotools.cocoeval import COCOeval
 
 import settings
 from configs.config import CfgNode
-from model.lightning_detr import LitDeformableDETR
+from model.lightning_detr import LightningModel
 from pipeline.dataloader import create_dataloader
 from util.misc import get_sizes_and_ids
 
 
 def evaluate(version: int = -1):
-    cfg = CfgNode.from_file('defm_detr_base')
+    cfg = CfgNode.from_file('stella_cfg')
     seed_everything(cfg.runtime.seed, workers=True)
     
     log_dir = get_log_dir(cfg, version)
     ckpt_path = get_ckpt_path(log_dir)
     print(f"Loading checkpoint from {ckpt_path}")
-    model = LitDeformableDETR.load_from_checkpoint(ckpt_path, cfg=cfg)
+    model = LightningModel.load_from_checkpoint(ckpt_path, cfg=cfg)
     model.eval()
     model.freeze()
 

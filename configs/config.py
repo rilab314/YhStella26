@@ -111,7 +111,7 @@ def merge_dicts(base, new):
 
 def example():
     # 사용 예시
-    cfg = CfgNode.from_file('defm_detr_base')
+    cfg = CfgNode.from_file('stella_cfg')
     print(cfg.dataset)
 
 

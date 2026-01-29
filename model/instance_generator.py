@@ -247,7 +247,7 @@ def main():
     save_path = '/home/gorilla/kyh_workspace/project/results/tblog_260117_2012/checkpoints/epoch=16_instance'
     os.makedirs(save_path, exist_ok=True)
     torch_list = os.listdir(torch_path)
-    cfg = CfgNode.from_file("satellite_detr")
+    cfg = CfgNode.from_file("stella")
     instance_generator = GeneratePolylineInstances.build_from_cfg(cfg)
 
     for torch_name in torch_list:

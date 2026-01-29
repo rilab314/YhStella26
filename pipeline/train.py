@@ -18,7 +18,7 @@ from util.misc import build_instance
 
 def train(resume=False):
     torch.use_deterministic_algorithms(False)
-    cfg = CfgNode.from_file('satellite_detr')
+    cfg = CfgNode.from_file('stella_cfg')
     cfg.runtime.output_dir = os.path.join(cfg.runtime.output_root, 'log_' + datetime.now().strftime('%y%m%d_%H%M'))
     os.makedirs(cfg.runtime.output_dir, exist_ok=True)
     shutil.copytree(os.path.dirname(os.path.dirname(__file__)), cfg.runtime.output_dir+'/src', dirs_exist_ok=True,

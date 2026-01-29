@@ -11,7 +11,7 @@ from pipeline.dataloader import create_dataloader
 
 def create_modules():
     print('\n========== config ==========\n')
-    cfg = CfgNode.from_file('satellite_detr')
+    cfg = CfgNode.from_file('stella_cfg')
     # print(cfg)
     print('\n========== backbone ==========\n')
     backbone = build_instance(cfg.backbone.module_name, cfg.backbone.class_name, cfg)
@@ -33,7 +33,7 @@ def create_modules():
 
 
 def check_backbone_outputs():
-    cfg = CfgNode.from_file('satellite_detr')
+    cfg = CfgNode.from_file('stella_cfg')
     dataloader = create_dataloader(cfg, 'val')
     backbone = build_instance(cfg.backbone.module_name, cfg.backbone.class_name, cfg)
     for k, batch in enumerate(dataloader):
@@ -47,7 +47,7 @@ def check_backbone_outputs():
 
 
 def check_defm_detr_outputs():
-    cfg = CfgNode.from_file('defm_detr_base')
+    cfg = CfgNode.from_file('stella_cfg')
     dataloader = create_dataloader(cfg, 'val')
     model = build_instance(cfg.lightning_model.module_name, cfg.lightning_model.class_name, cfg)
     criterion = build_instance(cfg.criterion.module_name, cfg.criterion.class_name, cfg)

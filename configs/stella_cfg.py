@@ -1,7 +1,7 @@
 import os
 workspace_path = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 
-_base_ = ['dataset/satellite_images.py']
+_base_ = ['dataset/seedmap_cfg.py']
 
 params = dict(
     training=dict(
@@ -45,12 +45,12 @@ params = dict(
                 p=0.5))
     ),
     lightning_model=dict(
-        module_name='model.lightning_detr',
-        class_name='LitDeformableDETR'
+        module_name='model.lightning',
+        class_name='LightningModel'
     ),
     core_model=dict(
-        module_name='model.defm_lanedet',
-        class_name='DefmLaneDetector',
+        module_name='model.stella_det',
+        class_name='StellaDetector',
     ),
     backbone=dict(
         module_name='model.backbone',

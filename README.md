@@ -17,11 +17,11 @@
 
 - 실행 스크립트: PROJECT_ROOT/dataset/satellite_lane/generate_label.py
 - 경로 설정
-    - 프로젝트 폴더 옆에 dataset/satellite_images에 데이터셋 준비
+    - 프로젝트 폴더 옆에 dataset/seedmap_cfg에 데이터셋 준비
     - 내부 구조 (satellite_lane는 생성될 데이터셋 구조)
 
 ```cpp
-├── satellite_images
+├── seedmap_cfg
 │   ├── image
 │   └── label
 └── satellite_lane

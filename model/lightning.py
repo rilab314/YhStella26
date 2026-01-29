@@ -20,7 +20,7 @@ def match_name_keywords(n, name_keywords):
     return out
 
 
-class LitDeformableDETR(pl.LightningModule):
+class LightningModel(pl.LightningModule):
     vlog_frame_interval = 50
 
     @staticmethod
@@ -32,7 +32,7 @@ class LitDeformableDETR(pl.LightningModule):
         for key, val in postproc_cfg.items():
             postproc = build_instance(val['module_name'], val['class_name'], cfg)
             postprocessors[key] = postproc
-        model = LitDeformableDETR(cfg, model, criterion)
+        model = LightningModel(cfg, model, criterion)
         device = torch.device(cfg.runtime.device)
         model.to(device)
         return model
@@ -48,7 +48,7 @@ class LitDeformableDETR(pl.LightningModule):
         self.instance_generator = GeneratePolylineInstances(cfg.dataset.labels)
         self.visualizer = TargetLogitVisualizer(self.cfg.dataset.labels)
         n_parameters = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
-        print(f"[LitDeformableDETR] Number of params: {n_parameters}")
+        print(f"[LightningModel] Number of params: {n_parameters}")
         for name, module in self.model.named_modules():
             if name in ("backbone.0._model.norm", "backbone.0._model.head"):
                 for p in module.parameters():

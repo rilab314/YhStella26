@@ -3,7 +3,7 @@ workspace_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname
 
 params = dict(
     dataset=dict(
-        module_name="dataset.satellite_lane.satellite_images",
+        module_name="dataset.satellite_lane.seedmap_cfg",
         class_name="SatelliteImagesDataset",
         path=os.path.join(workspace_path, "dataset/satellite_lane"),
         num_classes=12,
