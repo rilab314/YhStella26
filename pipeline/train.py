@@ -5,6 +5,8 @@ if __name__ == '__main__':
 import os
 import torch
 torch.set_float32_matmul_precision('medium')
+from datetime import datetime
+import shutil
 
 import settings
 from configs.config import CfgNode
@@ -14,11 +16,13 @@ from pipeline.dataloader import create_dataloader
 from util.misc import build_instance
 
 
-def train(resume=False, loss_param=None):
+def train(resume=False):
     torch.use_deterministic_algorithms(False)
     cfg = CfgNode.from_file('satellite_detr')
-    if loss_param:
-        cfg.losses.cls_loss = loss_param
+    cfg.runtime.output_dir = os.path.join(cfg.runtime.output_root, 'log_' + datetime.now().strftime('%y%m%d_%H%M'))
+    os.makedirs(cfg.runtime.output_dir, exist_ok=True)
+    shutil.copytree(os.path.dirname(os.path.dirname(__file__)), cfg.runtime.output_dir+'/src', dirs_exist_ok=True,
+                    ignore=shutil.ignore_patterns('*.pyc', '__pycache__', '.git'))
     pl.seed_everything(cfg.runtime.seed, workers=True)
     csv_logger = CSVLogger(save_dir=cfg.runtime.output_dir, name=cfg.runtime.logger_name)
     
@@ -68,4 +72,4 @@ def train(resume=False, loss_param=None):
 
 
 if __name__ == "__main__":
-    train(loss_param=20)
+    train()

@@ -1,7 +1,5 @@
 import os
-from datetime import datetime
 workspace_path = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-timestamp = datetime.now().strftime('%y%m%d_%H%M')
 
 _base_ = ['dataset/satellite_images.py']
 
@@ -13,6 +11,7 @@ params = dict(
         lr_linear_proj_names=['reference_points', 'sampling_offsets'],
         lr_linear_proj_mult=0.1,
         batch_size=1,
+        accumulate_grad_batches=16, 
         weight_decay=0.0001,
         epochs=20,
         lr_drop=8,
@@ -114,8 +113,9 @@ params = dict(
         score_thresh=0.1
     ),
     runtime=dict(
-        output_dir=os.path.join(workspace_path, 'results', f'tblog_{timestamp}'),
-        logger_name='defm_detr',
+        output_root=os.path.join(workspace_path, 'results'),
+        output_dir=None,
+        logger_name='csv_log',
         device='cuda',
         seed=42,
         resume='',
