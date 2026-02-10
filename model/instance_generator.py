@@ -191,37 +191,6 @@ class GeneratePolylineInstances:
                 return self.trace_graph(polyline, outputs, visited_map, category)
         
         return polyline
-
-        next_pt = np.array([cx + 0.5, cy + 0.5]) + target_vec
-        if not self._is_within_image(next_pt, outputs):
-            print('next point is out')
-            return polyline
-        npt_int = next_pt.astype(np.int32)
-        # print('points:', np.array([cx, cy]), npt_int, next_pt, target_vec)
-        assert (np.array([cx, cy]) != (npt_int)).any()
-        next_point = npt_int.astype(np.float32) + outputs['center_point'][npt_int[1], npt_int[0]]
-
-        if end_prob > 0.5:
-            polyline.append(next_point)
-            print('next point is END')
-            return polyline
-
-        if self._is_valid_point(next_point, outputs, visited_map, category):
-            polyline.append(next_point)
-            return self.trace_graph(polyline, outputs, visited_map, category)
-        
-        next_pt = np.array([cx + 0.5, cy + 0.5]) + target_vec * 2
-        if not self._is_within_image(next_pt, outputs):
-            return polyline
-        npt_int = next_pt.astype(np.int32)
-        next_point = npt_int.astype(np.float32) + outputs['center_point'][npt_int[1], npt_int[0]]
-
-        if self._is_valid_point(next_point, outputs, visited_map, category):
-            polyline.append(next_point)
-            return self.trace_graph(polyline, outputs, visited_map, category)
-        
-        print('next point is NOT valid')
-        return polyline
     
     def _is_within_image(self, next_pt, outputs):
         gh, gw = outputs['segm_prob'].shape[:2]
