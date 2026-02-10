@@ -11,7 +11,7 @@ import shutil
 import settings
 from configs.config import CfgNode
 import pytorch_lightning as pl
-from pytorch_lightning.loggers import TensorBoardLogger, CSVLogger
+from pytorch_lightning.loggers import CSVLogger
 from pipeline.dataloader import create_dataloader
 from util.misc import build_instance
 
@@ -28,15 +28,15 @@ def train(resume=False):
     
     checkpoint_callback = pl.callbacks.ModelCheckpoint(
         dirpath=os.path.join(cfg.runtime.output_dir, 'checkpoints'),
-        filename='{epoch:02d}-{val_loss:.4f}',
-        monitor='train_total_loss',
+        filename='{epoch:02d}-{val_total_loss:.4f}',
+        monitor='val_total_loss',
         mode='min',
         save_top_k=10,
         save_last=True,
     )
     
     early_stop_callback = pl.callbacks.EarlyStopping(
-        monitor='train_loss_total',
+        monitor='val_total_loss',
         patience=5,
         mode='min',
         verbose=True
@@ -52,7 +52,7 @@ def train(resume=False):
     trainer = pl.Trainer(
         max_epochs=cfg.training.epochs,
         logger=[csv_logger],
-        callbacks=[checkpoint_callback, progress_bar],
+        callbacks=[checkpoint_callback, early_stop_callback, progress_bar],
         accelerator='gpu',
         devices=torch.cuda.device_count(),
         strategy='ddp_find_unused_parameters_false',

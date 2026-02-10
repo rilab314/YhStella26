@@ -6,6 +6,12 @@ torch.set_float32_matmul_precision('medium')
 from configs.config import CfgNode
 from model.predictor import Predictor
 
+
+# TODO: 모델의 출력을 numpy array로 저장 -> 
+# evaluator.py: instance로 추출(conf_thres 다양하게 바꿔가면서 0.1:0.9:0.05) -> thk=3, AP 계산
+# instance_generator.py: instance 추출해서 시각화, 디버깅용 실행 코드 만들기
+# predictor 제거 -> inference 옵션으로 시각화나 저장하거나 등등..
+
 if __name__ == '__main__':
     cfg = CfgNode.from_file('stella_cfg')
 

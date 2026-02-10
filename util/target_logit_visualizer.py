@@ -1,8 +1,7 @@
 import cv2
 import numpy as np
 import torch
-import pandas as pd
-from typing import Optional, List, Dict, Tuple
+from typing import Optional, List, Dict, Any
 
 
 class TargetLogitVisualizer:
@@ -18,14 +17,101 @@ class TargetLogitVisualizer:
         self,
         output: Dict[str, torch.Tensor],
         target: Dict[str, torch.Tensor],
+        line_instance: Optional[Dict[str, Any]],
         with_img: np.ndarray = None,
     ) -> np.ndarray:
         """
-        모델 출력과 GT를 각각 시각화하여 좌우로 병합한 이미지를 생성합니다.
+        모델 출력, GT, instance를 시각화하여 병합한 이미지를 생성합니다.
         """
         target_img = self.create_visualization_panel(target, "target", with_img)
         output_img = self.create_visualization_panel(output, "output", with_img)
-        return cv2.hconcat([target_img, output_img])
+        pred_instances = line_instance.get("pred_instances", [])
+        instance_img = self.visualize_instance_overlay(pred_instances, with_img=with_img)
+        panels = [target_img, output_img, instance_img]
+        return cv2.hconcat(panels)
+
+    def visualize_instance_overlay(
+        self,
+        instances: Any,
+        with_img: Optional[np.ndarray] = None,
+        thickness: int = 2,
+        img_size: int = 768,
+    ) -> np.ndarray:
+        """
+        인스턴스(폴리라인) 결과를 이미지 위에 오버레이합니다.
+        instances는 아래 둘 중 하나를 지원합니다.
+          1) [{"label": int, "points": [[x, y], ...]}, ...]
+          2) {label_id: [np.ndarray(N,2), ...], ...}
+        """
+        canvas = with_img.copy() if with_img is not None else np.zeros((img_size, img_size, 3), dtype=np.uint8)
+        parsed = self._normalize_instances(instances)
+
+        h, w = canvas.shape[:2]
+        for label_id, polylines in parsed.items():
+            color_bgr = self.color_map_bgr.get(int(label_id), (255, 255, 255))
+            for pts in polylines:
+                pts = np.asarray(pts, dtype=np.float32)
+                if pts.ndim != 2 or pts.shape[0] < 2 or pts.shape[1] != 2:
+                    continue
+                # normalized points면 이미지 크기로 확장
+                if float(np.max(pts)) <= 1.5 and float(np.min(pts)) >= -0.5:
+                    pts = pts.copy()
+                    pts[:, 0] *= float(w)
+                    pts[:, 1] *= float(h)
+                pts[:, 0] = np.clip(pts[:, 0], 0, w - 1)
+                pts[:, 1] = np.clip(pts[:, 1], 0, h - 1)
+                pts_i32 = np.round(pts).astype(np.int32).reshape(-1, 1, 2)
+                cv2.polylines(canvas, [pts_i32], isClosed=False, color=color_bgr, thickness=thickness, lineType=cv2.LINE_8)
+        return canvas
+
+    def visualize_instance_pair(
+        self,
+        gt_instances: Any,
+        pred_instances: Any,
+        with_img: Optional[np.ndarray] = None,
+        thickness: int = 2,
+        img_size: int = 768,
+    ) -> np.ndarray:
+        """
+        GT/PRED instance overlay를 좌우 패널로 반환합니다.
+        """
+        gt_img = self.visualize_instance_overlay(gt_instances, with_img=with_img, thickness=thickness, img_size=img_size)
+        pred_img = self.visualize_instance_overlay(pred_instances, with_img=with_img, thickness=thickness, img_size=img_size)
+        cv2.putText(gt_img, "GT_INSTANCE", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2, cv2.LINE_AA)
+        cv2.putText(pred_img, "PRED_INSTANCE", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2, cv2.LINE_AA)
+        return cv2.hconcat([gt_img, pred_img])
+
+    def _normalize_instances(self, instances: Any) -> Dict[int, List[np.ndarray]]:
+        out: Dict[int, List[np.ndarray]] = {}
+        if instances is None:
+            return out
+
+        if isinstance(instances, dict):
+            for label_id, polylines in instances.items():
+                try:
+                    lid = int(label_id)
+                except Exception:
+                    continue
+                out.setdefault(lid, [])
+                if isinstance(polylines, list):
+                    for pts in polylines:
+                        out[lid].append(np.asarray(pts, dtype=np.float32))
+            return out
+
+        if isinstance(instances, list):
+            for item in instances:
+                if not isinstance(item, dict):
+                    continue
+                if "label" not in item or "points" not in item:
+                    continue
+                try:
+                    lid = int(item["label"])
+                except Exception:
+                    continue
+                out.setdefault(lid, []).append(np.asarray(item["points"], dtype=np.float32))
+            return out
+
+        return out
 
     def create_visualization_panel(
         self,
@@ -42,7 +128,6 @@ class TargetLogitVisualizer:
 
         data = {k: v.detach().clone() if torch.is_tensor(v) else v for k, v in data.items()}
 
-        segm_label = data['segm_logit']
         segm_label = torch.argmax(data["segm_logit"], dim=-1, keepdim=True)
         segm_label_mask = segm_label > 0
         for k, v in data.items():
@@ -69,6 +154,10 @@ class TargetLogitVisualizer:
             left_point = data['left_point']
             right_point = data['right_point']
             return self.visualize_and_show_arrow(segm_label, center_point, left_point, right_point, with_img=with_img)
+
+        else:
+            print('mode not in mode list(target, output, accuracy, arrow, instance) try again')
+            exit()
         
     def _draw_segmentation_panel(
         self,
@@ -82,7 +171,7 @@ class TargetLogitVisualizer:
         H, W = segm_label_np.shape
         scale = 4
         vis_h, vis_w = H * scale, W * scale
-        canvas = np.zeros((vis_h, vis_w, 3), dtype=np.uint8) if with_img is None else with_img.copy()
+        canvas = with_img.copy() if with_img is not None else np.zeros((vis_h, vis_w, 3), dtype=np.uint8)
 
         segm_up = cv2.resize(segm_label_np.astype(np.uint8),(vis_w, vis_h),interpolation=cv2.INTER_NEAREST)
         for class_id, color_bgr in self.color_map_bgr.items():
@@ -101,7 +190,7 @@ class TargetLogitVisualizer:
         scale = 4
         vis_h, vis_w = H * scale, W * scale
 
-        canvas = np.zeros((vis_h, vis_w, 3), dtype=np.uint8) if with_img is None else with_img.copy()
+        canvas = with_img.copy() if with_img is not None else np.zeros((vis_h, vis_w, 3), dtype=np.uint8)
 
         segm_up = cv2.resize(
             segm_max_label_idxs.astype(np.int32),
@@ -151,7 +240,7 @@ class TargetLogitVisualizer:
         img_size: int = 768,
         scale: int = 4,
     ) -> np.ndarray:
-        img = with_img if with_img is not None else np.zeros((768, 768, 3), dtype=np.uint8)
+        img = with_img.copy() if with_img is not None else np.zeros((768, 768, 3), dtype=np.uint8)
 
         for class_id, color_bgr in self.color_map_bgr.items():
             if class_id == 0:
@@ -195,7 +284,7 @@ class TargetLogitVisualizer:
         img_size: int = 768,
         scale: int = 4,
     ) -> np.ndarray:
-        img = with_img if with_img is not None else np.zeros((768, 768, 3), dtype=np.uint8)
+        img = with_img.copy() if with_img is not None else np.zeros((768, 768, 3), dtype=np.uint8)
 
         segm_2d = segm_label[..., 0]
         mask = segm_label != 0

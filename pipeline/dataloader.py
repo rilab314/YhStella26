@@ -3,12 +3,12 @@ from typing import List
 from util.misc import nested_tensor_from_tensor_list
 from torch.utils.data import DataLoader
 from dataset import build_dataset
-from dataset.satellite_lane.seedmap_cfg import SatelliteImagesDataset
+from dataset.satellite_lane.seedmap_dataset import SeedNpyDataset
 
 
 def custom_collate_fn(batch: List[dict]):
     """
-    SatelliteImagesDataset을 위한 collate 함수
+    SeedNpyDataset을 위한 collate 함수
     
     batch는 Dataset에서 반환한 dict들의 리스트:
     [
@@ -48,6 +48,7 @@ def custom_collate_fn(batch: List[dict]):
         t["size"] = torch.tensor([height, width])
         t["image_id"] = torch.tensor([i])
         t["filename"] = item["filename"]
+        t["instances"] = item["instances"]
         targets.append(t)
 
     return images, targets
@@ -63,7 +64,7 @@ def create_dataloader(cfg, dataset, split='train', persistent_workers=True):
         shuffle=True if split == 'train' else False,
         num_workers=cfg.training.num_workers,
         collate_fn=custom_collate_fn,
-        drop_last=True,
+        drop_last=True if split == 'train' else False,
         persistent_workers=persistent_workers,
     )
     return dataloader

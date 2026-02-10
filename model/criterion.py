@@ -70,7 +70,7 @@ class SegmentationCriterion(nn.Module):
             target_loss = target.copy()
             output_loss = output.copy()
             for key in target:
-                if key not in ['size', 'image_id', 'filename']:
+                if key not in ['size', 'image_id', 'filename', 'instances']:
                     target_loss[key] = target[key][mask]  # (H, W, C) -> (N,  C)
             for key in output:
                 output_loss[key] = output[key][mask]

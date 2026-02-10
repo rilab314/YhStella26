@@ -100,29 +100,158 @@ class Predictor:
 
 
 def main():
-    ckpt_path = '/home/gorilla/kyh_workspace/project/results/tblog_260117_2012/checkpoints/last.ckpt'
+    ckpt_path = '/home/gorilla/kyh_workspace/project/results/log_260209_0750/checkpoints/last.ckpt'
+    
     img_path = '/home/gorilla/kyh_workspace/project/dataset/satellite_lane/validation/image'
+    gt_json_dir = '/home/gorilla/kyh_workspace/project/dataset/satellite_lane/validation/json'
 
     vis_type_list = ['output', 'arrow', 'accurracy']
-    save_path = ckpt_path.replace('ckpt', '')
-    os.makedirs(save_path+'_pt', exist_ok=True)
+    save_path = ckpt_path.replace('.ckpt', '') if 'last' in ckpt_path else ckpt_path.split('-')[0]
+    pred_pt_dir = save_path + '_pt'
+    pred_instance_dir = save_path + '_instance'
+    os.makedirs(pred_pt_dir, exist_ok=True)
+    os.makedirs(pred_instance_dir, exist_ok=True)
     for vis_type in vis_type_list:
         os.makedirs(save_path+'_'+vis_type, exist_ok=True)
 
-    cfg = CfgNode.from_file("stella")
+    cfg = CfgNode.from_file("stella_cfg")
     predictor = Predictor.from_cfg(cfg, ckpt_path=ckpt_path)
     visualizer = TargetLogitVisualizer(cfg.dataset.labels)
+    instance_generator = build_instance(cfg.postprocessors.line.module_name, cfg.postprocessors.line.class_name, cfg)
 
-    for img_name in os.listdir(img_path):
+    print("[1/3] Running prediction and saving .pt/.json instances...")
+    img_names = sorted([n for n in os.listdir(img_path) if n.lower().endswith(".png")])
+    for img_name in tqdm(img_names, desc="predict"):
         img_bgr = cv2.imread(os.path.join(img_path, img_name))
         img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
         output = predictor.predict(img_rgb, apply_softmax=True)
 
-        torch.save(output[0], os.path.join(save_path+'_pt', img_name.replace('.png', '.pt')))
+        stem = img_name.replace('.png', '')
+        torch.save(output[0], os.path.join(pred_pt_dir, stem + '.pt'))
+        pred_instances = instance_generator([output[0]])[0]
+        instance_generator.save_points_to_json(pred_instances, os.path.join(pred_instance_dir, stem + '.json'))
 
-        # for vis_type in vis_type_list:
-        #     result_img = visualizer.create_visualization_panel(copy.deepcopy(output[0]), vis_type, img_bgr)
-        #     cv2.imwrite(os.path.join(save_path+'_'+vis_type, img_name), result_img)
+    print("[2/3] Running F1 sweep (calculate_f1 logic)...")
+    from util.calculate_f1 import (
+        build_label_maps,
+        build_thresholds,
+        evaluate_dataset,
+        infer_pred_format,
+        prf_from_counts,
+    )
+    import csv
+
+    id2name, cat2id = build_label_maps(cfg.dataset.labels)
+    img_h = int(getattr(cfg.dataset, "image_height", 768))
+    img_w = int(getattr(cfg.dataset, "image_width", img_h))
+    img_size = [img_w, img_h]
+    thickness = 5
+    iou_th = 0.3
+    bbox_pad = max(3, thickness * 2)
+    thresholds = build_thresholds(0.5, 0.05, 0.95)
+    f1_out_dir = save_path + "_f1_results"
+    os.makedirs(f1_out_dir, exist_ok=True)
+    pred_format = infer_pred_format(pred_pt_dir)
+
+    for conf_threshold in thresholds:
+        total, class_total = evaluate_dataset(
+            gt_dir=gt_json_dir,
+            pred_dir=pred_pt_dir,
+            pred_format=pred_format,
+            labels=cfg.dataset.labels,
+            cat2id=cat2id,
+            img_size=img_size,
+            thickness=thickness,
+            iou_th=iou_th,
+            bbox_pad=bbox_pad,
+            conf_threshold=conf_threshold,
+            limit=None,
+            print_per_image=False,
+            show_progress=True,
+        )
+
+        tp, fp, fn = total["tp"], total["fp"], total["fn"]
+        p, r, f1 = prf_from_counts(tp, fp, fn)
+        th_str = f"{conf_threshold:.2f}".rstrip("0").rstrip(".")
+        csv_path = os.path.join(f1_out_dir, f"thres_{th_str}.csv")
+        with open(csv_path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(["scope", "id", "name", "tp", "fp", "fn", "precision", "recall", "f1"])
+            writer.writerow(["micro", "-", "-", tp, fp, fn, f"{p:.6f}", f"{r:.6f}", f"{f1:.6f}"])
+            for lid in sorted(class_total.keys()):
+                ctp = class_total[lid]["tp"]
+                cfp = class_total[lid]["fp"]
+                cfn = class_total[lid]["fn"]
+                cp, cr, cf1 = prf_from_counts(ctp, cfp, cfn)
+                class_name = id2name.get(lid, f"class_{lid}")
+                writer.writerow(["class", lid, class_name, ctp, cfp, cfn, f"{cp:.6f}", f"{cr:.6f}", f"{cf1:.6f}"])
+        print(f"[SAVED] {csv_path}")
+
+    print("[3/3] Running IoU summary (compare_iou logic)...")
+    from util.compare_iou import (
+        LABELS,
+        build_file_triplets,
+        evaluate_one_image,
+        load_json,
+        parse_gt_instances,
+        parse_pred_instances,
+        prf_from_counts as iou_prf_from_counts,
+        save_metrics_csv,
+    )
+    from collections import defaultdict
+
+    iou_out_dir = save_path + "_iou_results"
+    os.makedirs(iou_out_dir, exist_ok=True)
+    for thickness, iou_th in ((3, 0.3), (5, 0.3), (3, 0.4), (5, 0.4)):
+        class_total = defaultdict(lambda: {"tp": 0, "fp": 0, "fn": 0})
+        bbox_pad = max(3, thickness * 2)
+        triplets = build_file_triplets(img_path, gt_json_dir, pred_instance_dir, img_ext=".png")
+        total = {"tp": 0, "fp": 0, "fn": 0}
+
+        for stem, _, gt_path, pred_path in tqdm(triplets, desc=f"iou thk={thickness} th={iou_th}"):
+            if not os.path.exists(gt_path):
+                continue
+            gt_data = load_json(gt_path)
+            pred_data = load_json(pred_path) if os.path.exists(pred_path) else []
+            gt_instances = parse_gt_instances(gt_data, img_size=img_size)
+            pred_instances = parse_pred_instances(pred_data, img_size=img_size)
+            micro, per_class = evaluate_one_image(
+                gt_instances=gt_instances,
+                pred_instances=pred_instances,
+                img_size=img_size,
+                thickness=thickness,
+                iou_th=iou_th,
+                bbox_pad=bbox_pad,
+            )
+            for lid, stats in per_class.items():
+                class_total[lid]["tp"] += stats["tp"]
+                class_total[lid]["fp"] += stats["fp"]
+                class_total[lid]["fn"] += stats["fn"]
+            total["tp"] += micro["tp"]
+            total["fp"] += micro["fp"]
+            total["fn"] += micro["fn"]
+
+        tp, fp, fn = total["tp"], total["fp"], total["fn"]
+        p, r, f1 = iou_prf_from_counts(tp, fp, fn)
+        print("==============================")
+        print(f"[TOTAL] IoU>={iou_th:.2f}, thickness={thickness}, bbox_pad={bbox_pad}")
+        print(f"MICRO TP={tp} FP={fp} FN={fn} | P={p:.4f} R={r:.4f} F1={f1:.4f}")
+        for lid in sorted(class_total.keys()):
+            ctp = class_total[lid]["tp"]
+            cfp = class_total[lid]["fp"]
+            cfn = class_total[lid]["fn"]
+            cp, cr, cf1 = iou_prf_from_counts(ctp, cfp, cfn)
+            class_name = next((l["name"] for l in LABELS if l["id"] == lid), f"class_{lid}")
+            print(
+                f"[{lid:2d}] {class_name:30s} | "
+                f"TP={ctp:6d} FP={cfp:6d} FN={cfn:6d} | "
+                f"P={cp:.4f} R={cr:.4f} F1={cf1:.4f}"
+            )
+
+        csv_name = f"iou(thk:{thickness}, th:{iou_th}).csv"
+        csv_path = os.path.join(iou_out_dir, csv_name)
+        save_metrics_csv(csv_path, total=total, class_total=class_total)
+        print(f"[SAVED] {csv_path}")
 
 
 
@@ -130,6 +259,5 @@ if __name__ == "__main__":
     import cv2
     import os
     from tqdm import tqdm
-    import copy
 
     main()

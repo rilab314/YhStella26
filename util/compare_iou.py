@@ -1,5 +1,6 @@
 import os
 import json
+import csv
 from typing import Any, Dict, List, Tuple
 from collections import defaultdict
 
@@ -42,22 +43,37 @@ def load_json(path: str) -> Any:
         return json.load(f)
 
 
-def load_image_bgr(path: str, img_size: int) -> np.ndarray:
+def load_image_bgr(path: str, img_size: List[int]) -> np.ndarray:
     img = cv2.imread(path, cv2.IMREAD_COLOR)
     if img is None:
         raise FileNotFoundError(f"Image not found: {path}")
-    if img.shape[0] != img_size or img.shape[1] != img_size:
-        img = cv2.resize(img, (img_size, img_size), interpolation=cv2.INTER_LINEAR)
+    if img.shape[0] != img_size[0] or img.shape[1] != img_size[1]:
+        img = cv2.resize(img, (img_size[0], img_size[1]), interpolation=cv2.INTER_LINEAR)
     return img
 
 
-def _clip_pts(pts: np.ndarray, img_size: int) -> np.ndarray:
+def _clip_pts(pts: np.ndarray, img_size: List[int]) -> np.ndarray:
     pts = np.asarray(pts, dtype=np.float32)
     if pts.ndim != 2 or pts.shape[1] != 2:
         return np.zeros((0, 2), dtype=np.float32)
-    pts[:, 0] = np.clip(pts[:, 0], 0, img_size - 1)
-    pts[:, 1] = np.clip(pts[:, 1], 0, img_size - 1)
+    pts[:, 0] = np.clip(pts[:, 0], 0, img_size[0] - 1)
+    pts[:, 1] = np.clip(pts[:, 1], 0, img_size[1] - 1)
     return pts
+
+
+def _to_pixel_pts(pts: np.ndarray, img_size: List[int]) -> np.ndarray:
+    pts = np.asarray(pts, dtype=np.float32)
+    if pts.ndim != 2 or pts.shape[1] != 2:
+        return np.zeros((0, 2), dtype=np.float32)
+    # If coordinates look normalized ([0, 1]), convert to pixels.
+    if float(np.max(pts)) <= 1.5 and float(np.min(pts)) >= -0.5:
+        if isinstance(img_size, (list, tuple, np.ndarray)):
+            sx, sy = float(img_size[0]), float(img_size[1])
+        else:
+            sx = sy = float(img_size)
+        pts[:, 0] *= sx
+        pts[:, 1] *= sy
+    return _clip_pts(pts, img_size)
 
 
 def parse_gt_instances(gt_data: Any, img_size: int) -> Dict[int, List[np.ndarray]]:
@@ -68,9 +84,19 @@ def parse_gt_instances(gt_data: Any, img_size: int) -> Dict[int, List[np.ndarray
     for obj in gt_data:
         if not isinstance(obj, dict):
             continue
-        if obj.get("class") != "RoadObject":
+
+        if "label" in obj and "points" in obj:
+            try:
+                label_id = int(obj["label"])
+            except Exception:
+                continue
+            pts = _to_pixel_pts(np.asarray(obj["points"], dtype=np.float32), img_size)
+            if pts.shape[0] < 2:
+                continue
+            out[label_id].append(pts)
             continue
-        if obj.get("geometry_type") != "LINE_STRING":
+
+        if obj.get("class") != "RoadObject" or obj.get("geometry_type") != "LINE_STRING":
             continue
 
         pts = obj.get("image_points", None)
@@ -84,7 +110,7 @@ def parse_gt_instances(gt_data: Any, img_size: int) -> Dict[int, List[np.ndarray
             continue
 
         label_id = int(CAT2ID.get(cat_i, 0))
-        pts = _clip_pts(np.asarray(pts, dtype=np.float32), img_size)
+        pts = _to_pixel_pts(np.asarray(pts, dtype=np.float32), img_size)
         if pts.shape[0] < 2:
             continue
 
@@ -112,12 +138,7 @@ def parse_pred_instances(pred_data: Any, img_size: int) -> Dict[int, List[np.nda
         except Exception:
             continue
 
-        pts = np.asarray(obj["points"], dtype=np.float32)
-        if pts.ndim != 2 or pts.shape[1] != 2:
-            continue
-
-        pts = pts * float(img_size)  # normalized -> pixel
-        pts = _clip_pts(pts, img_size)
+        pts = _to_pixel_pts(np.asarray(obj["points"], dtype=np.float32), img_size)
         if pts.shape[0] < 2:
             continue
 
@@ -164,7 +185,7 @@ def visualize_side_by_side(
 # =========================
 # FAST IoU via bbox pre-filter + ROI masks
 # =========================
-def polyline_bbox_xyxy(polyline_xy: np.ndarray, img_size: int, pad: int = 0) -> Tuple[int, int, int, int]:
+def polyline_bbox_xyxy(polyline_xy: np.ndarray, img_size: List[int], pad: int = 0) -> Tuple[int, int, int, int]:
     pts = np.asarray(polyline_xy, dtype=np.float32)
     if pts.ndim != 2 or pts.shape[0] == 0:
         return (0, 0, -1, -1)
@@ -174,10 +195,10 @@ def polyline_bbox_xyxy(polyline_xy: np.ndarray, img_size: int, pad: int = 0) -> 
     x2 = int(np.ceil(np.max(pts[:, 0]))) + pad
     y2 = int(np.ceil(np.max(pts[:, 1]))) + pad
 
-    x1 = max(0, min(x1, img_size - 1))
-    y1 = max(0, min(y1, img_size - 1))
-    x2 = max(0, min(x2, img_size - 1))
-    y2 = max(0, min(y2, img_size - 1))
+    x1 = max(0, min(x1, img_size[0] - 1))
+    y1 = max(0, min(y1, img_size[1] - 1))
+    x2 = max(0, min(x2, img_size[0] - 1))
+    y2 = max(0, min(y2, img_size[1] - 1))
 
     if x2 < x1 or y2 < y1:
         return (0, 0, -1, -1)
@@ -212,7 +233,7 @@ def _draw_polyline_on_roi(
 def iou_polylines_roi(
     pred_pts: np.ndarray,
     gt_pts: np.ndarray,
-    img_size: int,
+    img_size: List[int],
     thickness: int,
     pad: int,
 ) -> float:
@@ -247,7 +268,7 @@ def iou_polylines_roi(
 def compute_iou_matrix_one_class_fast(
     gt_polylines: List[np.ndarray],
     pred_polylines: List[np.ndarray],
-    img_size: int,
+    img_size: List[int],
     thickness: int,
     bbox_pad: int,
 ) -> np.ndarray:
@@ -358,13 +379,13 @@ def prf_from_counts(tp: int, fp: int, fn: int) -> Tuple[float, float, float]:
 def evaluate_one_image(
     gt_instances: Dict[int, List[np.ndarray]],
     pred_instances: Dict[int, List[np.ndarray]],
-    img_size: int,
+    img_size: List[int],
     thickness: int,
     iou_th: float,
-    bbox_pad: int,
-) -> Tuple[Dict[str, int], Dict[int, Dict[str, Any]]]:
-    micro = {"tp": 0, "fp": 0, "fn": 0}
-    per_class: Dict[int, Dict[str, Any]] = {}
+    bbox_pad: int=10,
+) -> Tuple[Dict[str, int], Dict[int, Dict[str, int]]]:
+    total = {"tp": 0, "fp": 0, "fn": 0}
+    per_class: Dict[int, Dict[str, int]] = {}
     all_classes = set(gt_instances.keys()) | set(pred_instances.keys())
 
     for lid in sorted(all_classes):
@@ -379,18 +400,57 @@ def evaluate_one_image(
             bbox_pad=bbox_pad,
         )
         matches = match_instances_one_class(iou_mat, iou_th=iou_th)
-
         tp = len(matches)
         fp = len(pred_list) - tp
         fn = len(gt_list) - tp
 
-        micro["tp"] += tp
-        micro["fp"] += fp
-        micro["fn"] += fn
+        total["tp"] += tp
+        total["fp"] += fp
+        total["fn"] += fn
+        per_class[int(lid)] = {"tp": tp, "fp": fp, "fn": fn}
 
-        per_class[int(lid)] = {"tp": tp, "fp": fp, "fn": fn, "matches": matches}
+    return total, per_class
 
+
+def compute_iou_metrics(
+    gt_data: Any,
+    pred_data: Any,
+    img_size: List[int],
+    thickness: int,
+    iou_th: float,
+    bbox_pad: int = 10,
+) -> Tuple[Dict[str, int], Dict[int, Dict[str, int]]]:
+    """
+    GT, PRED를 통해 image 단위로 micro 및 per-class 개수를 반환합니다.
+    """
+    gt_instances = parse_gt_instances(gt_data, img_size=img_size)
+    pred_instances = parse_pred_instances(pred_data, img_size=img_size)
+    micro, per_class = evaluate_one_image(
+        gt_instances=gt_instances,
+        pred_instances=pred_instances,
+        img_size=img_size,
+        thickness=thickness,
+        iou_th=iou_th,
+        bbox_pad=bbox_pad,
+    )
     return micro, per_class
+
+
+def save_metrics_csv(path: str, total: Dict[str, int], class_total: Dict[int, Dict[str, int]]) -> None:
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(["label_id", "class_name", "tp", "fp", "fn", "precision", "recall", "f1"])
+
+        p, r, f1 = prf_from_counts(total["tp"], total["fp"], total["fn"])
+        writer.writerow(["total", "micro", total["tp"], total["fp"], total["fn"], f"{p:.4f}", f"{r:.4f}", f"{f1:.4f}"])
+
+        for lid in sorted(class_total.keys()):
+            tp = class_total[lid]["tp"]
+            fp = class_total[lid]["fp"]
+            fn = class_total[lid]["fn"]
+            p, r, f1 = prf_from_counts(tp, fp, fn)
+            class_name = next((l["name"] for l in LABELS if l["id"] == lid), f"class_{lid}")
+            writer.writerow([lid, class_name, tp, fp, fn, f"{p:.4f}", f"{r:.4f}", f"{f1:.4f}"])
 
 
 def build_file_triplets(img_dir: str, gt_dir: str, pred_dir: str, img_ext: str = ".png") -> List[Tuple[str, str, str, str]]:
@@ -402,17 +462,19 @@ def build_file_triplets(img_dir: str, gt_dir: str, pred_dir: str, img_ext: str =
     ]
 
 
-def main():
+def main(pred_dir=None):
     img_dir = "/home/gorilla/kyh_workspace/project/dataset/satellite_lane/validation/image"
     gt_dir = "/home/gorilla/kyh_workspace/project/dataset/satellite_lane/validation/json"
-    gt_dir = "/home/gorilla/kyh_workspace/project/SatelliteDet/dataset/seedmap_cfg/label"
-    pred_dir = "/home/gorilla/kyh_workspace/project/results/tblog_260117_2012/checkpoints/last_instance"
+    # gt_dir = "/home/gorilla/kyh_workspace/project/SatelliteDet/dataset/seedmap_cfg/label"
+    pred_dir = "/home/gorilla/kyh_workspace/project/results/tblog_260127_2211/checkpoints/last_instance" if (pred_dir == None) else pred_dir
+    save_path = pred_dir.replace('_instance', '_iou')
+    os.makedirs(save_path, exist_ok=True)
 
-    for thickness, iou_th in ((3, 0.3), (5, 0.3), (3, 0.4), (5, 0.4)):
+    for thickness, iou_th in ((3, 0.2), (5, 0.2), (3, 0.3), (5, 0.3), (3, 0.4), (5, 0.4)):
 
         class_total = defaultdict(lambda: {"tp": 0, "fp": 0, "fn": 0})
 
-        img_size = 768
+        img_size = [768, 768]
         thickness = thickness
         iou_th = iou_th
 
@@ -424,7 +486,7 @@ def main():
         total = {"tp": 0, "fp": 0, "fn": 0}
         # triplets = triplets[:200]  # 디버깅 시 제한
 
-        for stem, img_path, gt_path, pred_path in triplets:
+        for stem, img_path, gt_path, pred_path in tqdm(triplets):
             if not os.path.exists(img_path) or not os.path.exists(gt_path):
                 continue
 
@@ -453,7 +515,6 @@ def main():
                 class_total[lid]["fn"] += stats["fn"]
 
             p, r, f1 = prf_from_counts(micro["tp"], micro["fp"], micro["fn"])
-            # print(f"[{stem}] TP={micro['tp']} FP={micro['fp']} FN={micro['fn']} | P={p:.4f} R={r:.4f} F1={f1:.4f}")
 
             total["tp"] += micro["tp"]
             total["fp"] += micro["fp"]
@@ -461,9 +522,9 @@ def main():
 
         tp, fp, fn = total["tp"], total["fp"], total["fn"]
         p, r, f1 = prf_from_counts(tp, fp, fn)
-        print("==============================")
-        print(f"[TOTAL] IoU>={iou_th:.2f}, thickness={thickness}, bbox_pad={bbox_pad}")
-        print(f"MICRO TP={tp} FP={fp} FN={fn} | P={p:.4f} R={r:.4f} F1={f1:.4f}")
+        # print("==============================")
+        # print(f"[TOTAL] IoU>={iou_th:.2f}, thickness={thickness}, bbox_pad={bbox_pad}")
+        # print(f"MICRO TP={tp} FP={fp} FN={fn} | P={p:.4f} R={r:.4f} F1={f1:.4f}")
         for lid in sorted(class_total.keys()):
             tp = class_total[lid]["tp"]
             fp = class_total[lid]["fp"]
@@ -476,12 +537,19 @@ def main():
                 f"class_{lid}"
             )
 
-            print(
-                f"[{lid:2d}] {class_name:30s} | "
-                f"TP={tp:6d} FP={fp:6d} FN={fn:6d} | "
-                f"P={p:.4f} R={r:.4f} F1={f1:.4f}"
-            )
+            # print(
+            #     f"[{lid:2d}] {class_name:30s} | "
+            #     f"TP={tp:6d} FP={fp:6d} FN={fn:6d} | "
+            #     f"P={p:.4f} R={r:.4f} F1={f1:.4f}"
+            # )
+
+        csv_name = os.path.join(save_path, f"iou(thk:{thickness}, th:{iou_th}).csv")
+        save_metrics_csv(csv_name, total=total, class_total=class_total)
+        print(f"Saved CSV: {csv_name}")
 
 
 if __name__ == "__main__":
-    main()
+    pred_dir = "/home/gorilla/kyh_workspace/project/results/tblog_260127_2211/checkpoints/last_instance"
+    main(pred_dir=pred_dir)
+    pred_dir = "/home/gorilla/kyh_workspace/project/results/tblog_260127_2211/checkpoints/epoch=19_instance"
+    main(pred_dir=pred_dir)

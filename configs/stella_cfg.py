@@ -113,7 +113,7 @@ params = dict(
         score_thresh=0.1
     ),
     runtime=dict(
-        output_root=os.path.join(workspace_path, 'results'),
+        output_root=os.path.join(workspace_path, 'results'), # TODO: move to hdd
         output_dir=None,
         logger_name='csv_log',
         device='cuda',

@@ -15,11 +15,11 @@ if project_root not in sys.path:
 from dataset.composer_factory import Composer
 
 
-class SatelliteImagesDataset(Dataset):
+class SeedNpyDataset(Dataset):
     @staticmethod
     def build_from_cfg(cfg, split):
         augment = Composer(cfg, split)
-        dataset = SatelliteImagesDataset(cfg.dataset.path, cfg.dataset.num_classes, cfg.runtime.device, split=split, augment=augment)
+        dataset = SeedNpyDataset(cfg.dataset.path, cfg.dataset.num_classes, cfg.runtime.device, split=split, augment=augment)
         return dataset
 
     def __init__(self, dataset_path, num_classes, device, split: str, augment):
@@ -65,7 +65,7 @@ class SatelliteImagesDataset(Dataset):
         return {
             'image': image,
             'targets': target_dict,
-            'inst_targets': inst_target_dict,
+            'instances': inst_target_dict,
             'height': height,
             'width': width,
             'filename': os.path.join(self.image_dir, image_filename)
@@ -87,6 +87,9 @@ class SatelliteImagesDataset(Dataset):
         with open(json_path, 'r') as f:
             inst_label = json.load(f)
         
+        for inst in inst_label:
+            inst['label'] = int(inst['label'])
+            inst['points'] = np.array(inst['points'])
         return inst_label
 
     def load_numpy_labels(self, idx):
@@ -199,7 +202,10 @@ class DatasetVisualizer:
 
 
 if __name__ == "__main__":
-    visualizer = DatasetVisualizer()
-    
+    # visualizer = DatasetVisualizer()
+    cfg = CfgNode.from_file('stella_cfg')
+    dataset = build_instance(cfg.dataset.module_name, cfg.dataset.class_name, cfg, split='train')
+
     for i in range(10):
-        print(visualizer.dataset[i]['inst_targets'])
+        print('index:', i)
+        print(dataset[i]['instances'][0])
