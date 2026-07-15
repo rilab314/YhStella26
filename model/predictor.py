@@ -100,7 +100,7 @@ class Predictor:
 
 
 def main():
-    ckpt_path = '/home/gorilla/kyh_workspace/project/results/log_260209_0750/checkpoints/last.ckpt'
+    ckpt_path = '/home/gorilla/kyh_workspace/project/results/log_260226_1157/checkpoints/last.ckpt'
     
     img_path = '/home/gorilla/kyh_workspace/project/dataset/satellite_lane/validation/image'
     gt_json_dir = '/home/gorilla/kyh_workspace/project/dataset/satellite_lane/validation/json'
@@ -115,8 +115,11 @@ def main():
         os.makedirs(save_path+'_'+vis_type, exist_ok=True)
 
     cfg = CfgNode.from_file("stella_cfg")
-    predictor = Predictor.from_cfg(cfg, ckpt_path=ckpt_path)
     visualizer = TargetLogitVisualizer(cfg.dataset.labels)
+    img_h = int(getattr(cfg.dataset, "image_height", 768))
+    img_w = int(getattr(cfg.dataset, "image_width", img_h))
+    img_size = [img_w, img_h]
+    predictor = Predictor.from_cfg(cfg, ckpt_path=ckpt_path)
     instance_generator = build_instance(cfg.postprocessors.line.module_name, cfg.postprocessors.line.class_name, cfg)
 
     print("[1/3] Running prediction and saving .pt/.json instances...")
@@ -140,7 +143,7 @@ def main():
         prf_from_counts,
     )
     import csv
-
+    
     id2name, cat2id = build_label_maps(cfg.dataset.labels)
     img_h = int(getattr(cfg.dataset, "image_height", 768))
     img_w = int(getattr(cfg.dataset, "image_width", img_h))
@@ -152,7 +155,7 @@ def main():
     f1_out_dir = save_path + "_f1_results"
     os.makedirs(f1_out_dir, exist_ok=True)
     pred_format = infer_pred_format(pred_pt_dir)
-
+    
     for conf_threshold in thresholds:
         total, class_total = evaluate_dataset(
             gt_dir=gt_json_dir,
@@ -169,7 +172,7 @@ def main():
             print_per_image=False,
             show_progress=True,
         )
-
+    
         tp, fp, fn = total["tp"], total["fp"], total["fn"]
         p, r, f1 = prf_from_counts(tp, fp, fn)
         th_str = f"{conf_threshold:.2f}".rstrip("0").rstrip(".")
@@ -193,6 +196,7 @@ def main():
         build_file_triplets,
         evaluate_one_image,
         load_json,
+        overlay_instances,
         parse_gt_instances,
         parse_pred_instances,
         prf_from_counts as iou_prf_from_counts,
@@ -202,6 +206,7 @@ def main():
 
     iou_out_dir = save_path + "_iou_results"
     os.makedirs(iou_out_dir, exist_ok=True)
+    img_size = (768, 768)
     for thickness, iou_th in ((3, 0.3), (5, 0.3), (3, 0.4), (5, 0.4)):
         class_total = defaultdict(lambda: {"tp": 0, "fp": 0, "fn": 0})
         bbox_pad = max(3, thickness * 2)
@@ -252,6 +257,63 @@ def main():
         csv_path = os.path.join(iou_out_dir, csv_name)
         save_metrics_csv(csv_path, total=total, class_total=class_total)
         print(f"[SAVED] {csv_path}")
+
+
+    ###########################
+    ####visulize용 임시 코드#####
+    ###########################
+    # from util.compare_iou import (
+    #     load_json,
+    #     overlay_instances,
+    #     parse_gt_instances,
+    #     parse_pred_instances,
+    # )
+
+    # print("[4/4] Saving triplet visualization [raw | gt | json_vis]...")
+    # triplet_out_dir = save_path + "_triplet_vis"
+    # triplet_out_dir_3 = save_path + "_triplet_vis_3"
+    # os.makedirs(triplet_out_dir, exist_ok=True)
+    # os.makedirs(triplet_out_dir_3, exist_ok=True)
+    # img_names = sorted([n for n in os.listdir(img_path) if n.lower().endswith(".png")])
+
+    # for img_name in tqdm(img_names, desc="triplet_vis"):
+    #     stem = img_name.replace(".png", "")
+    #     img_file = os.path.join(img_path, img_name)
+    #     gt_file = os.path.join(gt_json_dir, stem + ".json")
+    #     pred_file = os.path.join(pred_instance_dir, stem + ".json")
+
+    #     if not os.path.exists(gt_file):
+    #         continue
+
+    #     raw = cv2.imread(img_file, cv2.IMREAD_COLOR)
+    #     if raw is None:
+    #         continue
+
+    #     gt_data = load_json(gt_file)
+    #     pred_data = load_json(pred_file) if os.path.exists(pred_file) else []
+
+    #     gt_instances = parse_gt_instances(gt_data, img_size=img_size)
+    #     pred_instances = parse_pred_instances(pred_data, img_size=img_size)
+
+    #     raw_panel = raw.copy()
+    #     cv2.putText(raw_panel, "RAW", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2, cv2.LINE_AA)
+
+    #     gt_panel = overlay_instances(raw.copy(), gt_instances, thickness=1)
+    #     pred_panel = overlay_instances(raw.copy(), pred_instances, thickness=1)
+    #     cv2.putText(gt_panel, "GT", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2, cv2.LINE_AA)
+    #     cv2.putText(pred_panel, "JSON_VIS", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2, cv2.LINE_AA)
+    #     panel = cv2.hconcat([raw_panel, gt_panel, pred_panel])
+    #     cv2.imwrite(os.path.join(triplet_out_dir, stem + "_triplet.png"), panel)
+
+    #     gt_panel_3 = overlay_instances(raw.copy(), gt_instances, thickness=3)
+    #     pred_panel_3 = overlay_instances(raw.copy(), pred_instances, thickness=3)
+    #     cv2.putText(gt_panel_3, "GT", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2, cv2.LINE_AA)
+    #     cv2.putText(pred_panel_3, "JSON_VIS", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2, cv2.LINE_AA)
+    #     panel_3 = cv2.hconcat([raw_panel.copy(), gt_panel_3, pred_panel_3])
+    #     cv2.imwrite(os.path.join(triplet_out_dir_3, stem + "_triplet.png"), panel_3)
+
+    # print(f"[SAVED] triplet directory: {triplet_out_dir}")
+    # print(f"[SAVED] triplet directory (3px): {triplet_out_dir_3}")
 
 
 

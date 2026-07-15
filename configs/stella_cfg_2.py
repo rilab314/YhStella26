@@ -26,7 +26,8 @@ params = dict(
             'model.conv_head',
         ],
         sgd=False,
-        num_workers=4
+        num_workers=4,
+        gradient_clip_val=0.1
     ),
     dataset=dict(
         train=dict(augmentation=True,),

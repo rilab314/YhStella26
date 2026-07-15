@@ -34,8 +34,6 @@ class StellaDetector(nn.Module):
                                  num_classes=cfg.dataset.num_classes, 
                                  num_feature_levels=cfg.transformer.num_feature_levels, 
                                  )
-        device = torch.device(cfg.runtime.device)
-        model.to(device)
         return model
 
     def __init__(self, backbone, position_embedding, transformer, num_classes: int, num_feature_levels: int):
@@ -149,8 +147,11 @@ class StellaDetector(nn.Module):
         reg_out = self.output_proj['reg'](src)
         reg_out = reg_out.reshape(reg_out.shape[0], feat_hw[0], feat_hw[1], -1)
         center_point = F.sigmoid(reg_out[..., 0:2]) * 1.2 - 0.1  # -0.1 ~ 1.1
-        left_point = F.sigmoid(reg_out[..., 2:4]) * 3 - 1  # -1 ~ 2
-        right_point = F.sigmoid(reg_out[..., 4:6]) * 3 - 1  # -1 ~ 2
+        # left_point = F.sigmoid(reg_out[..., 2:4]) * 3 - 1  # -1 ~ 2
+        # right_point = F.sigmoid(reg_out[..., 4:6]) * 3 - 1  # -1 ~ 2
+        # TODO: GT에서 left, right point를 중심에서의 단위 벡터로 생각하고 수정할 것, normalize 해도 되는지 다시 한 번 확인
+        left_point = F.normalize(reg_out[..., 2:4], dim=-1)
+        right_point = F.normalize(reg_out[..., 4:6], dim=-1)
 
         batch_size = src.shape[0]   
         outputs_list = []

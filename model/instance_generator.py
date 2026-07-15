@@ -65,7 +65,6 @@ class GeneratePolylineInstances:
             for i, (y, x) in enumerate(zip(ys, xs)):
                 if visited_map[y, x]:
                     continue
-                print(f'===== line: {i}, start pt: ({x},{y})')
                 
                 category = int(segm_class[y, x])
                 start_pt = np.array([x, y]) 
@@ -74,15 +73,21 @@ class GeneratePolylineInstances:
                 if len(polyline) > 0:
                     gh, gw = mask.shape
                     pts_grid = polyline * np.array([gw, gh])
-                    pts_int = pts_grid.astype(np.int32)
-                    valid_mask = (pts_int[:, 0] >= 0) & (pts_int[:, 0] < gw) & \
-                                 (pts_int[:, 1] >= 0) & (pts_int[:, 1] < gh)
+                    pts_int = np.rint(pts_grid).astype(np.int32)
+                    valid_mask = (
+                        (pts_int[:, 0] >= 0) & (pts_int[:, 0] < gw) &
+                        (pts_int[:, 1] >= 0) & (pts_int[:, 1] < gh)
+                    )
                     valid_pts = pts_int[valid_mask]
-                    visited_map[valid_pts[:, 1], valid_pts[:, 0]] = True
+                    if valid_pts.shape[0] == 1:
+                        visited_map[valid_pts[0, 1], valid_pts[0, 0]] = True
+                    elif valid_pts.shape[0] > 1:
+                        line_mask = np.zeros((gh, gw), dtype=np.uint8)
+                        cv2.polylines(line_mask, [valid_pts.reshape(-1, 1, 2)], False, 1, thickness=1, lineType=cv2.LINE_8)
+                        visited_map |= (line_mask > 0)
 
                 polylines.append({'label': category, 'points': polyline})
 
-            print('per image polyline:', len(polylines))
             batch_results.append(polylines)
 
         return batch_results
@@ -98,14 +103,12 @@ class GeneratePolylineInstances:
         x, y = point
         
         center_pt = point + outputs['center_point'][y, x]
-        left_pt = point + outputs['left_point'][y, x]
-        right_pt = point + outputs['right_point'][y, x]
+        left_pt = center_pt + outputs['left_point'][y, x]
+        right_pt = center_pt + outputs['right_point'][y, x]
         
         left_line = [center_pt, left_pt]
         right_line = [center_pt, right_pt]
-        print('----- trace to left')
         left_line = self.trace_graph(left_line, outputs, visited_map, category)
-        print('----- trace to right')
         right_line = self.trace_graph(right_line, outputs, visited_map, category)
         
         final_line = left_line[1:][::-1] + right_line
@@ -117,7 +120,7 @@ class GeneratePolylineInstances:
         return final_line_norm
 
     def trace_graph(self, polyline, outputs, visited_map, category):
-        if len(polyline) > 200:
+        if len(polyline) > 500:
             return polyline
             
         curr_tip = polyline[-1]
@@ -125,15 +128,25 @@ class GeneratePolylineInstances:
         cx, cy = int(curr_tip[0]), int(curr_tip[1])
         gh, gw = outputs['segm_prob'].shape[:2]
         if not (0 <= cx < gw and 0 <= cy < gh):
-            print('current point is out')
             return polyline
 
         move_vec = curr_tip - prev_tip
-        move_vec /= np.linalg.norm(move_vec)
-        left_rel_point = outputs['left_point'][cy, cx] - np.array([0.5, 0.5])
-        left_rel_point /= np.linalg.norm(left_rel_point)
-        right_rel_point = outputs['right_point'][cy, cx] - np.array([0.5, 0.5])
-        right_rel_point /= np.linalg.norm(right_rel_point)
+        move_norm = np.linalg.norm(move_vec)
+        if move_norm < 1e-9:
+            return polyline
+        move_vec = move_vec / move_norm
+        left_rel_point = outputs['left_point'][cy, cx]
+        left_norm = np.linalg.norm(left_rel_point)
+        if left_norm < 1e-9:
+            left_rel_point = np.zeros_like(left_rel_point, dtype=np.float32)
+        else:
+            left_rel_point = left_rel_point / left_norm
+        right_rel_point = outputs['right_point'][cy, cx]
+        right_norm = np.linalg.norm(right_rel_point)
+        if right_norm < 1e-9:
+            right_rel_point = np.zeros_like(right_rel_point, dtype=np.float32)
+        else:
+            right_rel_point = right_rel_point / right_norm
         
         cos_left = np.dot(move_vec, left_rel_point)
         cos_right = np.dot(move_vec, right_rel_point)
@@ -184,7 +197,6 @@ class GeneratePolylineInstances:
             next_point = np.array([nx, ny], dtype=np.float32) + outputs['center_point'][ny, nx]
             if end_prob > 0.5:
                 polyline.append(next_point)
-                print('next point is END')
                 return polyline
             if self._is_valid_point(next_point, outputs, visited_map, category):
                 polyline.append(next_point)
@@ -295,10 +307,10 @@ class GeneratePolylineInstances:
                     continue
                 cx = int(round((x0 + float(center_point[y0, x0, 0])) * scale_x))
                 cy = int(round((y0 + float(center_point[y0, x0, 1])) * scale_y))
-                lx = int(round((x0 + float(left_point[y0, x0, 0])) * scale_x))
-                ly = int(round((y0 + float(left_point[y0, x0, 1])) * scale_y))
-                rx = int(round((x0 + float(right_point[y0, x0, 0])) * scale_x))
-                ry = int(round((y0 + float(right_point[y0, x0, 1])) * scale_y))
+                lx = int(round(cx + float(left_point[y0, x0, 0]) * scale_x))
+                ly = int(round(cy + float(left_point[y0, x0, 1]) * scale_y))
+                rx = int(round(cx + float(right_point[y0, x0, 0]) * scale_x))
+                ry = int(round(cy + float(right_point[y0, x0, 1]) * scale_y))
 
                 if 0 <= cx < w and 0 <= cy < h:
                     lx = int(round(cx + 3.0 * (lx - cx)))
@@ -328,15 +340,19 @@ class GeneratePolylineInstances:
 
         ys, xs = np.where(left_end_prob[...,0] > end_thr)
         for y0, x0 in zip(ys.tolist(), xs.tolist()):
-            ex = int(round((x0 + float(left_point[y0, x0, 0])) * scale_x))
-            ey = int(round((y0 + float(left_point[y0, x0, 1])) * scale_y))
+            cx = int(round((x0 + float(center_point[y0, x0, 0])) * scale_x))
+            cy = int(round((y0 + float(center_point[y0, x0, 1])) * scale_y))
+            ex = int(round(cx + float(left_point[y0, x0, 0]) * scale_x))
+            ey = int(round(cy + float(left_point[y0, x0, 1]) * scale_y))
             if 0 <= ex < w and 0 <= ey < h:
                 cv2.circle(seg_panel, (ex, ey), 5, (0, 255, 0), 1)  # end: empty
         
         ys, xs = np.where(right_end_prob[...,0] > end_thr)
         for y0, x0 in zip(ys.tolist(), xs.tolist()):
-            ex = int(round((x0 + float(right_point[y0, x0, 0])) * scale_x))
-            ey = int(round((y0 + float(right_point[y0, x0, 1])) * scale_y))
+            cx = int(round((x0 + float(center_point[y0, x0, 0])) * scale_x))
+            cy = int(round((y0 + float(center_point[y0, x0, 1])) * scale_y))
+            ex = int(round(cx + float(right_point[y0, x0, 0]) * scale_x))
+            ey = int(round(cy + float(right_point[y0, x0, 1]) * scale_y))
             if 0 <= ex < w and 0 <= ey < h:
                 cv2.circle(seg_panel, (ex, ey), 5, (255, 0, 0), 1)  # end: empty
 
@@ -360,8 +376,8 @@ class GeneratePolylineInstances:
             pts = poly_info['points'] # (N, 2) Normalized Coords (0~1)
             
             pts_pixel = (pts * np.array([W, H])).astype(np.int32)
-            # if len(pts_pixel) < 30:
-            #     continue
+            if len(pts_pixel) < 30:
+                continue
             
             color = self.color_map_bgr.get(cat, (255, 255, 255))
             cv2.polylines(vis_img, [pts_pixel], isClosed=False, color=color, thickness=2)

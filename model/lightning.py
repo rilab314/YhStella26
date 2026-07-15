@@ -13,11 +13,16 @@ from util.compare_iou import compute_iou_metrics
 
 
 def match_name_keywords(n, name_keywords):
-    out = False
-    for b in name_keywords:
-        if b in n:
-            break
-    return out
+    return any(keyword in n for keyword in name_keywords)
+
+
+def get_optional_submodule(module, module_path):
+    current = module
+    for attr in module_path.split("."):
+        if not hasattr(current, attr):
+            return None
+        current = getattr(current, attr)
+    return current
 
 
 class LightningModel(pl.LightningModule):
@@ -33,8 +38,6 @@ class LightningModel(pl.LightningModule):
             postproc = build_instance(val['module_name'], val['class_name'], cfg)
             postprocessors[key] = postproc
         model = LightningModel(cfg, model, criterion)
-        device = torch.device(cfg.runtime.device)
-        model.to(device)
         return model
 
     def __init__(self, cfg, model=None, criterion=None, postprocessors=None):
@@ -49,8 +52,23 @@ class LightningModel(pl.LightningModule):
         self.visualizer = TargetLogitVisualizer(self.cfg.dataset.labels)
         n_parameters = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
         print(f"[LightningModel] Number of params: {n_parameters}")
-        for name, module in self.model.named_modules():
-            if name in ("backbone.0._model.norm", "backbone.0._model.head"):
+        backbone = getattr(self.model, "backbone", None)
+        if backbone is not None:
+            backbone_freeze_paths = self.cfg.training.get(
+                "backbone_freeze_paths",
+                [
+                    "_model.norm",
+                    "_model.head",
+                    "_model.conv_head",
+                    "model.norm",
+                    "model.head",
+                    "model.conv_head",
+                ],
+            )
+            for module_path in backbone_freeze_paths:
+                module = get_optional_submodule(backbone, module_path)
+                if module is None:
+                    continue
                 for p in module.parameters():
                     p.requires_grad = False
         self.val_results = None
@@ -85,13 +103,14 @@ class LightningModel(pl.LightningModule):
         total_loss = sum(loss_dict[k] * self.loss_weights.get(k, 0) for k in loss_dict)
         self.log(f"val_total_loss", total_loss, prog_bar=False, batch_size=self.cfg.training.batch_size, sync_dist=True)
         _, line_instances = self.eval_step(outputs, targets, self.current_epoch)
-        # TODO: how to compute loss between instance(model output) and np data(label)
-        if (batch_idx + 1) % self.vlog_frame_interval == 0:
+        if self.trainer.is_global_zero and (batch_idx + 1) % self.vlog_frame_interval == 0:
             self.save_visual_log(outputs[0], targets[0], line_instances[0], self.current_epoch)
             self.save_json_log(outputs[0], targets[0], self.current_epoch)
         return total_loss
     
     def save_visual_log(self, output, target, line_instance, epoch):
+        if not self.trainer.is_global_zero:
+            return
         image_name = target['filename']
         with_img = cv2.imread(image_name)
 
@@ -153,6 +172,8 @@ class LightningModel(pl.LightningModule):
         return metrics, line_instances
 
     def save_json_log(self, output, target, epoch):
+        if not self.trainer.is_global_zero:
+            return
         json_name = target['filename']
         pred_instances = self.instance_generator([output])[0]
         json_save_path = os.path.join(self.cfg.runtime.output_dir, 'vlog_json', f'ep{epoch}_{json_name.split("/")[-1]}'.replace('.png', '.json'))

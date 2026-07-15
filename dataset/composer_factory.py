@@ -27,8 +27,10 @@ class HorizontalFlip:
             image = image[:, ::-1, :].copy()
             # 라벨 배열 순서 좌우 반전 (H/4, W/4, 9)
             labels = labels[:, ::-1, :].copy()
-            # 0, 2, 4번 채널(x 좌표) 변환: x_new = 1.0 - x_old
-            labels[:, :, [0, 2, 4]] = 1.0 - labels[:, :, [0, 2, 4]]
+            # center x는 좌표 반전, left/right x는 단위벡터 성분 부호 반전
+            labels[:, :, 0] = 1.0 - labels[:, :, 0]
+            labels[:, :, 2] = -labels[:, :, 2]
+            labels[:, :, 4] = -labels[:, :, 4]
         return image, labels
 
 
@@ -42,6 +44,8 @@ class VerticalFlip:
             image = image[::-1, :, :].copy()
             # 라벨 배열 순서 상하 반전
             labels = labels[::-1, :, :].copy()
-            # 1, 3, 5번 채널(y 좌표) 변환: y_new = 1.0 - y_old
-            labels[:, :, [1, 3, 5]] = 1.0 - labels[:, :, [1, 3, 5]]
+            # center y는 좌표 반전, left/right y는 단위벡터 성분 부호 반전
+            labels[:, :, 1] = 1.0 - labels[:, :, 1]
+            labels[:, :, 3] = -labels[:, :, 3]
+            labels[:, :, 5] = -labels[:, :, 5]
         return image, labels

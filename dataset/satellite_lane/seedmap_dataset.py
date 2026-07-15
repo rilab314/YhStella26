@@ -19,13 +19,12 @@ class SeedNpyDataset(Dataset):
     @staticmethod
     def build_from_cfg(cfg, split):
         augment = Composer(cfg, split)
-        dataset = SeedNpyDataset(cfg.dataset.path, cfg.dataset.num_classes, cfg.runtime.device, split=split, augment=augment)
+        dataset = SeedNpyDataset(cfg.dataset.path, cfg.dataset.labels, cfg.dataset.num_classes, split=split, augment=augment)
         return dataset
 
-    def __init__(self, dataset_path, num_classes, device, split: str, augment):
+    def __init__(self, dataset_path, classes, num_classes, split: str, augment):
         self.root_path = dataset_path
         self.split = split
-        self.device = torch.device(device)
         self.image_dir = str(os.path.join(dataset_path, self.split, 'image'))
         self.label_dir = str(os.path.join(dataset_path, self.split, 'label'))
         self.label_inst_dir = str(os.path.join(dataset_path, self.split, 'json'))
@@ -36,6 +35,7 @@ class SeedNpyDataset(Dataset):
         self.augment = augment
         self.num_classes = num_classes
         self.transform = transforms.Compose([transforms.ToTensor()])
+        self.category_dict = {road_class['category_id']: i for i, road_class in enumerate(classes)}
 
     def __len__(self):
         return len(self.image_files)
@@ -50,7 +50,7 @@ class SeedNpyDataset(Dataset):
         
         if isinstance(image, np.ndarray):
             image = self.transform(image)
-        labels_tensor = torch.as_tensor(labels, dtype=torch.float32, device=self.device)
+        labels_tensor = torch.as_tensor(labels, dtype=torch.float32)
 
         target_dict = {
             "center_point": labels_tensor[:, :, :2],
@@ -88,8 +88,12 @@ class SeedNpyDataset(Dataset):
             inst_label = json.load(f)
         
         for inst in inst_label:
-            inst['label'] = int(inst['label'])
-            inst['points'] = np.array(inst['points'])
+            if 'category_id' not in inst.keys():
+                continue
+            if inst['category_id'] not in self.category_dict.keys():
+                continue
+            inst['label'] = int(self.category_dict[inst['category_id']]) # todo
+            inst['points'] = np.array(inst['image_points'])
         return inst_label
 
     def load_numpy_labels(self, idx):
