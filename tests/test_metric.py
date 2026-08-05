@@ -1,0 +1,96 @@
+"""인스턴스 CCQ 지표 검증 (impl_plan M7·11절)."""
+
+import numpy as np
+
+from configs.exp_synthetic import get_config
+from stella.builder import build_instance
+
+
+def make_metric(**overrides):
+    cfg = get_config()
+    for key, value in overrides.items():
+        setattr(cfg.eval, key, value)
+    return build_instance(cfg.eval, cfg)
+
+
+def line(x0: float, x1: float, y: float, label: int = 3) -> dict:
+    return {"class": label, "points": np.array([[x0, y], [x1, y]], dtype=np.float32)}
+
+
+def test_exact_reproduction_scores_one():
+    metric = make_metric()
+    truth = [line(10, 500, 100), line(10, 500, 300, label=5)]
+    metric.update([dict(item) for item in truth], truth)
+    result = metric.compute()
+    assert float(result["f1"]) == 1.0
+    assert float(result["precision"]) == 1.0 and float(result["recall"]) == 1.0
+    assert float(result["coverage"]) == 1.0 and float(result["correctness"]) == 1.0
+    assert float(result["frag"]) == 1.0
+    assert float(result["rms"]) < 1e-6
+
+
+def test_missing_prediction_is_false_negative():
+    metric = make_metric()
+    metric.update([], [line(10, 500, 100)])
+    result = metric.compute()
+    assert float(result["recall"]) == 0.0
+    assert float(result["coverage"]) == 0.0
+
+
+def test_fragmented_prediction_gives_tp_and_redundant_fp():
+    """조각난 예측: 대표 조각 하나가 TP, 나머지는 GT 위에 있으므로 redundant FP."""
+    metric = make_metric()
+    truth = [line(0, 400, 100)]
+    pieces = [line(0, 260, 100), line(270, 400, 100)]
+    metric.update(pieces, truth)
+    result = metric.compute()
+    assert float(result["f1"]) > 0.0
+    assert float(result["fp_redundant"]) == 1.0
+    assert float(result["fp_spurious"]) == 0.0
+    assert float(result["frag"]) == 2.0  # GT 하나를 두 조각이 덮는다
+    assert float(result["coverage"]) > 0.95  # 커버리지는 조각남을 벌하지 않는다
+
+
+def test_line_drawn_off_the_gt_is_spurious_fp():
+    metric = make_metric()
+    metric.update([line(10, 500, 400)], [line(10, 500, 100)])
+    result = metric.compute()
+    assert float(result["fp_spurious"]) == 1.0
+    assert float(result["fp_redundant"]) == 0.0
+    assert float(result["precision"]) == 0.0
+
+
+def test_hallucinated_bridge_lowers_correctness():
+    """실제로 끊긴 곳을 이어버린 예측은 그 구간이 어떤 버퍼에도 안 들어가 C2가 떨어진다."""
+    metric = make_metric()
+    truth = [line(0, 150, 100), line(450, 600, 100)]
+    metric.update([line(0, 600, 100)], truth)
+    result = metric.compute()
+    assert float(result["correctness"]) < 0.6
+    assert float(result["fp_spurious"]) == 1.0
+
+
+def test_short_offset_is_still_matched_within_buffer():
+    metric = make_metric(buffer_rho=12.0)
+    metric.update([line(10, 500, 106)], [line(10, 500, 100)])
+    result = metric.compute()
+    assert float(result["f1"]) == 1.0
+    assert 5.5 < float(result["rms"]) < 6.5
+
+
+def test_class_mismatch_is_not_matched():
+    metric = make_metric()
+    metric.update([line(10, 500, 100, label=7)], [line(10, 500, 100, label=3)])
+    result = metric.compute()
+    assert float(result["f1"]) == 0.0
+    assert float(result["fp_redundant"]) == 1.0  # 위치는 맞으니 spurious 는 아니다
+
+
+def test_per_class_keys_only_for_present_classes():
+    metric = make_metric()
+    truth = [line(10, 500, 100, label=3), line(10, 500, 300, label=9)]
+    metric.update([dict(item) for item in truth], truth)
+    result = metric.compute()
+    assert "f1/lane_line" in result and "f1/stop_line" in result
+    assert "f1/bicycle_lane" not in result
+    assert float(result["f1_macro"]) == 1.0

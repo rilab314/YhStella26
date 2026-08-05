@@ -6,3 +6,8 @@ dist
 *_out.*
 config/*.yaml
 .python-version
+docs
+.claude/settings.local.json
+
+.venv
+viz_gt_out
