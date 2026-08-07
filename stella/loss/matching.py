@@ -73,18 +73,17 @@ def _ambiguity(totals: torch.Tensor, order: torch.Tensor) -> torch.Tensor:
 
 
 def pad_branches(
-    gt_dir: torch.Tensor, gt_t: torch.Tensor, valid: torch.Tensor, num_slots: int
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """D != R 이면 분기 축을 R로 맞춘다 (부족하면 무효 분기로 채우고, 넘치면 자른다)."""
+    gt_dir: torch.Tensor, valid: torch.Tensor, num_slots: int
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """D != R 이면 분기 축을 R로 맞춘다 — R > D ablation에서만 무효 분기가 생긴다 (8.3절)."""
     branches = gt_dir.shape[1]
     if branches == num_slots:
-        return gt_dir, gt_t, valid
+        return gt_dir, valid
     if branches > num_slots:
-        return gt_dir[:, :num_slots], gt_t[:, :num_slots], valid[:, :num_slots]
+        return gt_dir[:, :num_slots], valid[:, :num_slots]
     pad = num_slots - branches
     cells = gt_dir.shape[0]
     return (
         torch.cat([gt_dir, gt_dir.new_zeros((cells, pad, 2))], dim=1),
-        torch.cat([gt_t, gt_t.new_zeros((cells, pad))], dim=1),
         torch.cat([valid, valid.new_zeros((cells, pad))], dim=1),
     )

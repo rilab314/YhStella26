@@ -39,7 +39,12 @@ class MultiHeadAttention(nn.Module):
         key_pos: torch.Tensor | None = None,
         mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        """query: (B, Lq, D), key_value: (B, Lk, D), mask: (B, 1, 1, Lk) bool = 참여 여부."""
+        """query: (B, Lq, D), key_value: (B, Lk, D), mask: (B, 1, 1, Lk) bool = 참여 여부.
+
+        k·v proj 를 gather 앞으로 빼면 (N, w^2, D) 활성 하나가 줄지만, gather 가 k·v 둘로
+        늘어 backward 의 scatter-add 가 배가 된다. 실측상 재계산(9.4절)과 겹치는 이득이라
+        메모리 -0.27 GiB 에 step +33% 였다 — 채택하지 않았다.
+        """
         q = self._split_heads(self.q_proj(query))
         k = self._split_heads(self.k_proj(key_value))
         v = self._split_heads(self.v_proj(key_value))

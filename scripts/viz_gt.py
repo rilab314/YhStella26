@@ -46,38 +46,24 @@ def draw_samples(dataset: GridDatasetBase, cfg, out_dir: Path, count: int) -> fl
 
 
 def write_sample(sample: dict, out_dir: Path, idx: int, stride: int) -> None:
+    """GT는 모델 출력과 격자·형태가 같아(설계 방침 1) 유도 없이 그리기 함수에 바로 넣는다."""
     import cv2
 
     image = sample["image"].numpy()
     positive = sample["class_map"].numpy() > 0
-    coord = sample["coord_map"].numpy()
-    conn = sample["conn_cells"].numpy()
+    conn_dirs = sample["conn_dirs"].numpy()
+    exist = (np.linalg.norm(conn_dirs, axis=-1) > 0.5).astype(np.float32)
     pages = {
         "heat": viz.draw_heatmap(image, positive.astype(np.float32)),
         "class": viz.draw_class_map(image, sample["class_map"].numpy(), positive, stride),
-        "slot": viz.draw_slots(image, coord, *_gt_slots(conn, coord, stride), positive, stride),
+        "slot": viz.draw_slots(
+            image, sample["coord_map"].numpy(), conn_dirs, exist, positive, stride
+        ),
         "inst": viz.draw_instances(image, sample["instances"]),
         "end": viz.draw_heatmap(image, sample["end_map"].numpy()),
     }
     for name, page in pages.items():
         cv2.imwrite(str(out_dir / f"{idx:03d}_{name}.png"), page[..., ::-1])
-
-
-def _gt_slots(conn: np.ndarray, coord: np.ndarray, stride: int) -> tuple[np.ndarray, np.ndarray]:
-    """GT 이웃 셀 좌표에서 방향·존재를 유도해 예측과 같은 형태로 만든다 (6.2절 유도식)."""
-    side, degree = conn.shape[0], conn.shape[2]
-    rows, cols = np.meshgrid(np.arange(side), np.arange(side), indexing="ij")
-    origin = np.stack([cols + 0.5, rows + 0.5], axis=-1)[:, :, None, :]
-    target_ij = np.clip(conn, 0, side - 1)
-    target = (
-        np.stack([target_ij[..., 1], target_ij[..., 0]], axis=-1)
-        + coord[target_ij[..., 0], target_ij[..., 1]]
-    )
-    delta = target - origin
-    norm = np.linalg.norm(delta, axis=-1, keepdims=True)
-    direction = delta / np.maximum(norm, 1e-6)
-    exist = (conn[..., 0] >= 0).astype(np.float32)
-    return direction.reshape(side, side, degree, 2), exist
 
 
 if __name__ == "__main__":

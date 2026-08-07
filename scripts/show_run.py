@@ -15,10 +15,10 @@ LOSS_COLUMNS = (
     ("train/heatmap/focal", "heat"),
     ("train/self_slot/class", "cls"),
     ("train/self_slot/coord", "coord"),
+    ("train/self_slot/end", "end"),
     ("train/conn/exist", "exist"),
     ("train/conn/dir", "dir"),
-    ("train/conn/t", "t"),
-    ("train/conn/switch_rate", "switch"),
+    ("train/conn/match_ambiguity", "ambig"),
 )
 VAL_COLUMNS = (
     ("val/total", "vtotal"),

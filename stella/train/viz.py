@@ -50,13 +50,12 @@ def draw_slots(
     exist_thresh: float = 0.5,
     line_len: float = 6.0,
 ) -> np.ndarray:
-    """self 좌표 = 검은 점, 연결 슬롯 방향 = R/G/B 선 (셀 중심에서 시작)."""
+    """self 좌표 = 검은 점, 연결 슬롯 방향 = R/G 선 — 둘 다 자기 점에서 (6.1절 원점 규약)."""
     canvas = to_uint8_image(image)
     for i, j in np.argwhere(draw_mask):
         point = (np.array([j, i]) + self_coord[i, j]) * stride
         cv2.circle(canvas, tuple(point.astype(int)), 1, (0, 0, 0), -1)
-        origin = (np.array([j, i]) + 0.5) * stride
-        _draw_slot_lines(canvas, origin, conn_dir[i, j], exist_prob[i, j], exist_thresh, line_len)
+        _draw_slot_lines(canvas, point, conn_dir[i, j], exist_prob[i, j], exist_thresh, line_len)
     return canvas
 
 

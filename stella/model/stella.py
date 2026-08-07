@@ -9,6 +9,7 @@ from dataclasses import dataclass, fields
 
 import torch
 from torch import nn
+from torch.utils.checkpoint import checkpoint
 
 from stella.builder import build_instance
 from stella.model.backbone import Backbone
@@ -26,9 +27,9 @@ class ModelOutput:
     node_mask: torch.Tensor  # (B, L, L) bool
     class_logit: torch.Tensor  # (B, L, L, C)
     self_coord: torch.Tensor  # (B, L, L, 2) in [0, 1], 원점 = 셀 좌상단
+    end_logit: torch.Tensor  # (B, L, L) — "이 셀이 사슬의 끝", end_map 직접 감독 (9차 개정)
     exist_logit: torch.Tensor  # (B, L, L, R)
-    conn_dir: torch.Tensor  # (B, L, L, R, 2) 단위벡터, 원점 = 셀 중심
-    t_logit: torch.Tensor  # (B, L, L, R)
+    conn_dir: torch.Tensor  # (B, L, L, R, 2) 단위벡터, 원점 = 자기 노드 점 (6.1절)
 
     def __getitem__(self, index: int) -> "ModelOutput":
         return ModelOutput(**{f.name: getattr(self, f.name)[index] for f in fields(self)})
@@ -51,6 +52,7 @@ class StellaModel(nn.Module):
         window_size: int,
         ffn_dim: int,
         dropout: float,
+        grad_checkpoint: bool,
         num_classes: int,
         grid_size: int,
     ):
@@ -60,6 +62,7 @@ class StellaModel(nn.Module):
         self.selector = selector
         self.num_conn_slots = num_conn_slots
         self.window_size = window_size
+        self.grad_checkpoint = grad_checkpoint
         self.num_classes = num_classes
         self.grid_size = grid_size
         self.heatmap_head = HeatmapHead(d_model=d_model)
@@ -102,6 +105,7 @@ class StellaModel(nn.Module):
             window_size=module_cfg.window_size,
             ffn_dim=module_cfg.ffn_dim,
             dropout=module_cfg.dropout,
+            grad_checkpoint=module_cfg.grad_checkpoint,
             num_classes=cfg.data.num_classes,
             grid_size=cfg.data.grid_size,
         )
@@ -126,8 +130,15 @@ class StellaModel(nn.Module):
         positions = torch.stack([cells[:, 1], cells[:, 0]], dim=-1)  # (x, y) 순서
         neighbors = window_neighbors(cells, self.grid_size, self.window_size)
         for block in self.blocks:
-            tokens = block(tokens, embeddings, positions, neighbors)
+            tokens = self._run_block(block, tokens, embeddings, positions, neighbors)
         return tokens, embeddings
+
+    def _run_block(self, block: StellaBlock, *inputs: torch.Tensor) -> torch.Tensor:
+        """윈도우 층만 재계산한다 — 활성의 대부분이 여기 (N, w^2, D) gather에 있고,
+        재계산 비용은 gather + 어텐션뿐이라 싸다. global 층은 kv가 (N, D) 하나뿐이라 뺀다."""
+        if self.grad_checkpoint and self.training and block.kind == "window":
+            return checkpoint(block, *inputs, use_reentrant=False)
+        return block(*inputs)
 
     def _empty_output(self, heatmap_logit: torch.Tensor) -> ModelOutput:
         """dense 버퍼는 항상 fp32다 — 손실을 fp32로 승격해서 계산하기 때문(8.5절)."""
@@ -141,23 +152,23 @@ class StellaModel(nn.Module):
             ),
             class_logit=zeros((batch, side, side, classes)),
             self_coord=zeros((batch, side, side, 2)),
+            end_logit=zeros((batch, side, side)),
             exist_logit=zeros((batch, side, side, slots)),
             conn_dir=zeros((batch, side, side, slots, 2)),
-            t_logit=zeros((batch, side, side, slots)),
         )
 
     def _scatter(
         self, output: ModelOutput, index: int, cells: torch.Tensor, tokens: torch.Tensor
     ) -> None:
         rows, cols = cells[:, 0], cells[:, 1]
-        class_logit, self_coord = self.self_head(tokens[:, 0])
-        exist_logit, conn_dir, t_logit = self.conn_head(tokens[:, 1:])
+        class_logit, self_coord, end_logit = self.self_head(tokens[:, 0])
+        exist_logit, conn_dir = self.conn_head(tokens[:, 1:])
         output.node_mask[index, rows, cols] = True
         output.class_logit[index, rows, cols] = class_logit.float()
         output.self_coord[index, rows, cols] = self_coord.float()
+        output.end_logit[index, rows, cols] = end_logit.float()
         output.exist_logit[index, rows, cols] = exist_logit.float()
         output.conn_dir[index, rows, cols] = conn_dir.float()
-        output.t_logit[index, rows, cols] = t_logit.float()
 
 
 def _detach(tensor: torch.Tensor) -> torch.Tensor:

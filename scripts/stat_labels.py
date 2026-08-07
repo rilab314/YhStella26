@@ -1,7 +1,7 @@
-"""SEED-MAP 라벨 통계 재집계 (impl_plan 6.7.5절, M9).
+"""SEED-MAP 라벨 통계 재집계 (impl_plan 6.7.5절, M10).
 
-전체 데이터로 ① 6.7.1 표에 없는 category_id, ② `n_max`가 충분한지,
-③ 차수 > D 빈도, ④ 인코딩 시간을 다시 잰다.
+전체 데이터로 ① 6.7.1 표에 없는 category_id, ② `n_max`가 충분한지, ③ 새 인코더 기준
+사슬 통계(사슬 길이·1셀 사슬·선 소멸·소유권 손실·건너뛴 간선), ④ 인코딩 시간을 잰다.
 
 사용: python scripts/stat_labels.py --split train --limit 500 --workers 8
 """
@@ -73,19 +73,14 @@ def _scan_one(index: int) -> dict:
 
 
 def _sample_record(dataset, instances, target, label_ms, encode_ms) -> dict:
-    class_map = target["class_map"]
-    degree = (target["conn_cells"][..., 0] >= 0).sum(axis=-1)[class_map > 0]
-    graph = {int(k.split("_")[1]): v for k, v in dataset.encoder.stats.items() if "degree_" in k}
     return {
-        "graph_degree": Counter(graph),
         "ends": int(target["end_map"].sum()),
-        "nodes": int((class_map > 0).sum()),
+        "nodes": int((target["class_map"] > 0).sum()),
         "instances": len(instances),
         "points": [int(len(item["points"])) for item in instances],
         "classes": Counter(int(item["class"]) for item in instances),
-        "degree": Counter(degree.tolist()),
         "unknown": Counter(dataset.unknown_categories),
-        "truncated": int(dataset.encoder.stats.get("truncated_cells", 0)),
+        "encoder": Counter(dataset.encoder.stats),
         "label_ms": label_ms,
         "encode_ms": encode_ms,
     }
@@ -105,30 +100,35 @@ def report(records: list[dict], cfg) -> None:
     print(
         f"[점/폴리라인] 중앙 {np.median(points):.0f}  p99 {_p(points, 99):.0f}  최대 {points.max()}"
     )
-    _report_degree(records, cfg)
+    _report_chains(records)
     _report_classes(records)
     _report_timing(records)
 
 
-def _report_degree(records: list[dict], cfg) -> None:
-    """그래프 차수(종점 정리 전)와 저장된 conn 수(정리 후)를 따로 본다 — 뜻이 다르다."""
-    graph: Counter = Counter()
-    stored: Counter = Counter()
+def _report_chains(records: list[dict]) -> None:
+    """새 인코더(선 단위 사슬) 기준 M10 통계 — 결정 33의 '드물다' 확인도 여기서 한다."""
+    enc: Counter = Counter()
     for record in records:
-        graph.update(record["graph_degree"])
-        stored.update(record["degree"])
-    print(f"[그래프 차수] {_ratio_line(graph)}   (D = {cfg.data.max_degree}, 종점 정리 전)")
-    print(f"[저장 conn 수] {_ratio_line(stored)}   (종점 셀은 나가는 연결이 없어 0이 된다)")
-    total = sum(graph.values())
+        enc.update(record["encoder"])
+    chains = max(enc["chains"], 1)
+    lines = max(enc["lines"], 1)
+    edges = max(enc["edges"], 1)
+    nodes = max(enc["nodes"], 1)
     ends = sum(r["ends"] for r in records)
-    truncated = sum(r["truncated"] for r in records)
-    print(f"[종점 셀]     {ends} ({ends / max(total, 1) * 100:.2f}% of nodes)")
-    print(f"[차수 초과]   절단 셀 {truncated} ({truncated / max(total, 1) * 100:.3f}% of nodes)")
-
-
-def _ratio_line(counter: Counter) -> str:
-    total = max(sum(counter.values()), 1)
-    return "  ".join(f"{k}: {v / total * 100:.2f}%" for k, v in sorted(counter.items()))
+    print(
+        f"[사슬]        {enc['chains']}  평균 길이 {enc['chain_cells'] / chains:.1f}셀  "
+        f"1셀 사슬 {enc['one_cell_chains'] / chains * 100:.2f}%"
+    )
+    print(
+        f"[선 소멸]     {enc['lines_vanished']} ({enc['lines_vanished'] / lines * 100:.2f}% of "
+        f"lines — 2셀 이하 또는 셀 전량 상실)"
+    )
+    print(
+        f"[셀 손실]     소유권 {enc['cells_lost']} ({enc['cells_lost'] / nodes * 100:.2f}% of "
+        f"nodes)  스침 제외 {enc['cells_scraped']}"
+    )
+    print(f"[건너뛴 간선] {enc['skip_edges']} ({enc['skip_edges'] / edges * 100:.2f}% of edges)")
+    print(f"[끝 셀]       {ends} ({ends / nodes * 100:.2f}% of nodes)")
 
 
 def _report_classes(records: list[dict]) -> None:

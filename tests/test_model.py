@@ -1,6 +1,7 @@
-"""Neck·모델·손실의 shape과 계약 검증 (impl_plan M2·M5)."""
+"""Neck·모델·손실의 shape과 계약 검증 (impl_plan M2·M11)."""
 
 import torch
+from helpers import gt_model_output
 
 from configs.exp_synthetic import get_config
 from stella.builder import build_instance
@@ -18,7 +19,7 @@ def make_targets(batch: int = 2) -> dict:
         image_size=IMAGE,
         grid_stride=4,
         num_classes=12,
-        max_degree=3,
+        max_degree=2,
         encode_supersample=1,
         augment=False,
         limit=batch,
@@ -53,19 +54,19 @@ def test_criterion_returns_all_logged_keys():
     cfg.data.image_size = IMAGE
     criterion = build_instance(cfg.loss, cfg)
     targets = make_targets()
-    output = _fake_output(targets, cfg)
+    output = _imperfect_output(targets, cfg)
     losses = criterion(output, targets)
     expected = {
         "heatmap/focal",
         "heatmap/total",
         "self_slot/class",
         "self_slot/coord",
+        "self_slot/end",
+        "self_slot/total",
         "conn/exist",
         "conn/dir",
-        "conn/t",
-        "conn/switch_rate",
+        "conn/match_ambiguity",
         "conn/total",
-        "self_slot/total",
         "total",
     }
     assert expected <= set(losses)
@@ -73,20 +74,47 @@ def test_criterion_returns_all_logged_keys():
 
 
 def test_perfect_prediction_drives_losses_to_zero():
-    """GT를 모델 출력 형식으로 주입하면 좌표·방향·종점 손실이 0에 수렴한다."""
+    """GT를 모델 출력 형식으로 주입하면 좌표·방향·끝 손실이 0에 수렴한다 (M11 판정)."""
     cfg = get_config()
     cfg.data.image_size = IMAGE
     criterion = build_instance(cfg.loss, cfg)
     targets = make_targets(1)
-    output = _fake_output(targets, cfg, perfect=True)
+    output = gt_model_output(targets, cfg.data.num_classes, cfg.model.num_conn_slots)
     losses = criterion(output, targets)
     assert float(losses["self_slot/coord"]) < 1e-6
-    assert float(losses["conn/dir"]) < 1e-4
     assert float(losses["self_slot/class"]) < 1e-2
+    assert float(losses["self_slot/end"]) < 1e-3
+    assert float(losses["conn/dir"]) < 1e-4
+    assert float(losses["conn/exist"]) < 1e-3
+    assert float(losses["conn/match_ambiguity"]) < 0.05  # 반평행 분기 2개는 배정이 명확하다
 
 
-def _fake_output(targets: dict, cfg, perfect: bool = False):
-    from stella.loss.conn import derive_branches
+def test_grad_checkpoint_leaves_gradients_unchanged():
+    """윈도우 층 재계산은 메모리만 바꾼다 — 기울기가 달라지면 안 된다."""
+    cfg = get_config()
+    cfg.data.image_size = IMAGE
+    cfg.model.n_max = 200
+    targets = make_targets(1)
+    model = build_instance(cfg.model, cfg).train()
+    gradients = []
+    for flag in (False, True):
+        model.grad_checkpoint = flag
+        model.zero_grad(set_to_none=True)
+        output = model(targets["image"], gt_positive=targets["class_map"] > 0)
+        (output.conn_dir.square().sum() + output.class_logit.square().sum()).backward()
+        gradients.append(
+            {n: p.grad.clone() for n, p in model.named_parameters() if p.grad is not None}
+        )
+    assert gradients[0] and gradients[0].keys() == gradients[1].keys()
+    for name, grad in gradients[0].items():
+        # 텐서 스케일 대비로 본다 — CUDA에서는 완전히 같고, CPU는 누적 순서가 달라
+        # fp32 잡음(~3e-6)이 남는다. 재계산이 깨지면 오차는 이보다 몇 자릿수 커진다.
+        scale = grad.abs().max().clamp(min=1e-9)
+        assert float((grad - gradients[1][name]).abs().max() / scale) < 1e-4, name
+
+
+def _imperfect_output(targets: dict, cfg):
+    """전부 0에 가까운 미숙한 예측 — 손실 키·유한성 확인용."""
     from stella.model.stella import ModelOutput
 
     shape = targets["class_map"].shape
@@ -97,20 +125,9 @@ def _fake_output(targets: dict, cfg, perfect: bool = False):
         node_mask=positive.clone(),
         class_logit=torch.zeros((*shape, classes)),
         self_coord=torch.zeros((*shape, 2)),
+        end_logit=torch.zeros(shape),
         exist_logit=torch.zeros((*shape, slots)),
         conn_dir=torch.zeros((*shape, slots, 2)),
-        t_logit=torch.zeros((*shape, slots)),
     )
-    if not perfect:
-        output.conn_dir[..., 0] = 1.0
-        return output
-    cells = positive.nonzero(as_tuple=False)
-    gt_dir, gt_t, valid = derive_branches(targets, cells)
-    output.self_coord[positive] = targets["coord_map"][positive]
-    output.class_logit[positive] = (
-        torch.nn.functional.one_hot(targets["class_map"][positive], classes).float() * 20.0
-    )
-    output.conn_dir[positive] = gt_dir[:, :slots]
-    output.exist_logit[positive] = torch.where(valid[:, :slots], 20.0, -20.0)
-    output.t_logit[positive] = torch.where(gt_t[:, :slots] > 0, 20.0, -20.0)
+    output.conn_dir[..., 0] = 1.0
     return output

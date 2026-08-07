@@ -63,6 +63,9 @@ class VizCallback(pl.Callback, Buildable):
             "heat": viz.draw_heatmap(image, probability, self.heat_alpha),
             "class": self._class_page(image, single, probability, node_mask),
             "slot": self._slot_page(image, single, node_mask),
+            "end": viz.draw_heatmap(
+                image, _sigmoid(single.end_logit.numpy()) * node_mask, self.heat_alpha
+            ),
             "inst": viz.draw_instances(image, outputs["decoded"][0]),
             "gt": viz.draw_instances(image, batch["instances"][0]),
         }

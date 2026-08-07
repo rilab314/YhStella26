@@ -22,15 +22,17 @@ class ModuleConfig:
 class DataConfig(ModuleConfig):
     path: str = "stella.data.seedmap"
     name: str = "SeedMapDataset"
+    # 원본 SEED_MAP_v1.1을 {train,val,test}/{image,label} 구조로 재정리한 사본 (6.7.2절, M13)
     root: str = (
-        "/media/humpback/435806fd-079f-4ba1-ad80-109c8f6e2ec0/Ongoing/2026_stella/SEED_MAP_v1.1"
+        "/media/humpback/435806fd-079f-4ba1-ad80-109c8f6e2ec0/Ongoing/2026_stella"
+        "/SEED_MAP_v1.1_splits"
     )
     image_size: int = 768  # SEED-MAP 원본 크기와 동일 — 리사이즈 없음
     grid_stride: int = 4  # 격자 배율 s. L = image_size // grid_stride = 192
     num_classes: int = 12  # 0 = background + 차선 11종 (6.7.1절)
-    batch_size: int = 1
+    batch_size: int = 1  # 확정 — bs=2는 처리량 +16%뿐, accumulate가 유효 배치를 만든다 (9.3절)
     num_workers: int = 8
-    max_degree: int = 3  # D: 셀당 연결 이웃 저장 칸 수. num_conn_slots(R)와 같게
+    max_degree: int = 2  # D: 셀당 GT 분기 수. 선 단위 사슬이라 항상 정확히 2 (6.4절)
     encode_supersample: int = 1  # GT 래스터화 배율. 1 = 픽셀 해상도 (6.4절 A단계)
     cache_gt: str = "val_test"  # "none" | "val_test" | "all" (6.4.1절)
     # 데이터셋 폴더를 건드리지 않도록 캐시는 그 옆에 둔다. 빈 문자열이면 {root}/gt_cache.
@@ -70,14 +72,16 @@ class ModelConfig(ModuleConfig):
     neck: NeckConfig = field(default_factory=NeckConfig)
     d_model: int = 256  # neck·블록·헤드가 공유 — 여기 한 곳에만 둔다
     num_heads: int = 8
-    num_conn_slots: int = 3  # R = 3 (K = 4)
+    num_conn_slots: int = 2  # R = 2 (K = 3) — GT 분기 수와 일치 (결정 1, 10차 개정)
     layers: tuple[str, ...] = ("global", "window", "window", "window", "window", "window")
-    window_size: int = 9  # w
+    # 활성 메모리가 w^2 에 비례하고 실제 연결은 디코더 탐색 반경 2셀 안에서 일어난다.
+    # 실측(n_max 6000, bs 1): 9 -> 7 에서 peak 12.09 -> 9.72 GiB, step 455 -> 291 ms (7.6절).
+    window_size: int = 7  # w
     ffn_dim: int = 1024
     dropout: float = 0.0
+    grad_checkpoint: bool = True  # 윈도우 층만 재계산 (활성의 대부분이 거기 있다, 7.6절)
     node_sampling: str = "gt+pred"  # "gt+pred"(기본) | "gt" (7.4절)
-    # 전체 train 8979장 실측: 평균 2121, p90 3681, p99 5893, **최대 8909**.
-    # 계획서의 8000(샘플 300장 기준)으로는 최대치를 못 담아 GT 셀이 잘린다.
+    # 전체 train 8979장 실측: 평균 2121, p90 3681, p99 5893, 최대 8909 (6.7.5절).
     n_max: int = 9500
     heatmap_thresh: float = 0.3  # tau_h
     dilate: int = 3  # 예측 마스크 팽창: 0 | 3 | 5
@@ -98,6 +102,7 @@ class SelfSlotLossConfig(ModuleConfig):
     name: str = "SelfSlotLoss"
     w_class: float = 1.0
     w_coord: float = 1.0
+    w_end: float = 1.0  # 끝 셀 BCE — end_map 직접 감독 (8.2절, 9차 개정)
 
 
 @dataclass(kw_only=True)
@@ -106,7 +111,6 @@ class ConnLossConfig(ModuleConfig):
     name: str = "ConnLoss"
     w_exist: float = 1.0
     w_dir: float = 1.0
-    w_t: float = 1.0
     match_w_dir: float = 1.0  # lambda_dir — 손실 가중치가 아니라 매칭 비용 계수 (8.3절)
     match_w_exist: float = 1.0  # lambda_e
 
@@ -122,21 +126,25 @@ class LossConfig(ModuleConfig):
 
 @dataclass(kw_only=True)
 class DecodeConfig(ModuleConfig):
+    """사슬 확장 디코더 (9차 개정, 10절).
+
+    임계값들은 학습된 체크포인트로 검증 셋에서 스윕해 확정한다 (13절 남은 확인).
+    구 GraphDecoder의 mutual·w_dist·max_conn_dist·t_thresh는 폐기 — 10절 참고.
+    """
+
     path: str = "stella.decode.graph"
-    name: str = "GraphDecoder"
-    heatmap_thresh: float = 0.3  # tau_h — 노드 후보 (추론 경로)
+    name: str = "ChainDecoder"
+    heatmap_thresh: float = 0.3  # tau_h — 노드 후보 (추론 경로, 7.4절)
     exist_thresh: float = 0.5  # tau_e — 연결 슬롯 존재
-    t_thresh: float = 0.5  # tau_t — 종점 판정
-    # 아래 셋은 SEED-MAP val 6장에 GT를 주입한 스윕으로 정했다 (계획서 초기값은 3.0 / 0.3).
-    # 반경 2.0: 3.0은 평행 차선의 후보를 너무 많이 끌어들여 간선 정확도 0.985 -> 0.967.
-    # w_dist 0: 거리 항을 조금이라도 켜면 0.985 -> 0.953 으로 떨어진다. 방향이 유일한 신호다.
-    max_conn_dist: float = 2.0  # 셀 단위. 연결 후보 탐색 반경
-    cos_thresh: float = 0.7  # 방향 코사인 하한
-    w_cos: float = 1.0
-    w_dist: float = 0.0
-    w_class: float = 1.0  # 클래스 불일치 (종점 슬롯은 면제, 10.3절)
-    mutual: bool = True  # 양방향 확인 요구 여부 (10.4절)
-    min_points: int = 2
+    end_thresh: float = 0.5  # tau_end — 끝 셀 판정 (sigmoid(end_logit)), 사슬 정지 조건
+    radius: int = 2  # 탐색 반경(셀). 5x5 — 교차점에서 잃은 한 칸을 건너뛴다 (6.4절)
+    align_thresh: float = 0.7  # 내 슬롯 방향과 실제 상대 방향의 코사인 하한 (c . u_ab)
+    opp_thresh: float = 0.7  # 마주봄 하한 — -(c . n) >= 이 값 (10.3절)
+    w_opp: float = 1.0  # 후보 비용에서 마주봄 항의 비중
+    min_class_prob: float = 0.1  # 확장 게이트 — 후보의 사슬 클래스 softmax 확률 하한 (10.3절)
+    purity_thresh: float = 0.6  # 사슬 순도 하한 — argmax 클래스 일치 비율. 이하면 사슬 폐기
+    end_extend: float = 1.0  # 끝 셀에서 끝방향 슬롯으로 연장하는 길이(셀) — 10.3절 끝 연장
+    min_points: int = 2  # 이보다 짧은 폴리라인은 버린다 (연장점 포함)
     simplify_tol: float = 0.0  # >0이면 RDP 단순화 (픽셀)
 
 

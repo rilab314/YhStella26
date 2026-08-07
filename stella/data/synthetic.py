@@ -1,7 +1,8 @@
 """개발용 합성 데이터셋 (impl_plan 6.6절).
 
-Y자 분기·다른 클래스 T자 접합·교차·이중선을 의도적으로 섞어 생성한다 —
-6.4절의 지배 클래스·간선 합집합·다른 클래스 종단 규칙을 실전에서 검증하기 위함이다.
+Y자 분기·다른 클래스 T자 접합·교차·이중선·파선을 의도적으로 섞어 생성한다 —
+6.4절의 끝칸 미채움·셀 소유권·건너뛰기·3x3 순위 규칙을 실전에서 검증하기 위함이다.
+곡선이 경계에서 경계로 가로지르므로 X자 교차는 곡선 사이에서 저절로 생긴다.
 """
 
 import cv2
@@ -9,12 +10,15 @@ import numpy as np
 
 from stella.builder import Buildable
 from stella.data.augment import VectorAugment
-from stella.data.encode import GridEncoder
+from stella.data.encode import ChainEncoder
 from stella.data.types import GridDatasetBase, make_sample
 
 SPLIT_SEED = {"train": 1, "val": 2, "test": 3}
 DEFAULT_LENGTH = {"train": 256, "val": 32, "test": 32}
 CURVE_SAMPLES = 24
+DASH_SAMPLES = 200  # 파선용 촘촘한 곡선 샘플 수 — 인접 샘플 간격이 수 픽셀이 되게
+DASH_KEEP_RANGE = (8, 14)  # dash 하나의 샘플 수 (수십 픽셀 길이)
+DASH_GAP_RANGE = (3, 7)  # dash 사이 건너뛰는 샘플 수
 LINE_WIDTH = 2
 DOUBLE_LINE_GAP = 4.0
 BACKGROUND_LEVEL = 0.35
@@ -38,7 +42,7 @@ class SyntheticDataset(GridDatasetBase, Buildable):
         self.image_size = image_size
         self.num_classes = num_classes
         self.length = limit if limit > 0 else DEFAULT_LENGTH[split]
-        self.encoder = GridEncoder(
+        self.encoder = ChainEncoder(
             image_size=image_size,
             grid_stride=grid_stride,
             num_classes=num_classes,
@@ -65,7 +69,10 @@ class SyntheticDataset(GridDatasetBase, Buildable):
         for _ in range(int(rng.integers(3, 7))):
             label = int(rng.integers(1, self.num_classes))
             points = self._random_curve(rng)
-            if rng.random() < 0.35:
+            roll = rng.random()
+            if roll < 0.2:
+                instances.extend(self._dashes(label, rng))
+            elif roll < 0.5:
                 instances.extend(self._double_line(points, label))
             else:
                 instances.append({"class": label, "points": points})
@@ -75,15 +82,26 @@ class SyntheticDataset(GridDatasetBase, Buildable):
                 instances.append(self._junction(points, label, rng))
         return instances
 
-    def _random_curve(self, rng: np.random.Generator) -> np.ndarray:
+    def _random_curve(self, rng: np.random.Generator, samples: int = CURVE_SAMPLES) -> np.ndarray:
         """양 끝이 이미지 경계에 붙은 2차 베지어 곡선."""
         start, end = self._border_point(rng), self._border_point(rng)
         while np.linalg.norm(end - start) < self.image_size * 0.5:
             end = self._border_point(rng)
         middle = (start + end) / 2 + rng.normal(0, self.image_size * 0.12, size=2)
-        t = np.linspace(0.0, 1.0, CURVE_SAMPLES)[:, None]
+        t = np.linspace(0.0, 1.0, samples)[:, None]
         curve = (1 - t) ** 2 * start + 2 * (1 - t) * t * middle + t**2 * end
         return np.clip(curve, 0, self.image_size - 1).astype(np.float32)
+
+    def _dashes(self, label: int, rng: np.random.Generator) -> list[dict]:
+        """파선 — dash마다 별도 인스턴스 = 별도 사슬. 짧은 사슬·끝 연장을 훈련시킨다."""
+        dense = self._random_curve(rng, samples=DASH_SAMPLES)
+        pieces: list[dict] = []
+        cursor = 0
+        while cursor + DASH_KEEP_RANGE[0] <= len(dense):
+            keep = int(rng.integers(*DASH_KEEP_RANGE))
+            pieces.append({"class": label, "points": dense[cursor : cursor + keep]})
+            cursor += keep + int(rng.integers(*DASH_GAP_RANGE))
+        return pieces
 
     def _border_point(self, rng: np.random.Generator) -> np.ndarray:
         size = self.image_size - 1

@@ -1,9 +1,9 @@
-"""연결 손실 — 매칭 + 존재·방향·종점 (impl_plan 8.3~8.4절).
+"""연결 손실 — 매칭 + 존재·방향 (impl_plan 8.3~8.4절, 10차 개정).
 
-GT는 이웃 셀 좌표만 준다. 방향과 종점 라벨은 여기서 6.2절 식으로 유도한다:
-
-    d_gt(a->b) = normalize(p_full(b) - o(a))
-    t_gt(a->b) = 1[end(b) = 1 or Y(b) != Y(a)]
+GT가 연결 방향 2개를 직접 저장하므로(`conn_dirs`) 여기서는 아무것도 유도하지 않는다 —
+저장된 방향 D개와 예측 슬롯 R개를 매칭해 손실을 줄 뿐이다. 기본 설정은 R = D = 2라
+모든 순열이 모든 슬롯을 쓰고 무매칭 슬롯이 없다. 거짓 양성 셀은 전 슬롯 존재 0으로만
+감독한다.
 """
 
 import torch
@@ -12,7 +12,7 @@ import torch.nn.functional as F
 from stella.loss.criterion import LossModule
 from stella.loss.matching import assign_slots, pad_branches
 
-NORMALIZE_EPS = 1e-6
+VALID_NORM_THRESH = 0.5  # conn_dirs는 단위벡터, 빈 분기는 0 — 노름으로 유효를 가른다
 
 
 class ConnLoss(LossModule):
@@ -23,7 +23,6 @@ class ConnLoss(LossModule):
             num_conn_slots=cfg.model.num_conn_slots,
             w_exist=module_cfg.w_exist,
             w_dir=module_cfg.w_dir,
-            w_t=module_cfg.w_t,
             match_w_dir=module_cfg.match_w_dir,
             match_w_exist=module_cfg.match_w_exist,
         )
@@ -34,7 +33,6 @@ class ConnLoss(LossModule):
         num_conn_slots: int,
         w_exist: float,
         w_dir: float,
-        w_t: float,
         match_w_dir: float,
         match_w_exist: float,
     ):
@@ -42,49 +40,37 @@ class ConnLoss(LossModule):
         self.num_conn_slots = num_conn_slots
         self.w_exist = w_exist
         self.w_dir = w_dir
-        self.w_t = w_t
         self.match_w_dir = match_w_dir
         self.match_w_exist = match_w_exist
 
     def forward(self, output, targets: dict) -> dict[str, torch.Tensor]:
         supervised = (targets["class_map"] > 0) & output.node_mask
-        cells = supervised.nonzero(as_tuple=False)
-        if cells.shape[0] == 0:
+        if not bool(supervised.any()):
             return self._empty(output)
-        branches = self._gather_branches(output, targets, supervised, cells)
+        gt_dir = targets["conn_dirs"][supervised].float()  # (P, D, 2)
+        valid = gt_dir.norm(dim=-1) > VALID_NORM_THRESH  # 항상 2개지만 R > D ablation 대비
+        gt_dir, valid = pad_branches(gt_dir, valid, self.num_conn_slots)
+        pred_dir = output.conn_dir[supervised].float()
+        pred_exist = output.exist_logit[supervised].float()
         assignment, matched, ambiguity = assign_slots(
-            branches["pred_dir"],
-            branches["pred_exist"],
-            branches["gt_dir"],
-            branches["valid"],
-            self.match_w_dir,
-            self.match_w_exist,
+            pred_dir, pred_exist, gt_dir, valid, self.match_w_dir, self.match_w_exist
         )
-        losses = self._losses(output, supervised, branches, assignment, matched)
-        losses["switch_rate"] = ambiguity
+        losses = self._losses(output, supervised, matched, pred_dir, gt_dir, assignment)
+        losses["match_ambiguity"] = ambiguity
         return losses
 
-    def _gather_branches(self, output, targets: dict, supervised, cells) -> dict:
-        gt_dir, gt_t, valid = derive_branches(targets, cells)
-        gt_dir, gt_t, valid = pad_branches(gt_dir, gt_t, valid, self.num_conn_slots)
-        return {
-            "gt_dir": gt_dir,
-            "gt_t": gt_t,
-            "valid": valid,
-            "pred_dir": output.conn_dir[supervised].float(),
-            "pred_exist": output.exist_logit[supervised].float(),
-            "pred_t": output.t_logit[supervised].float(),
-        }
-
-    def _losses(self, output, supervised, branches, assignment, matched) -> dict:
+    def _losses(self, output, supervised, matched, pred_dir, gt_dir, assignment) -> dict:
         exist = self._exist_loss(output, supervised, matched)
-        direction, endness = self._matched_losses(branches, assignment, matched)
-        total = self.w_exist * exist + self.w_dir * direction + self.w_t * endness
-        return {"exist": exist, "dir": direction, "t": endness, "total": total}
+        direction = self._direction_loss(pred_dir, gt_dir, assignment, matched)
+        return {
+            "exist": exist,
+            "dir": direction,
+            "total": self.w_exist * exist + self.w_dir * direction,
+        }
 
     @staticmethod
     def _exist_loss(output, supervised, matched) -> torch.Tensor:
-        """S 전체에서 계산한다 — 거짓 양성 셀은 전 슬롯 0으로 감독한다(8.4절)."""
+        """선택된 전 셀에서 계산한다 — 거짓 양성 셀은 전 슬롯 0으로 감독한다(8.4절)."""
         target = torch.zeros_like(output.exist_logit)
         target[supervised] = matched.float()
         node_mask = output.node_mask
@@ -92,38 +78,16 @@ class ConnLoss(LossModule):
             output.exist_logit[node_mask].float(), target[node_mask]
         )
 
-    def _matched_losses(self, branches, assignment, matched) -> tuple[torch.Tensor, torch.Tensor]:
-        pred_dir, pred_t = branches["pred_dir"], branches["pred_t"]
+    @staticmethod
+    def _direction_loss(pred_dir, gt_dir, assignment, matched) -> torch.Tensor:
+        """매칭된 쌍에만 1 - 내적. 크기·좌표 감독 없이 방향 차이만 학습한다."""
         if not bool(matched.any()):
-            return pred_dir.sum() * 0.0, pred_t.sum() * 0.0
+            return pred_dir.sum() * 0.0
         index = assignment.unsqueeze(-1).expand(-1, -1, 2)
-        assigned_dir = torch.gather(branches["gt_dir"], 1, index)
-        assigned_t = torch.gather(branches["gt_t"], 1, assignment)
+        assigned_dir = torch.gather(gt_dir, 1, index)
         alignment = (pred_dir * assigned_dir).sum(dim=-1)
-        direction = (1.0 - alignment)[matched].mean()
-        endness = F.binary_cross_entropy_with_logits(pred_t[matched], assigned_t[matched])
-        return direction, endness
+        return (1.0 - alignment)[matched].mean()
 
     def _empty(self, output) -> dict:
         zero = output.exist_logit.sum() * 0.0
-        return {"exist": zero, "dir": zero, "t": zero, "switch_rate": zero, "total": zero}
-
-
-def derive_branches(
-    targets: dict, cells: torch.Tensor
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """cells (P,3) = (b, i, j) 에 대해 GT 방향·종점 라벨·유효 마스크를 유도한다 (6.2절)."""
-    conn = targets["conn_cells"][cells[:, 0], cells[:, 1], cells[:, 2]]  # (P, D, 2)
-    valid = conn[..., 0] >= 0
-    rows, cols = conn[..., 0].clamp(min=0), conn[..., 1].clamp(min=0)
-    batch = cells[:, 0:1].expand_as(rows)
-    neighbor_coord = targets["coord_map"][batch, rows, cols].float()
-    target_point = torch.stack(
-        [cols + neighbor_coord[..., 0], rows + neighbor_coord[..., 1]], dim=-1
-    )
-    origin = torch.stack([cells[:, 2] + 0.5, cells[:, 1] + 0.5], dim=-1).unsqueeze(1)
-    gt_dir = F.normalize(target_point - origin, dim=-1, eps=NORMALIZE_EPS)
-    own_class = targets["class_map"][cells[:, 0], cells[:, 1], cells[:, 2]].unsqueeze(1)
-    is_end = targets["end_map"][batch, rows, cols] > 0
-    gt_t = (is_end | (targets["class_map"][batch, rows, cols] != own_class)).float()
-    return gt_dir * valid.unsqueeze(-1), gt_t * valid, valid
+        return {"exist": zero, "dir": zero, "match_ambiguity": zero, "total": zero}

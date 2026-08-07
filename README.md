@@ -3,7 +3,9 @@
 위성/항공 타일 영상에서 차선(도로 노면 선형 객체)을 **폴리라인 인스턴스**로 검출한다.
 
 셀마다 self 토큰 1개와 연결 슬롯 R개를 두고, 연결 슬롯이 "이 셀에서 선이 어느 방향으로
-이어지는가"를 단위 방향 벡터로 예측한다. 디코더가 그 방향들을 그래프로 엮어 폴리라인을 만든다.
+이어지는가"를 단위 방향 벡터로 예측한다. GT는 선(인스턴스)마다 독립된 사슬로 인코딩되고
+(셀당 분기 2개), 디코더는 클래스 확률 국소 피크에서 마주봄 확인으로 사슬을 한 노드씩
+확장하며 폴리라인을 복원한다.
 
 ## 설치
 
@@ -35,8 +37,9 @@ Python 3.11 / torch 2.6 (cu124) / PyTorch Lightning. 저장소는 editable 설�
 
 ## 데이터
 
-SEED-MAP v1.1 (768×768, GSD 0.1278 m/px). `dataset.json`이 train/validation/test split을,
-`label/{id}.json`이 `LINE_STRING` 폴리라인을 담는다. 학습 클래스는 `category_id` 11종 + 배경.
+SEED-MAP v1.1 (768×768, GSD 0.1278 m/px). `SEED_MAP_v1.1_splits/{train,val,test}/{image,label}`
+재정리 사본을 읽고, `label/{id}.json`이 `LINE_STRING` 폴리라인을 담는다.
+학습 클래스는 `category_id` 11종 + 배경.
 
 라벨은 **폴리라인 그대로** 두고 `__getitem__`에서 격자 GT로 온라인 인코딩한다.
 증강은 인코딩 전 벡터 단계에서 하므로 좌표 뒤집기 해킹이 필요 없다.

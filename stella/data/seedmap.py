@@ -1,7 +1,7 @@
-"""SEED-MAP v1.1 실데이터 로더 (impl_plan 6.7절).
+"""SEED-MAP v1.1 실데이터 로더 (impl_plan 6.7절, M13).
 
-원본 배포 구조가 `dataset.json` + 평평한 `image/`·`label/` 폴더이므로 split 폴더 변환 없이
-`dataset.json`을 그대로 읽는다(계획서 6.7.2의 폴더 구조는 이 저장본에 적용되어 있지 않다).
+`{root}/{train,val,test}/{image,label}` 재정리 사본(6.7.2절)을 읽는다 —
+`label/*.json`을 glob 해서 인덱스를 만들므로 `dataset.json` 파싱이 없다.
 
 로딩 규칙
 1. `geometry_type == "LINE_STRING"` 만 사용한다 (POLYGON = 노면 기호).
@@ -19,12 +19,12 @@ import numpy as np
 
 from stella.builder import Buildable
 from stella.data.augment import VectorAugment
-from stella.data.encode import GridEncoder
+from stella.data.encode import ChainEncoder
 from stella.data.types import CATEGORY_ID_TO_LABEL, GridDatasetBase, make_sample
 
-SPLIT_KEYS = {"train": "train", "val": "validation", "test": "test"}
+SPLITS = ("train", "val", "test")
 CACHED_SPLITS = {"val_test": ("val", "test"), "all": ("train", "val", "test"), "none": ()}
-TARGET_KEYS = ("class_map", "coord_map", "end_map", "conn_cells")
+TARGET_KEYS = ("class_map", "coord_map", "end_map", "conn_dirs")
 
 
 class SeedMapDataset(GridDatasetBase, Buildable):
@@ -47,7 +47,7 @@ class SeedMapDataset(GridDatasetBase, Buildable):
         self.root = Path(root)
         self.image_size = image_size
         self.stems = self._load_split(split, limit)
-        self.encoder = GridEncoder(
+        self.encoder = ChainEncoder(
             image_size=image_size,
             grid_stride=grid_stride,
             num_classes=num_classes,
@@ -60,9 +60,12 @@ class SeedMapDataset(GridDatasetBase, Buildable):
         self.unknown_categories: Counter = Counter()
 
     def _load_split(self, split: str, limit: int) -> list[str]:
-        with open(self.root / "dataset.json", encoding="utf-8") as handle:
-            splits = json.load(handle)
-        stems = sorted(splits[SPLIT_KEYS[split]])
+        if split not in SPLITS:
+            raise ValueError(f"split 은 {SPLITS} 중 하나여야 한다: {split}")
+        label_dir = self.root / split / "label"
+        stems = sorted(path.stem for path in label_dir.glob("*.json"))
+        if not stems:
+            raise FileNotFoundError(f"라벨이 하나도 없다: {label_dir} (6.7.2절 splits 구조 확인)")
         return stems[:limit] if limit > 0 else stems
 
     def _cache_directory(self, cache_gt: str, cache_dir: str, split: str) -> Path | None:
@@ -91,14 +94,14 @@ class SeedMapDataset(GridDatasetBase, Buildable):
         return make_sample(image, instances, target, {"filename": stem})
 
     def _load_image(self, stem: str) -> np.ndarray:
-        path = self.root / "image" / f"{stem}.png"
+        path = self.root / self.split / "image" / f"{stem}.png"
         raw = cv2.imread(str(path), cv2.IMREAD_COLOR)
         if raw is None:
             raise FileNotFoundError(f"이미지를 읽지 못했다: {path}")
         return cv2.cvtColor(raw, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
 
     def _load_instances(self, stem: str) -> list[dict]:
-        with open(self.root / "label" / f"{stem}.json", encoding="utf-8") as handle:
+        with open(self.root / self.split / "label" / f"{stem}.json", encoding="utf-8") as handle:
             records = json.load(handle)
         instances: list[dict] = []
         for record in records:
@@ -126,17 +129,17 @@ class SeedMapDataset(GridDatasetBase, Buildable):
         if not path.exists():
             return None
         with np.load(path) as data:
+            if any(key not in data for key in TARGET_KEYS):
+                return None  # 구 인코더 캐시 — 미스로 취급하고 새 형식으로 덮어쓴다
             target = {key: data[key] for key in TARGET_KEYS}
             instances = _unpack_instances(data)
         return target, instances
 
     def _write_cache(self, stem: str, target: dict, instances: list[dict]) -> None:
+        """캐시 미스일 때만 불린다 — 구 형식 파일은 여기서 새 형식으로 갱신된다."""
         if self.cache_dir is None:
             return
-        path = self.cache_dir / f"{stem}.npz"
-        if path.exists():
-            return
-        np.savez(path, **target, **_pack_instances(instances))
+        np.savez(self.cache_dir / f"{stem}.npz", **target, **_pack_instances(instances))
 
 
 def clip_polyline(points: np.ndarray, limit: float) -> list[np.ndarray]:

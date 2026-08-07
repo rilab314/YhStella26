@@ -2,6 +2,9 @@
 
 최종 토큰 (N, K, D)에서 토큰별 작은 MLP를 거친다. self 슬롯(k=0)과 연결 슬롯(k>=1)이
 각각 다른 헤드를 쓰고, 연결 슬롯은 R개가 **가중치를 공유**한다.
+
+끝 판정은 자기 셀의 end_logit이 담당한다 (9차 개정 — 구 설계의 슬롯별 t_logit 폐기).
+연결 슬롯은 방향만 예측한다 — 상대까지의 거리·좌표는 예측하지 않는다.
 """
 
 import torch
@@ -9,34 +12,39 @@ import torch.nn.functional as F
 from torch import nn
 
 NORMALIZE_EPS = 1e-6
-CONN_OUTPUT_DIM = 4  # exist 1 + dir 2 + t 1
+CONN_OUTPUT_DIM = 3  # exist 1 + dir 2
 
 
 class SelfHead(nn.Module):
-    """self 슬롯 -> 클래스 로짓 + 셀 내 좌표."""
+    """self 슬롯 -> 클래스 로짓 + 셀 내 좌표 + 끝 로짓 (end_map 직접 감독, 8.2절)."""
 
     def __init__(self, *, d_model: int, num_classes: int):
         super().__init__()
         self.class_mlp = _two_layer_mlp(d_model, num_classes)
         self.coord_mlp = _two_layer_mlp(d_model, 2)
+        self.end_mlp = _two_layer_mlp(d_model, 1)
 
-    def forward(self, tokens: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        """tokens: (N, D) -> class_logit (N, C), self_coord (N, 2) in [0, 1]."""
-        return self.class_mlp(tokens), self.coord_mlp(tokens).sigmoid()
+    def forward(self, tokens: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """tokens: (N, D) -> class_logit (N, C), self_coord (N, 2) in [0, 1], end_logit (N,)."""
+        return (
+            self.class_mlp(tokens),
+            self.coord_mlp(tokens).sigmoid(),
+            self.end_mlp(tokens).squeeze(-1),
+        )
 
 
 class ConnHead(nn.Module):
-    """연결 슬롯 -> 존재 로짓 + 단위 방향 + 종점 로짓. 슬롯 간 가중치 공유."""
+    """연결 슬롯 -> 존재 로짓 + 단위 방향 (원점 = 자기 노드 점, 6.1절). 슬롯 간 가중치 공유."""
 
     def __init__(self, *, d_model: int):
         super().__init__()
         self.mlp = _two_layer_mlp(d_model, CONN_OUTPUT_DIM)
 
-    def forward(self, tokens: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """tokens: (N, R, D) -> exist (N, R), dir (N, R, 2), t (N, R)."""
+    def forward(self, tokens: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """tokens: (N, R, D) -> exist (N, R), dir (N, R, 2)."""
         raw = self.mlp(tokens)
         direction = F.normalize(raw[..., 1:3], dim=-1, eps=NORMALIZE_EPS)
-        return raw[..., 0], direction, raw[..., 3]
+        return raw[..., 0], direction
 
 
 def _two_layer_mlp(d_model: int, out_dim: int) -> nn.Sequential:
