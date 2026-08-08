@@ -90,7 +90,7 @@ class ConnLoss(LossModule):
     def _direction_loss(self, pred_dir, gt_dir, assignment, matched) -> torch.Tensor:
         """매칭된 쌍에만 방향 손실. 크기·좌표 감독 없이 방향 차이만 학습한다.
 
-        `cosine`은 오차 0 근처에서 기울기가 0으로 죽는다 — `angle`은 그 구간을 살린다 (§7 B4).
+        `cosine`은 오차 0 근처에서 기울기가 죽는다 — `angle`은 그 구간을 살린다 (백로그 B4).
         """
         if not bool(matched.any()):
             return pred_dir.sum() * 0.0

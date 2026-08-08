@@ -29,7 +29,7 @@ SELECT_MODES = ("thresh", "topk")
 class NodeSelector:
     """학습: GT 양성 ∪ 예측 마스크. 추론: 예측 마스크만.
 
-    `select_mode`가 핵심 손잡이다 (improve_plan §7 C8).
+    `select_mode`가 핵심 손잡이다 (가설 백로그).
     - `thresh` — 확률 > tau_h. **히트맵의 절대 보정에 전적으로 의존한다.**
     - `topk`   — 확률 상위 K개. 보정과 무관하게 **선택 수가 고정**된다.
 

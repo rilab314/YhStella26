@@ -68,7 +68,7 @@ class StellaTrainModule(pl.LightningModule):
         return {"output": output, "decoded": decoded}
 
     def on_validation_epoch_start(self) -> None:
-        self.decoder.stats.reset()  # 디코더 카운터는 에폭 단위 (improve_plan 3절 층 3)
+        self.decoder.stats.reset()  # 디코더 카운터는 에폭 단위 (improve-loop 스킬 · 디코더 진단)
 
     def on_validation_epoch_end(self) -> None:
         self._log_scores("val/inst", self.metric.compute(), sync_dist=False)

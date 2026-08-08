@@ -41,7 +41,7 @@ class SelfSlotLoss(LossModule):
         """선택된 전 셀 — class_map이 배경 0이라 거짓 양성 셀의 라벨이 그대로 0이 된다.
 
         선택 셀의 70%가 배경이라 CE가 배경에 지배당한다(REF-F 에폭 1에서 class_acc 0.003 /
-        bg_recall 0.997 관측). `class_bg_weight < 1`로 그 지배를 완화한다 (§7 B6).
+        bg_recall 0.997 관측). `class_bg_weight < 1`로 그 지배를 완화한다 (가설 백로그 B6).
         """
         selected = output.node_mask
         if not bool(selected.any()):
@@ -61,7 +61,7 @@ class SelfSlotLoss(LossModule):
         return F.smooth_l1_loss(predicted, targets["coord_map"][positive].float())
 
     def _end_loss(self, output, targets: dict, positive: torch.Tensor) -> torch.Tensor:
-        """end_map 직접 감독. 양성이 ~2.5%뿐이라 pos_weight를 열어 둔다 (8.2절, §7 B2)."""
+        """end_map 직접 감독. 양성이 ~2.5%뿐이라 pos_weight를 열어 둔다 (8.2절, 가설 백로그 B2)."""
         if not bool(positive.any()):
             return output.end_logit.sum() * 0.0
         predicted = output.end_logit[positive].float()

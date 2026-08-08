@@ -216,7 +216,7 @@ class ChainDecoder:
 
         `cosine` 게이트는 각도만 보므로 **먼 후보에게 관대하다** — 45도 안이면 두 칸 떨어진
         엉뚱한 선도 통과한다. `perp` 게이트는 예측 방향 직선에서의 수직 이탈(셀 단위)을 보므로
-        거리에 비례해 엄격해진다. 기하적으로 이쪽이 "예측한 선 위에 있는가"에 가깝다 (§7 A6).
+        거리에 비례해 엄격해진다. 기하적으로 이쪽이 "예측한 선 위에 있는가"에 가깝다 (백로그 A6).
         """
         facing = -opposite >= self.opp_thresh
         shared = self.w_opp * (1.0 + opposite) + DISTANCE_TIEBREAK * distance

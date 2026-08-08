@@ -1,4 +1,4 @@
-"""여러 실행을 한 표로 비교한다 — 개선 루프의 ① 관측 단계 (improve_plan 4절).
+"""여러 실행을 한 표로 비교한다 — 개선 루프의 ① 관측 단계 (improve-loop 스킬 · 관측).
 
 마지막 에폭 하나는 크게 튀므로 **마지막 N 에폭 평균**으로 비교한다(판정 규칙 2).
 표는 두 블록으로 나눠 찍는다 — 인스턴스 지표(무엇이 나쁜가)와 셀·디코더 진단(왜 나쁜가).
@@ -33,6 +33,8 @@ DIAGNOSTIC_COLUMNS = (
     ("val/cell/heat_neg", "heatNeg"),
     ("val/cell/class_acc", "clsAcc"),
     ("val/cell/class_fg", "clsFg"),
+    ("val/cell/class_recall", "clsRec"),
+    ("val/cell/vertex_recall", "vtxRec"),
     ("val/cell/class_bg_recall", "bgAcc"),
     ("val/cell/coord_err_px", "coordPx"),
     ("val/cell/end_recall", "endR"),

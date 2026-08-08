@@ -1,4 +1,4 @@
-"""모델 예측(또는 GT 주입)을 희소 캐시로 떨군다 — 디코더 전용 트랙 1단계 (improve_plan 2.1절).
+"""모델 예측(또는 GT 주입)을 희소 캐시로 떨군다 — D 트랙 1단계.
 
 한 번 떨궈 두면 `eval_decode.py`가 GPU 없이 디코더 파라미터를 몇 초 만에 스윕한다.
 
@@ -150,7 +150,7 @@ def load_model(cfg, ckpt: str, device: str, allow_missing: bool = False):
 def _rename_legacy(weights: dict, expected: set) -> dict:
     """옛 체크포인트의 키를 현재 구조로 옮긴다.
 
-    `ConnHead`가 슬롯별 가중치를 지원하면서 `mlp` -> `mlps.0`이 됐다 (§7 C5).
+    `ConnHead`가 슬롯별 가중치를 지원하면서 `mlp` -> `mlps.0`이 됐다 (가설 백로그 C5).
     """
     renamed = {}
     for key, value in weights.items():

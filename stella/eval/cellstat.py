@@ -1,4 +1,4 @@
-"""셀 단위 진단 지표 (improve_plan 3절 층 2).
+"""셀 단위 진단 지표 (improve-loop 스킬 · 셀 단위 진단).
 
 인스턴스 지표(`val/inst/*`)는 "결과가 나쁘다"까지만 알려준다. 이 모듈은 **어느 출력이
 나빠서** 그렇게 됐는지를 셀 단위로 분해한다. 전부 GPU 텐서 연산이라 비용이 사실상 없다.
@@ -110,6 +110,12 @@ class CellDiagnostics(Metric):
         디코더는 `argmax != 0`인 셀만 정점으로 쓴다. 둘이 같이 낮으면 "GT 셀을 배경이라 부른다"
         (불균형 문제)이고, `class_fg`만 높으면 "찾긴 했는데 차선 종류를 틀린다"(분류 문제)다.
         원인이 전혀 다르므로 반드시 갈라 봐야 한다.
+
+        **주의 — `class_acc`·`class_fg`는 분모가 "선택된 GT 셀"이라 실행 간 비교가 위험하다.**
+        선택이 늘면 어려운 셀이 섞여 정확도가 내려간다(REF-F 실측: 붕괴 에폭을 뺀 구간에서
+        corr(heat_recall, class_acc) = -0.54). 그래서 분모를 **전체 GT 셀**로 바꾼
+        `class_recall`·`vertex_recall`을 함께 낸다 — 선택 수가 다른 arm끼리도 비교할 수 있고,
+        `vertex_recall`은 곧 **디코더가 실제로 받는 정점 재현율**이다.
         """
         predicted = output.class_logit.argmax(dim=-1)
         self.class_count += both.sum()
@@ -180,6 +186,9 @@ class CellDiagnostics(Metric):
             "node_per_img": _ratio(self.node_count, self.samples),
             "class_acc": _ratio(self.class_hit, self.class_count),
             "class_fg": _ratio(self.class_fg_hit, self.class_count),
+            # 분모가 **전체 GT 셀**이라 선택 수가 달라도 비교할 수 있다 (아래 주석).
+            "class_recall": _ratio(self.class_hit, self.heat_gt),
+            "vertex_recall": _ratio(self.class_fg_hit, self.heat_gt),
             "class_bg_recall": _ratio(self.bg_hit, self.bg_count),
             "coord_err_px": _ratio(self.coord_err, self.coord_count) * self.grid_stride,
             "end_recall": _ratio(self.end_tp, self.end_tp + self.end_fn),

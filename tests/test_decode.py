@@ -182,7 +182,7 @@ def test_variants_still_recover_a_straight_line():
 
 
 def test_stop_reasons_are_recorded():
-    """정지 사유 카운터가 실제로 채워지는지 (improve_plan 3절 층 3)."""
+    """정지 사유 카운터가 실제로 채워지는지 (improve-loop 스킬 · 디코더 진단)."""
     cfg = make_cfg()
     decoder = build_instance(cfg.decode, cfg)
     points = np.array([[30.0, 100.0], [220.0, 100.0]], dtype=np.float32)

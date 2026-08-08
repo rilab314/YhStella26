@@ -37,6 +37,8 @@ DIAGNOSTIC_COLUMNS = (
     ("val/cell/heat_neg", "heatNeg"),
     ("val/cell/class_acc", "clsAcc"),
     ("val/cell/class_fg", "clsFg"),
+    ("val/cell/class_recall", "clsRec"),
+    ("val/cell/vertex_recall", "vtxRec"),
     ("val/cell/class_bg_recall", "bgAcc"),
     ("val/cell/coord_err_px", "coordPx"),
     ("val/cell/end_recall", "endR"),
