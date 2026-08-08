@@ -1,4 +1,4 @@
-"""어텐션 블록 (impl_plan 7.6절).
+"""어텐션 블록 (design 7.6절).
 
 블록 구성(pre-LN, residual):
     [슬롯 간 self-attn] -> [cross-attn: kv = 선택된 노드 임베딩 z] -> [FFN]
@@ -143,7 +143,7 @@ class StellaBlock(nn.Module):
 
 
 def window_neighbors(cells: torch.Tensor, grid_size: int, window: int) -> torch.Tensor:
-    """각 노드의 w x w 이웃 셀에 있는 노드 인덱스. 빈 셀은 -1 (impl_plan 7.6절 윈도우 마스크)."""
+    """각 노드의 w x w 이웃 셀에 있는 노드 인덱스. 빈 셀은 -1 (design 7.6절 윈도우 마스크)."""
     index_grid = torch.full((grid_size, grid_size), -1, dtype=torch.long, device=cells.device)
     index_grid[cells[:, 0], cells[:, 1]] = torch.arange(cells.shape[0], device=cells.device)
     half = window // 2

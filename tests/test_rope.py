@@ -1,4 +1,4 @@
-"""RoPE 상대위치 성질과 윈도우 이웃 gather 검증 (impl_plan M4)."""
+"""RoPE 상대위치 성질과 윈도우 이웃 gather 검증 (design M4)."""
 
 import torch
 

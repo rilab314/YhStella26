@@ -1,4 +1,4 @@
-"""Neck — 백본이 무엇이든 공통으로 (B, d_model, L, L)를 낸다 (impl_plan 7.3절).
+"""Neck — 백본이 무엇이든 공통으로 (B, d_model, L, L)를 낸다 (design 7.3절).
 
 이 격자가 이후 전부(히트맵·노드 선택·토큰 임베딩)의 좌표계다.
 정규화는 LayerNorm/GroupNorm만 쓴다 — batch_size = 1로 시작하므로 BatchNorm은 통계가 무의미하다.

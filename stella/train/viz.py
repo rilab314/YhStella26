@@ -1,4 +1,4 @@
-"""시각 로그 그리기 — Lightning을 모르는 순수 함수 모음 (impl_plan 9.5절).
+"""시각 로그 그리기 — Lightning을 모르는 순수 함수 모음 (design 9.5절).
 
 `np.ndarray` in -> `np.ndarray` out 이라 단위 테스트가 가능하고,
 GT와 예측이 같은 격자 형태라 인자만 바꿔 넣으면 **GT도 같은 함수로 그릴 수 있다**.

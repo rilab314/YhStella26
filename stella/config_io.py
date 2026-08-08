@@ -1,4 +1,4 @@
-"""config 로드·덮어쓰기 (impl_plan 4.3절).
+"""config 로드·덮어쓰기 (design 4.3절).
 
 학습 진입점과 스크립트(디코더 평가·튜닝)가 같은 규칙으로 config를 읽어야 하는데,
 `stella/train/train.py`는 Lightning·DataLoader를 끌고 온다. 그래서 순수한 config 조작만

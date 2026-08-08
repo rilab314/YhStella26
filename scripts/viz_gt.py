@@ -1,4 +1,4 @@
-"""GT 인코딩·데이터셋 육안 확인 (impl_plan M1).
+"""GT 인코딩·데이터셋 육안 확인 (design M1).
 
 사용: python scripts/viz_gt.py --config configs.exp_synthetic --split train --count 4
 """

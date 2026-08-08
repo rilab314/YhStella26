@@ -1,4 +1,4 @@
-"""Optimizer / 스케줄 (impl_plan 9.2절).
+"""Optimizer / 스케줄 (design 9.2절).
 
 AdamW. param group 3종: 백본(lr x lr_mult) / bias·norm(weight decay 0) / 나머지.
 스케줄은 linear warmup + cosine decay (step 단위).

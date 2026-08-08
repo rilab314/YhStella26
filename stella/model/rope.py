@@ -1,4 +1,4 @@
-"""2D axial RoPE (impl_plan 7.6절, RoPE-ViT 방식).
+"""2D axial RoPE (design 7.6절, RoPE-ViT 방식).
 
 head 차원을 반으로 나눠 앞쪽은 x(=열 j), 뒤쪽은 y(=행 i) 좌표로 회전한다.
 cross-attn의 q·k 양쪽에 적용하며, 위치는 셀 정수 좌표를 쓴다.

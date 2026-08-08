@@ -1,4 +1,4 @@
-"""StellaModel — 전체 forward 흐름과 출력 계약 (impl_plan 7.1·7.5절).
+"""StellaModel — 전체 forward 흐름과 출력 계약 (design 7.1·7.5절).
 
 내부 계산은 선택된 셀만 희소하게(토큰 단위) 하고, 반환 직전에 결과를 격자에 scatter해서
 dense로 되돌린다. GT의 self 맵과 같은 격자 좌표계를 쓰기 위함이다 —

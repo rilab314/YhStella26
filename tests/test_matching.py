@@ -1,4 +1,4 @@
-"""순열 매칭을 scipy의 선형 배정(LSA)과 대조 검증 (impl_plan 8.3절)."""
+"""순열 매칭을 scipy의 선형 배정(LSA)과 대조 검증 (design 8.3절)."""
 
 import numpy as np
 import torch

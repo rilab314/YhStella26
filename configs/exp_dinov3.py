@@ -1,4 +1,4 @@
-"""DINOv3 ViT-L/16 위성판 백본 + SFP (impl_plan 13절 결정 3).
+"""DINOv3 ViT-L/16 위성판 백본 + SFP (design 13절 결정 3).
 
 HF 게이트 모델이라 계정 승인이 필요하다. 승인 전에는 `check_all`은 통과하지만
 백본 생성 시 `GatedRepoError`가 난다.

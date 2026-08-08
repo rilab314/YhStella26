@@ -1,4 +1,4 @@
-"""GT 인코더 불변식 검증 (impl_plan 6.4절 불변식 9종, 9차 개정 — 선 단위 사슬)."""
+"""GT 인코더 불변식 검증 (design 6.4절 불변식 9종, 9차 개정 — 선 단위 사슬)."""
 
 import numpy as np
 import pytest

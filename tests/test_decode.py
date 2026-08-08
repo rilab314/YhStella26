@@ -1,4 +1,4 @@
-"""디코더 검증 — GT를 모델 출력 형식으로 주입하면 폴리라인이 복원되는지 (impl_plan M12)."""
+"""디코더 검증 — GT를 모델 출력 형식으로 주입하면 폴리라인이 복원되는지 (design M12)."""
 
 import numpy as np
 import torch

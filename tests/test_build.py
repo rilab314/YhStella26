@@ -1,4 +1,4 @@
-"""config 해석과 전체 조립 스모크 (impl_plan 5.5절).
+"""config 해석과 전체 조립 스모크 (design 5.5절).
 
 `test_config_resolves`는 파일 이동·클래스 rename으로 문자열이 깨지는 것을 잡는 안전망이다.
 """

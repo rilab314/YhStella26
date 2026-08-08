@@ -1,4 +1,4 @@
-"""백본 3층 구조 (impl_plan 7.2절).
+"""백본 3층 구조 (design 7.2절).
 
     Backbone                      # 계약: forward(x) -> list[Tensor], out_channels, strides
     ├── HuggingFaceBackbone       # transformers 공통

@@ -1,4 +1,4 @@
-"""합성 데이터 실험 — 전 파이프라인 검증용 (impl_plan 6.6절)."""
+"""합성 데이터 실험 — 전 파이프라인 검증용 (design 6.6절)."""
 
 from configs.base import get_config as get_base
 from configs.schema import ExperimentConfig

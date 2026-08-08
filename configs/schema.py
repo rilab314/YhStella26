@@ -1,4 +1,4 @@
-"""실험 config 스키마 — 모든 dataclass를 이 파일 하나에 둔다 (impl_plan 4.1).
+"""실험 config 스키마 — 모든 dataclass를 이 파일 하나에 둔다 (design 4.1).
 
 이 모듈은 `stella` 패키지를 import 하지 않는다. config는 순수한 데이터이므로
 코드 쪽으로 의존이 생기지 않고, 따라서 순환참조가 구조적으로 불가능하다.
@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 
 @dataclass(kw_only=True)
 class ModuleConfig:
-    """build_instance로 만드는 부품 config의 공통 베이스 (impl_plan 5절).
+    """build_instance로 만드는 부품 config의 공통 베이스 (design 5절).
 
     하위 클래스가 두 필드에 기본값을 준다.
     """

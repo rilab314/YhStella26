@@ -28,7 +28,7 @@ from stella.decode.sweep import (
     short,
 )
 
-# 축과 후보값. 기하 추정으로 정한 기본값들이라 전부 근거가 약하다 (impl_plan 13절 "남은 확인").
+# 축과 후보값. 기하 추정으로 정한 기본값들이라 전부 근거가 약하다 (design 13절 "남은 확인").
 DEFAULT_AXES = {
     "exist_thresh": (0.2, 0.3, 0.4, 0.5, 0.6),
     "end_thresh": (0.3, 0.5, 0.7, 0.9),

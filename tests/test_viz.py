@@ -1,4 +1,4 @@
-"""시각 로그 함수의 shape·색상 규약 검증 (impl_plan 9.5절)."""
+"""시각 로그 함수의 shape·색상 규약 검증 (design 9.5절)."""
 
 import numpy as np
 

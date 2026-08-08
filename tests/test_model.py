@@ -1,4 +1,4 @@
-"""Neck·모델·손실의 shape과 계약 검증 (impl_plan M2·M11)."""
+"""Neck·모델·손실의 shape과 계약 검증 (design M2·M11)."""
 
 import torch
 from helpers import gt_model_output

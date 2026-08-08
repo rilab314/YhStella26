@@ -1,4 +1,4 @@
-"""데이터 출력 계약과 공통 상수 (impl_plan 6.1~6.2, 6.5, 9.5절).
+"""데이터 출력 계약과 공통 상수 (design 6.1~6.2, 6.5, 9.5절).
 
 좌표 규약 (전 코드 공통)
 ------------------------
@@ -92,7 +92,7 @@ def rarity_order(num_classes: int) -> np.ndarray:
 
 
 class GridDatasetBase(Dataset):
-    """`__getitem__(idx)` -> dict. 아래 계약을 반드시 따른다 (impl_plan 6.2절).
+    """`__getitem__(idx)` -> dict. 아래 계약을 반드시 따른다 (design 6.2절).
 
     | key         | dtype   | shape        | 의미                                   |
     | ----------- | ------- | ------------ | ------------------------------------ |
@@ -130,7 +130,7 @@ def make_sample(
 
 
 def collate_fn(batch: list[dict[str, Any]]) -> dict[str, Any]:
-    """모든 GT 키가 고정 크기라서 전부 그대로 stack한다 (impl_plan 6.5절)."""
+    """모든 GT 키가 고정 크기라서 전부 그대로 stack한다 (design 6.5절)."""
     out: dict[str, Any] = {}
     for key in batch[0]:
         if key in LIST_KEYS:

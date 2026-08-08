@@ -1,4 +1,4 @@
-"""폴리라인 -> 격자 GT 인코더 (impl_plan 6.4절, 9·10차 개정).
+"""폴리라인 -> 격자 GT 인코더 (design 6.4절, 9·10차 개정).
 
 **선 하나 = 사슬 하나.** 선마다 따로 그려 셀 열을 만들고(래스터 단계), 소유권 경쟁에서
 남은 셀만 순서대로 이어(위상 단계) **연결 방향 2개를 직접 저장**한다. 셀의 소유권 다툼은
@@ -236,7 +236,7 @@ def _dedup_consecutive(values: np.ndarray) -> np.ndarray:
 
 
 def _dedup_keep_first(values: np.ndarray) -> np.ndarray:
-    """자기 교차 선 — 같은 셀의 뒤 등장은 무시한다 (impl_plan 14절)."""
+    """자기 교차 선 — 같은 셀의 뒤 등장은 무시한다 (design 14절)."""
     _, first = np.unique(values, return_index=True)
     return values[np.sort(first)]
 

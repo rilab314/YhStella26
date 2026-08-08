@@ -1,4 +1,4 @@
-"""StellaTrainModule — LightningModule은 얇게 유지한다 (impl_plan 9.1·9.4절).
+"""StellaTrainModule — LightningModule은 얇게 유지한다 (design 9.1·9.4절).
 
 받는 것은 model·criterion·decoder·metric과 옵티마이저 값 몇 개뿐이다.
 **전역 cfg를 들고 다니지 않는다.** 시각 로그는 module이 아니라 callback이 맡는다(9.5절).

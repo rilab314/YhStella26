@@ -1,4 +1,4 @@
-"""인스턴스 CCQ 지표 검증 (impl_plan M7·11절)."""
+"""인스턴스 CCQ 지표 검증 (design M7·11절)."""
 
 import numpy as np
 
