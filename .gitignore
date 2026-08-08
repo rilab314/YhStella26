@@ -4,5 +4,12 @@ build
 dist
 *.egg-info
 *_out.*
-config/*.yaml
 .python-version
+docs
+
+.claude
+.venv
+.vscode
+.pytest_cache
+.ruff_cache
+experiment
