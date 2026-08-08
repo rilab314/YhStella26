@@ -1,11 +1,22 @@
-# STELLA 재구현 계획 (impl_plan.md)
+# STELLA 설계 (design.md)
 
-[architecture.md](architecture.md)의 **토큰 기반 연결성 출력 헤드** 설계를 코드로 옮기기 위한 구현 계획이다.
-기존 저장소(STELLA2026)를 고치는 것이 아니라 **새 저장소를 만들어 처음부터 다시 구현**한다.
+**위성/항공 타일 영상(768×768)에서 차선(도로 노면 선형 객체)을 검출하는 딥러닝 모델의 설계 문서다.**
+핵심은 [architecture.md](architecture.md)에서 제안한 **토큰 기반 연결성 출력 헤드** — 셀마다 self 토큰
+1개 + 연결 슬롯 $R$개를 두고, 연결 슬롯이 "이 셀에서 선이 어느 방향으로 이어지는가"를 예측하면 디코더가
+그 방향들을 사슬로 엮어 클래스별 폴리라인(line string) 인스턴스를 만든다.
+
+**구현은 M0~M14까지 전부 끝났다(12절)** — `feat/reimplement` 브랜치가 PR #3으로 `main`에 병합됐다.
+지금은 신규 설계 단계가 아니라 **개선(실험) 단계**다. 운영 규약은 `.claude/skills/improve-loop/SKILL.md`에
+있다(이 문서와 역할이 다르다 — 이 문서는 "무엇을 어떻게 설계했나", 개선 루프 문서는 "무엇을 어떻게 실험하나").
+현재 성능(대역 백본 ConvNeXtV2-base 기준 — DINOv3는 아직 HF 게이트 승인 대기, 14절): **GT 주입 인스턴스
+F1(파이프라인 천장, M12 기준) 0.976**, **학습 모델 인스턴스 F1(SEED-MAP val, 40에폭) 0.199**(구 설계
+0.066에서 개선). 아래 절들은 전부 **"이렇게 동작한다"는 현재 설계**를 서술한다 — 계획 당시의 서술은
+개정 이력에만 남긴다.
 
 - 범위: **학습 루프부터 디코딩(10절)·인스턴스 평가(11절)까지.** 로깅(9.4)·시각 로그(9.5)도 포함한다. (초기 범위는 "학습이 도는 것까지"였고 6·8차 개정에서 확장했다.)
-- 데이터셋: **SEED-MAP v1.1**(6.7절). 샘플 300장으로 구조·통계를 확정했고 전체 데이터는 수령 대기 중이다. 개발 초반에는 출력 계약(6절)을 따르는 **합성 데이터셋**으로 전체 파이프라인을 먼저 검증한다.
-- **이번 개정(10차, 2026-08-07) — target을 모델 출력 형태에 맞춘다 + 디코더 시드 전략 변경.**
+- 데이터셋: **SEED-MAP v1.1**(6.7절). train 8,979 / val 1,282 / test 2,567장 전체를 수령해 쓴다(6.7.2·6.7.5절). 합성 데이터셋(6.6절)은 지금도 파이프라인 스모크·단위 실험(`configs/exp_synthetic.py`)에 쓰인다.
+- 개정(11차, 2026-08-09) — **문서를 계획서에서 설계 문서로 전환.** 파일명을 `impl_plan.md` → `design.md`로 바꾸고(제목도) 미래형 서술을 현재형으로 고쳤다. 코드에는 있는데 문서에 없던 모듈을 반영했다 — `stella/eval/cellstat.py`(셀 단위 진단 지표, 11.5절)·`stella/decode/stats.py`(디코더 정지 사유 카운터, 10.6절)·`stella/decode/`의 `vertices.py`·`postprocess.py`·`cache.py`·`sweep.py` 분리(10.1절)·`stella/config_io.py`(4.3절)·`stella/model/inject.py`(7.1절). 계획서의 추정값을 실측값으로 갱신했다(6.4.1·6.7.5·9.3·10.6·11.1절). 12절 마일스톤을 전부 완료 표시하고 14절의 해결된 의문을 정리했다.
+- 개정(10차, 2026-08-07) — **target을 모델 출력 형태에 맞춘다 + 디코더 시드 전략 변경.**
   ① 구 설계 방침 "GT는 모델 출력 형식을 흉내 내지 않는다"를 **뒤집었다** — 분기가 항상 2로 고정되면서
   "사실 저장 + criterion 유도"의 간접층이 더는 값을 못 한다. GT가 **연결 방향 2개를 직접 저장**한다
   (`conn_cells`·`end_point` 폐지 → `conn_dirs`, 자기 점 → 이웃 점 단위벡터, 6.2절). criterion은
@@ -66,6 +77,7 @@
 | 프레임워크    | PyTorch ≥ 2.5                           | SDPA(`scaled_dot_product_attention`) 사용                                                                                                                                                                              |
 | 학습 루프    | PyTorch Lightning ≥ 2.4                 | DDP·bf16·체크포인트 위임                                                                                                                                                                                                    |
 | 백본       | `transformers` ≥ 4.55 (`timm` ≥ 1.0 보조) | 7.2절                                                                                                                                                                                                                 |
+| 지표 집계    | `torchmetrics` ≥ 1.4                    | `InstanceCCQ`(11절)·`CellDiagnostics`(11.5절)가 `Metric`을 상속 — DDP `all_gather` 위임                                                                                                                                    |
 | 수치       | `numpy`, `einops`, (`scipy`)            | scipy는 매칭 단위테스트의 대조 구현(LSA)용                                                                                                                                                                                         |
 | 시각화(개발용) | `opencv-python`                         | GT 인코딩 확인 스크립트                                                                                                                                                                                                       |
 | 품질       | `ruff`, `pytest`                        | 포매팅+린트+테스트                                                                                                                                                                                                           |
@@ -74,31 +86,37 @@
 
 ## 3. 폴더/파일 구조
 
+계획 당시의 트리에서 실제로 갈라진 부분이 있다 — 특히 `decode/`가 `graph.py` 하나에서 5개로,
+`eval/`이 `ccq.py` 하나에서 3개로 늘었다. 아래는 **현재 구조**다.
+
 ```
-stella2/                        # 새 저장소 루트
+stella/                         # 저장소 루트 (패키지명 "stella", editable 설치)
 ├── pyproject.toml              # 패키지·의존성·ruff·pytest 설정
 ├── README.md
 ├── configs/
 │   ├── schema.py               # ★ 모든 config dataclass 정의 (단일 파일)
-│   ├── base.py                 # get_config() -> ExperimentConfig (기본 실험)
-│   └── exp_*.py                # 변형 실험: base를 불러와 필드만 수정
+│   ├── base.py                 # get_config() -> ExperimentConfig (기본 실험 — SEED-MAP + ConvNeXtV2 + FPNLite)
+│   ├── unit.py                 # 개선 루프 "단위 실험(U)" 규격 — 1 GPU·서브샘플·짧은 에폭 (improve-loop 스킬)
+│   └── exp_*.py                # 변형 실험: base를 불러와 필드만 수정 (dinov3/r3/synthetic/vit_sfp)
 ├── stella/
 │   ├── __init__.py             # 비워 둔다 (import 목록을 관리하지 않는다)
 │   ├── builder.py              # resolve / build_instance / check_all — 클래스 선택 단일 관문 (5절)
+│   ├── config_io.py            # config 로드·override·저장된 config 재적용 — Lightning 비의존 (4.3절)
 │   ├── data/
-│   │   ├── types.py            # GridDatasetBase(출력 계약 docstring 포함) + collate_fn
+│   │   ├── types.py            # GridDatasetBase(출력 계약 docstring 포함) + collate_fn + CLASS_COLOR
 │   │   ├── encode.py           # 폴리라인 → 격자 GT 인코더 (6.4절)
 │   │   ├── synthetic.py        # SyntheticDataset — 개발용 합성 데이터 (6.6절)
-│   │   ├── augment.py          # 벡터 단계 증강 (flip/rot90) + 색상 증강
-│   │   └── seedmap.py          # SeedMapDataset — SEED-MAP 로더·경계 자르기 (6.7절, M9)
+│   │   ├── augment.py          # 벡터 단계 증강 (flip/rot90 + 임의 회전·스케일 옵션) + 색상 증강
+│   │   └── seedmap.py          # SeedMapDataset — SEED-MAP 로더·경계 자르기 (6.7절)
 │   ├── model/
-│   │   ├── backbone.py         # Backbone 베이스 + Dinov3 / TimmBackbone (7.2절)
+│   │   ├── backbone.py         # Backbone 베이스 + HuggingFaceBackbone/TimmBackbone + 계열 클래스 (7.2절)
 │   │   ├── neck.py             # Neck 베이스 + SFP / FPNLite → (256,L,L) (7.3절)
-│   │   ├── heatmap.py          # 보조 히트맵 헤드 + 노드 선택 (7.4절)
+│   │   ├── heatmap.py          # 보조 히트맵 헤드 + 노드 선택(thresh/topk) (7.4절)
 │   │   ├── rope.py             # 2D axial RoPE (7.6절)
 │   │   ├── blocks.py           # slot self-attn / cross-attn(전역·윈도우) / FFN
 │   │   ├── heads.py            # self 헤드·연결 슬롯 헤드 (7.7절)
-│   │   └── stella.py           # StellaModel(from_cfg 포함) + ModelOutput 정의 (7.1절)
+│   │   ├── stella.py           # StellaModel(from_cfg 포함) + ModelOutput 정의 (7.1절)
+│   │   └── inject.py           # GT를 ModelOutput 형식으로 주입 — 천장 측정·디코더/손실 검증용 (7.1절)
 │   ├── loss/
 │   │   ├── matching.py         # 셀별 슬롯 배정 — R! 순열 완전탐색 벡터화 (8.3절)
 │   │   ├── heatmap.py          # HeatmapLoss (8.1절)
@@ -106,31 +124,52 @@ stella2/                        # 새 저장소 루트
 │   │   ├── conn.py             # ConnLoss — 매칭 + 존재·방향 (8.3~8.4절)
 │   │   └── criterion.py        # StellaCriterion — 위 셋을 조립·가중합 (8.0절)
 │   ├── decode/
-│   │   └── graph.py            # ChainDecoder — 정점 추출 → 사슬 확장 (10절, M6)
+│   │   ├── vertices.py         # ① 정점 추출 + 시드 순서 (10.2절)
+│   │   ├── graph.py            # ChainDecoder 본체 — ② 사슬 확장 오케스트레이션 (10.3절)
+│   │   ├── postprocess.py      # ③ 후처리 — 조각 병합(ChainMerger)·RDP 단순화 (10.4절)
+│   │   ├── stats.py            # ChainStats — 디코더 정지 사유·순도 탈락·병합 수 카운터 (10.6절)
+│   │   ├── cache.py            # 모델 예측을 fp16 희소 npz로 저장/복원 — GPU 없이 디코더 스윕 (10.6절)
+│   │   └── sweep.py            # evaluate_decode — 캐시된 예측 + 디코더 설정 → 지표. 튜닝 스크립트가 공유
 │   ├── eval/
-│   │   └── ccq.py              # InstanceCCQ — 커버리지 중심 인스턴스 F1 (11절, M7)
+│   │   ├── ccq.py              # InstanceCCQ — 커버리지 중심 인스턴스 F1 (11.1~11.2절)
+│   │   ├── cellstat.py         # CellDiagnostics — 셀 단위 진단 지표 22종 (11.5절)
+│   │   └── geometry.py         # 점-폴리라인 거리·버퍼·리샘플 등 기하 유틸
 │   └── train/
 │       ├── module.py           # StellaTrainModule (LightningModule, 얇게)
-│       ├── optim.py            # param group 분리·워밍업 스케줄
+│       ├── optim.py            # param group 4개 분리·워밍업+코사인 스케줄
 │       ├── viz.py              # 시각 로그 그리기 — 순수 함수, Lightning 무관 (9.5절)
 │       ├── callbacks.py        # VizCallback — 검증 배치마다 첫 샘플 저장 (9.5절)
 │       └── train.py            # 진입점 + ★최상위 조립 배선 (5절)
 ├── scripts/
 │   ├── viz_gt.py               # GT 인코딩·합성 데이터 육안 확인
-│   └── stat_labels.py          # SEED-MAP 라벨 통계 — 6.7.5절 표를 재생성 (전체 데이터 수령 시 재실행)
+│   ├── stat_labels.py          # SEED-MAP 라벨 통계 — 6.7.5절 표를 재생성
+│   ├── dump_predictions.py     # 체크포인트 추론(또는 GT 주입)을 예측 캐시(npz)로 저장
+│   ├── eval_decode.py          # 캐시된 예측으로 CPU만으로 디코딩+평가 (단일 설정/축 스윕)
+│   ├── tune_decoder.py         # DecodeConfig 여러 축을 좌표 하강으로 튜닝
+│   ├── run_experiments.py      # 여러 실험 arm을 GPU별로 동시 스케줄링 (개선 루프 무인 실행)
+│   ├── summarize_runs.py       # 여러 실행 폴더의 metrics.csv를 표로 비교
+│   ├── loss_balance.py         # 손실 항목 스케일 균형 점검 + 가중치 조정 제안
+│   ├── class_confusion.py      # 예측 캐시 vs GT class_map — 클래스 혼동행렬 분석
+│   └── show_run.py             # 단일 실행 폴더의 metrics.csv를 표로 출력
 └── tests/
+    ├── helpers.py              # 테스트 공용 헬퍼(합성 배치·GT 주입 재수출 등)
     ├── test_build.py           # ① 전 config의 path/name 해석 (빠름) ② 전체 조립 스모크 (느림, 5절)
-    ├── test_encode.py          # GT 인코더 불변식 검증 (6.4절)
+    ├── test_encode.py          # GT 인코더 불변식 9종 검증 (6.4절)
+    ├── test_augment.py         # 벡터 단계 증강(flip/rot90/회전·스케일)의 좌표 변환 검증
     ├── test_rope.py            # RoPE 상대위치 성질 검증
+    ├── test_selector.py        # 노드 선택(thresh/topk, 최소 1노드 보장) 검증 (7.4절)
     ├── test_matching.py        # 순열 매칭을 scipy LSA와 대조 검증
     ├── test_decode.py          # GT를 모델 출력 형식으로 넣으면 원본 폴리라인이 복원되는지 (10절)
+    ├── test_postprocess.py     # 조각 병합(ChainMerger)·RDP 단순화 검증 (10.4절)
     ├── test_metric.py          # 인스턴스 CCQ: 완전복원=F1 1, 조각 예측의 TP/redundant FP 판정 (11절)
+    ├── test_cellstat.py        # CellDiagnostics 22종 지표 검증 (11.5절)
     ├── test_viz.py             # 시각 로그 함수의 shape·색상 규약 (9.5절)
     └── test_model.py           # shape 테스트 + 1-이미지 과적합 테스트
 ```
 
 파일 수를 일부러 적게 유지한다. 한 파일 = 한 책임. `util/misc.py` 같은 잡동사니 파일은 만들지 않는다.
-**계열 하나 = 파일 하나**로 둔다(베이스와 구현체를 같은 파일에). `backbone.py` 하나에 `Backbone`·`Dinov3`·`TimmBackbone`이 함께 있는 식이다.
+**계열 하나 = 파일 하나**로 둔다(베이스와 구현체를 같은 파일에). `backbone.py` 하나에 `Backbone`·`HuggingFaceBackbone`·`Dinov3Backbone`·`TimmBackbone`·`ConvNeXtBackbone` 등이 함께 있는 식이다.
+`decode/`·`eval/`은 예외다 — 정점 추출·사슬 확장·후처리·진단이 각자 단위 테스트 대상이라 파일을 쪼갰다(위 목록의 절 번호 참고). 그래도 "여러 클래스가 협력해 한 알고리즘을 이룬다"는 계열 하나의 성격은 유지한다.
 `__init__.py`는 전부 비운다 — import 목록을 관리하지 않는다. 필요한 모듈은 `build_instance`가 `path`를 보고 그때 import 한다(5절).
 중앙 factory 파일은 없다. 클래스를 찾는 일만 `builder.py`가 하고, 조립은 각 클래스의 `from_cfg`가, 최상위 배선은 `train.py`가 한다.
 
@@ -156,7 +195,7 @@ class ModuleConfig:
     하위 클래스가 두 필드에 기본값을 준다."""
 
     path: str  # 모듈 경로   예: "stella.model.backbone"
-    name: str  # 클래스 이름 예: "Dinov3"
+    name: str  # 클래스 이름 예: "Dinov3Backbone"
 ```
 
 `kw_only=True`는 취향이 아니라 **필수**다. dataclass 상속은 하위 클래스 필드를 베이스 필드 **뒤에** 붙이는데,
@@ -168,17 +207,24 @@ class ModuleConfig:
 ```python
 @dataclass(kw_only=True)
 class DataConfig(ModuleConfig):
-    path: str = "stella.data.synthetic"
-    name: str = "SyntheticDataset"  # 실데이터는 "stella.data.seedmap" / "SeedMapDataset"
-    root: str = ""  # SEED_MAP_v1.1_splits 루트. 하위에 {train,val,test}/{image,label} (6.7.2절)
+    path: str = "stella.data.seedmap"
+    name: str = "SeedMapDataset"  # 합성 데이터는 "stella.data.synthetic" / "SyntheticDataset" (6.6절)
+    # 원본 SEED_MAP_v1.1을 {train,val,test}/{image,label} 구조로 재정리한 사본 (6.7.2절)
+    root: str = "/media/humpback/.../Ongoing/2026_stella/SEED_MAP_v1.1_splits"
     image_size: int = 768  # SEED-MAP 원본 크기와 동일 — 리사이즈 없음
     grid_stride: int = 4  # 격자 배율 s. L = image_size // grid_stride = 192
-    num_classes: int = 12  # 0 = background + 차선 11종 (6.7.1절 Table V, 전체 train 재집계로 확정)
+    num_classes: int = 12  # 0 = background + 차선 11종 (6.7.1절)
     batch_size: int = 1  # 확정 — bs=2는 처리량 +16%뿐, accumulate가 유효 배치를 만든다 (9.3절)
     num_workers: int = 8
     max_degree: int = 2  # D: 셀당 GT 분기 수. 선 단위 사슬이라 **항상 정확히 2** (6.4절)
     encode_supersample: int = 1  # GT 래스터화 배율. 1 = 픽셀 해상도 (6.4절 A단계)
     cache_gt: str = "val_test"  # GT 캐시: "none" | "val_test"(기본) | "all" (6.4.1절)
+    cache_dir: str = "/media/humpback/.../Ongoing/2026_stella/gt_cache"  # 데이터셋 폴더 옆에 따로 둔다
+    augment: bool = True  # 학습 split에만 적용 (6.7.6절)
+    # 격자 대칭 외의 기하 증강 (개선 루프 가설 백로그). 0이면 끈다 — 기본은 기존 동작.
+    aug_rotate_deg: float = 0.0  # ± 이 각도까지 임의 회전. 타일 밖은 검게 채운다
+    aug_scale_jitter: float = 0.0  # 1 ± 이 비율까지 등방 스케일
+    limit: int = 0  # >0이면 split당 앞에서 N개만 사용 (스모크·단위 실험용, `configs/unit.py`)
 
     @property
     def grid_size(self) -> int:
@@ -188,16 +234,22 @@ class DataConfig(ModuleConfig):
 @dataclass(kw_only=True)
 class BackboneConfig(ModuleConfig):
     path: str = "stella.model.backbone"
-    name: str = "Dinov3"  # Backbone 하위 클래스: "Dinov3" | "TimmBackbone"
-    pretrained: str = "facebook/dinov3-vitl16-pretrain-sat493m"  # HF/timm 모델 ID (확정, 13절)
+    # "Dinov3Backbone" | "SwinBackbone" | "ConvNeXtBackbone" | "HrnetBackbone" | "TimmVitBackbone"
+    # 기본값이 DINOv3가 아닌 이유: sat493m 저장소가 HF 게이트라 승인 전에는 받을 수 없다 (14절).
+    name: str = "ConvNeXtBackbone"
+    pretrained: str = "convnextv2_base.fcmae_ft_in22k_in1k_384"  # HF/timm 모델 ID
     lr_mult: float = 0.1  # optim.py가 읽는다 (__init__ 인자 아님)
     freeze: bool = False
+    # 5레벨 백본(HRNet 등)에서 FPNLite가 쓰는 stride 4/8/16/32만 고른다.
+    out_indices: tuple = ()  # 비우면 timm 기본값
+    img_size: int = 0  # 고정 입력 크기 백본(Swin)에만. 0이면 지정하지 않는다
 
 
 @dataclass(kw_only=True)
 class NeckConfig(ModuleConfig):
     path: str = "stella.model.neck"
-    name: str = "SFP"  # "SFP"(ViT 단일 스케일) | "FPNLite"(멀티스케일)
+    name: str = "FPNLite"  # "SFP"(ViT 단일 스케일) | "FPNLite"(멀티스케일, 기본)
+    out_blocks: int = 1  # FPNLite 출력단 3×3 블록 수 — 격자 위 국소 문맥의 양 (가설 백로그)
 
 
 @dataclass(kw_only=True)
@@ -214,10 +266,15 @@ class ModelConfig(ModuleConfig):
     ffn_dim: int = 1024
     dropout: float = 0.0
     grad_checkpoint: bool = True  # 윈도우 층만 재계산 — 활성의 대부분이 거기 있다 (7.6절)
+    head_hidden: int = 1  # 출력 헤드 MLP의 은닉 블록 수. 1 = 계획서 원안("2층 MLP", 7.7절)
+    share_slot_weights: bool = True  # 연결 슬롯 R개가 헤드 MLP를 공유하는가 (가설 백로그)
     node_sampling: str = "gt+pred"  # 학습 노드 선택: "gt+pred"(기본) | "gt" (7.4절)
-    n_max: int = 9500  # 노드 수 상한. 전체 train 실측 최대 8,909 (p99 5,893, 6.7.5절)
+    n_max: int = 9500  # 노드 수 상한. 전체 train 8,979장 실측 최대 8,909 (p99 5,893, 6.7.5절)
     heatmap_thresh: float = 0.3  # τ_h
     dilate: int = 3  # 예측 마스크 팽창: 0 | 3 | 5
+    # "thresh" = 확률 > τ_h(기본) | "topk" = 확률 상위 K개 — thresh는 보정에 흔들린다(7.4절 실측).
+    select_mode: str = "thresh"
+    n_topk: int = 4000  # topk 모드의 K. 600장 서브샘플 재측정 근거는 6.7.5절 표 참고
 
 
 # --- 손실: 종류별 모듈 config + 조립 config (8절) ---
@@ -237,6 +294,9 @@ class SelfSlotLossConfig(ModuleConfig):
     w_class: float = 1.0
     w_coord: float = 1.0
     w_end: float = 1.0  # 끝 셀 BCE — end_map 직접 감독 (8.2절, 9차 개정)
+    # 끝 셀 양성이 전체 양성의 ~2.5%라 로짓이 음수로 눌린다 (가설 백로그, 14절).
+    end_pos_weight: float = 1.0  # 1.0 = 가중 없음
+    class_bg_weight: float = 1.0  # 선택 셀의 ~70%가 배경이라 클래스 CE가 배경에 지배당한다 (가설 백로그)
 
 
 @dataclass(kw_only=True)
@@ -247,6 +307,8 @@ class ConnLossConfig(ModuleConfig):
     w_dir: float = 1.0  # 연결 방향 손실 (1 - 내적)
     match_w_dir: float = 1.0  # λ_dir — 손실 가중치가 아니라 **매칭 비용** 계수 (8.3절)
     match_w_exist: float = 1.0  # λ_e   — 〃
+    exist_pos_weight: float = 1.0  # 거짓 양성 셀이 압도적일 때 양성 쪽을 든다 (가설 백로그)
+    dir_loss: str = "cosine"  # "cosine" = 1 - cos(기본) | "angle" = acos/π — 작은 오차에서 기울기가 산다
 
 
 @dataclass(kw_only=True)
@@ -258,9 +320,9 @@ class LossConfig(ModuleConfig):
     conn: ConnLossConfig = field(default_factory=ConnLossConfig)
 
 
-# --- 디코딩(객체 생성) + 로깅 ---
+# --- 디코딩(객체 생성) + 평가 + 로깅 ---
 @dataclass(kw_only=True)
-class DecodeConfig(ModuleConfig):  # 9차 개정 — 사슬 확장 디코더 (10절)
+class DecodeConfig(ModuleConfig):  # 사슬 확장 디코더 (10절)
     path: str = "stella.decode.graph"
     name: str = "ChainDecoder"
     heatmap_thresh: float = 0.3  # τ_h — 노드 후보 (추론 경로, 7.4절)
@@ -271,13 +333,18 @@ class DecodeConfig(ModuleConfig):  # 9차 개정 — 사슬 확장 디코더 (10
     opp_thresh: float = 0.7  # 마주봄 하한 — -(c·n) ≥ 이 값 (10.3절)
     w_opp: float = 1.0  # 후보 비용에서 마주봄 항의 비중
     min_class_prob: float = 0.1  # 확장 게이트 — 후보의 사슬 클래스 softmax 확률 하한 (10.3절)
-    purity_thresh: float = (
-        0.6  # 사슬 순도 하한 — argmax 클래스 일치 비율. 이하면 사슬 폐기 (10.3절)
-    )
+    purity_thresh: float = 0.6  # 사슬 순도 하한 — argmax 클래스 일치 비율. 이하면 사슬 폐기 (10.3절)
     end_extend: float = 1.0  # 끝 셀에서 끝방향 슬롯으로 연장하는 길이(셀) — 10.3절 끝 연장
     min_points: int = 2  # 이보다 짧은 폴리라인은 버린다 (연장점 포함)
     simplify_tol: float = 0.0  # >0이면 RDP 단순화 (픽셀)
-    # 임계값들은 학습된 체크포인트로 검증 셋에서 스윕해 확정한다 (13절 남은 확인).
+    # --- 알고리즘 변형 (가설 백로그). 기본값은 전부 M12까지의 기존 동작이다 (10.6절) ---
+    seed_mode: str = "class_peak"  # "class_peak"(기본) | "end_peak" — 선의 끝에서 먼저 시작
+    stop_needs_nocand: bool = False  # True면 끝 확률 + 후보 없음을 모두 만족해야 정지
+    merge_gap: float = 0.0  # >0이면 끝점 간 이 거리(픽셀) 안의 조각을 병합 (10.4절 ChainMerger)
+    merge_align: float = 0.8  # 병합 정렬 하한 — 두 조각이 서로를 향하는 정도
+    align_mode: str = "cosine"  # "cosine" = 각도 게이트(기본) | "perp" = 직선의 수직 이탈 게이트
+    perp_thresh: float = 0.7  # perp 모드의 수직 이탈 상한 (셀 단위)
+    # 임계값들은 학습된 체크포인트로 검증 셋에서 스윕해 확정한다 (`scripts/tune_decoder.py`, 14절).
     # 구 GraphDecoder의 mutual·w_dist·max_conn_dist·t_thresh는 폐기 — 10절 참고.
 
 
@@ -285,11 +352,21 @@ class DecodeConfig(ModuleConfig):  # 9차 개정 — 사슬 확장 디코더 (10
 class MetricConfig(ModuleConfig):  # 인스턴스 평가 지표 (11절)
     path: str = "stella.eval.ccq"
     name: str = "InstanceCCQ"
-    buffer_rho: float = 12.0  # ρ (픽셀). 차선 간격의 절반 이하. GSD 확정 후 재설정 (11.1)
+    buffer_rho: float = 12.0  # ρ (픽셀). 실측 차선 간 거리 중앙값과 정확히 같다 — 11.1절 한계 참고
     cov_thresh: float = 0.5  # θ_cov — 커버리지(완전성) 하한, 관대
     cor_thresh: float = 0.9  # θ_cor — 정확성 하한, 엄격 (모든 GT 대상)
     angle_gate: float = 30.0  # 매칭 시 접선 방향 차 상한(도) — 수직 교차 배제
     sample_step: float = 2.0  # 길이 계산용 폴리라인 샘플 간격(픽셀)
+    max_instances: int = 400  # 샘플당 평가 인스턴스 상한 (안전장치)
+    # frag는 조금이라도 겹치는 예측을 다 세어 정확성이 높을수록 부풀려진다. frag_strict는 그 GT를
+    # 이 비율 이상 덮는 조각만 세는, 조각남의 더 정직한 측정치다 (11.1절).
+    frag_min_cov: float = 0.1
+
+
+@dataclass(kw_only=True)
+class CellDiagConfig(ModuleConfig):  # 셀 단위 진단 지표 22종 (11.5절, 개선 루프 전용)
+    path: str = "stella.eval.cellstat"
+    name: str = "CellDiagnostics"
 
 
 @dataclass(kw_only=True)
@@ -311,12 +388,19 @@ class TrainConfig(ModuleConfig):
     lr: float = 1e-4
     weight_decay: float = 0.05
     warmup_steps: int = 1000
-    epochs: int = 100  # 아래 넷은 pl.Trainer가 읽는다 (__init__ 인자 아님)
+    epochs: int = 100  # 아래는 pl.Trainer가 읽는다 (__init__ 인자 아님)
     accumulate: int = 16  # 유효 배치 = batch_size × accumulate × GPU 수
     grad_clip: float = 0.1
     precision: str = "bf16-mixed"
+    devices: str = "auto"  # pl.Trainer devices. "1"이면 단일 GPU 고정(`configs/unit.py`가 이렇게 쓴다)
+    limit_val_batches: float = 1.0
     seed: int = 42  # train.py가 읽는다
-    output_root: str = "results"  # 〃
+    # 체크포인트 — 과거 실행에서 last.ckpt가 도중에 멈춘 사고가 있어 명시적으로 둔다.
+    ckpt_monitor: str = "val/inst/f1"  # 손실이 아니라 최종 지표를 기준으로 남긴다
+    ckpt_mode: str = "max"
+    ckpt_top_k: int = 3
+    find_unused_parameters: bool = False  # 최소 1노드 보장(7.4절) 덕에 미사용 파라미터가 없다
+    output_root: str = "/media/humpback/.../Ongoing/2026_stella/log"  # 〃
 
 
 @dataclass(kw_only=True)
@@ -326,19 +410,22 @@ class ExperimentConfig:  # 이것 자체는 build 대상이 아니다
     loss: LossConfig = field(default_factory=LossConfig)
     decode: DecodeConfig = field(default_factory=DecodeConfig)
     eval: MetricConfig = field(default_factory=MetricConfig)
+    cell_diag: CellDiagConfig = field(default_factory=CellDiagConfig)
     log: LogConfig = field(default_factory=LogConfig)
     train: TrainConfig = field(default_factory=TrainConfig)
 ```
 
 **config 필드가 전부 `__init__` 인자인 것은 아니다.** 상당수는 다른 곳이 읽는다.
 
-| 필드                                                           | 읽는 곳                          |
-| ------------------------------------------------------------ | ----------------------------- |
-| `BackboneConfig.lr_mult`                                     | `optim.py` param group (9.2절) |
-| `DataConfig.batch_size`, `num_workers`                       | `DataLoader`                  |
-| `TrainConfig.epochs`, `accumulate`, `grad_clip`, `precision` | `pl.Trainer` (9.3절)           |
-| `TrainConfig.seed`, `output_root`                            | `train.py`                    |
-| `ModuleConfig.path`, `name`                                  | `builder.py`                  |
+| 필드                                                                                     | 읽는 곳                          |
+| --------------------------------------------------------------------------------------- | ----------------------------- |
+| `BackboneConfig.lr_mult`                                                                | `optim.py` param group (9.2절) |
+| `DataConfig.batch_size`, `num_workers`                                                  | `DataLoader`                  |
+| `TrainConfig.epochs`, `accumulate`, `grad_clip`, `precision`, `devices`, `limit_val_batches` | `pl.Trainer` (9.3절)       |
+| `TrainConfig.ckpt_monitor`, `ckpt_mode`, `ckpt_top_k`                                   | `ModelCheckpoint` (9.3절)      |
+| `TrainConfig.find_unused_parameters`                                                    | DDP strategy 선택 (9.3절)        |
+| `TrainConfig.seed`, `output_root`                                                       | `train.py`                    |
+| `ModuleConfig.path`, `name`                                                             | `builder.py`                  |
 
 **공유 값은 여전히 한 곳에만 둔다.** `ConnLoss`가 필요로 하는 슬롯 수는 `ModelConfig.num_conn_slots`,
 `ChainDecoder`가 필요로 하는 격자 크기는 `DataConfig.grid_size`에서 읽는다 — `from_cfg`가 전체 cfg를 받으므로
@@ -360,12 +447,12 @@ def get_config():
     return cfg
 
 
-# configs/exp_timm.py — 백본 교체 예시. path 기본값이 있어 대개 name만 바꾸면 된다
+# configs/exp_vit_sfp.py — 백본 교체 예시 (실제 파일). path 기본값이 있어 name만 바꾸면 된다
 def get_config():
     cfg = get_base()
-    cfg.model.backbone.name = "TimmBackbone"
-    cfg.model.backbone.pretrained = "swinv2_large_window12to16_192to256"
-    cfg.model.neck.name = "FPNLite"
+    cfg.model.backbone.name = "TimmVitBackbone"  # 게이트 없는 timm ViT — SFP 경로 검증용
+    cfg.model.backbone.pretrained = "vit_base_patch16_224.augreg_in21k"
+    cfg.model.neck.name = "SFP"
     return cfg
 ```
 
@@ -374,13 +461,22 @@ def get_config():
 
 ### 4.3. 로드 규칙
 
-- 진입점은 `--config <모듈 이름>`을 받는다(예: `--config configs.exp_k5`). `importlib.import_module(...).get_config()`를 호출한다.
+- 진입점은 `--config <모듈 이름>`을 받는다(예: `--config configs.exp_r3`) + `--override 점.경로=값`
+  0개 이상(예: `--override train.epochs=25 data.batch_size=1`). 로드는 `stella/config_io.py`의
+  `load_config(module_name, overrides)`가 맡는다 — `importlib.import_module(...).get_config()`로
+  base cfg를 만들고, override 문자열마다 `apply_override`가 **현재 값의 타입**(`cast_like`)으로
+  캐스팅해 덮어쓴다. 이 모듈은 Lightning·DataLoader를 끌고 오지 않는다 — 학습 진입점(`train.py`)뿐
+  아니라 GPU 없이 도는 디코더 튜닝 스크립트(`scripts/eval_decode.py`·`tune_decoder.py`)도 같은
+  함수로 config를 읽는다. `apply_saved_config(cfg, saved_json)`도 같은 파일에 있다 — 실행 폴더의
+  `config.json`을 현재 스키마 위에 되먹여 "그 실행이 무슨 설정이었나"를 재현할 때 스크립트가 쓴다.
   `configs`가 설치된 패키지이므로(2절) 파일 경로 대신 모듈 이름을 받는 편이 오타 시 에러가 명확하다.
 
 - **config를 로드한 직후 `check_all(cfg)`를 부른다**(5절). 백본 가중치 다운로드·CUDA 초기화 전에
   모든 `path`/`name` 오타가 여기서 걸린다.
 
-- 학습 시작 시 출력 폴더에 다음을 남긴다.
+- 학습 시작 시 출력 폴더(`{train.output_root}/{YYMMDD_HHMMSS}_{config}[_{tag}]/`)에 다음을 남긴다.
+  DDP는 같은 스크립트를 rank 수만큼 다시 실행하는데, 폴더는 rank 0만 만들고 환경변수로 경로를
+  자식 프로세스에 물려준다.
   
   - `config.json` — `dataclasses.asdict(cfg)`.
   
@@ -393,7 +489,9 @@ def get_config():
     shutil.copytree(
         repo_root,
         out_dir / "src",
-        ignore=shutil.ignore_patterns("__pycache__", ".git", ".venv", "results", "data", "*.pyc"),
+        ignore=shutil.ignore_patterns(
+            "__pycache__", ".git", ".venv", "results", "data", "*.pyc", "viz_gt_out", "docs"
+        ),
     )
     ```
     
@@ -402,7 +500,7 @@ def get_config():
   - `git_sha.txt` — git 저장소일 때만, `git rev-parse HEAD`와 dirty 여부 한 줄. 커밋을 강제하지 않으며
     소스 복사를 대체하지도 않는다. "대략 어느 시점 코드인가"를 훑을 때만 쓴다.
 
-- 체크포인트가 하나도 없는 실행 폴더를 지우는 정리 스크립트를 둔다(시작 직후 중단한 실행 정리용).
+- 체크포인트가 하나도 없는 실행 폴더를 지우는 정리 스크립트는 **아직 없다** — 수동으로 지운다(백로그).
 
 ---
 
@@ -555,18 +653,26 @@ class StellaModel(nn.Module):
 from stella.data.types import GridDatasetBase
 
 
-def main(cfg: ExperimentConfig):
+def main() -> None:
+    cfg = load_config(args.config, args.override)  # stella/config_io.py (4.3절)
     check_all(cfg)  # ← 오타는 여기서 전부 걸린다
 
-    model = build_instance(cfg.model, cfg)
-    criterion = build_instance(cfg.loss, cfg)
+    parts = {
+        "model": build_instance(cfg.model, cfg),
+        "criterion": build_instance(cfg.loss, cfg),
+        "decoder": build_instance(cfg.decode, cfg),
+        "metric": build_instance(cfg.eval, cfg),
+        "cell_diag": build_instance(cfg.cell_diag, cfg),  # CellDiagnostics (11.5절)
+    }
+    module = build_instance(cfg.train, cfg, **parts)
     train_set = build_instance(cfg.data, cfg, base=GridDatasetBase, split="train")
     val_set = build_instance(cfg.data, cfg, base=GridDatasetBase, split="val")
-    module = build_instance(cfg.train, cfg, model=model, criterion=criterion)
     ...
 ```
 
-모든 줄이 같은 모양이라 "이 부품은 어떻게 만들더라"를 다시 확인할 일이 없다.
+모든 줄이 같은 모양이라 "이 부품은 어떻게 만들더라"를 다시 확인할 일이 없다. 실제 배선은
+`decoder`·`metric`·`cell_diag`까지 5개 부품을 `StellaTrainModule`에 한 번에 넘긴다(9.1절) —
+디코더·평가 지표(M6·M7 당시 잎 모듈이었던 것)와 셀 진단(개선 루프에서 추가)이 전부 여기 모인다.
 
 ### 5.4. `from_cfg` 기본 구현 — `Buildable`
 
@@ -844,11 +950,11 @@ $$
 (워커 $W$개가 병렬로 준비하므로, 워커 하나는 샘플 하나를 $W$스텝 안에만 만들면 GPU를 굶기지 않는다.
 초안의 "스텝 시간 / 워커 수" 판정식은 부등호 방향이 잘못된 것이라 9차 개정에서 바로잡았다.)
 
-**실측 결과 (재구현, 학습 캐시 불필요 확정):** 샘플 전체 처리 70 ms(파싱 30.0 + 인코딩 15.7 ms,
-p99 58 ms) vs 예산 328 ms × workers 8 = 2,624 ms — **여유 37배.**
-학습 캐시는 넣지 않는다. val/test 캐시는 정책대로 유지한다.
-(선 단위 인코딩(9차)은 선마다 캔버스를 그려 클래스 단위보다 그리기 횟수가 늘지만 — 장당 평균
-38개 — 선별 bounding box만 그리면 비용 증가는 제한적이다. M10에서 재실측한다.)
+**실측 결과 (재구현, 학습 캐시 불필요 확정):** 8차 개정 시점(클래스 단위 인코딩)의 샘플 전체 처리는
+70 ms(파싱 30.0 + 인코딩 15.7 ms, p99 58 ms)였다. **선 단위 인코딩(9차 개정, M10)으로 재실측하니
+오히려 18.2 ms/샘플(p99 46 ms)로 줄었다** — 선마다 캔버스를 그려 그리기 횟수는 늘지만(장당 평균
+38개), 선별 bounding box만 그리는 최적화가 전체 이득이었다. 예산 328 ms × workers 8 = 2,624 ms
+대비 **여유 144배.** 학습 캐시는 넣지 않는다. val/test 캐시는 정책대로 유지한다.
 
 **단계적 대응 (위에서부터 순서대로):**
 
@@ -873,12 +979,14 @@ p99 58 ms) vs 예산 328 ms × workers 8 = 2,624 ms — **여유 37배.**
 
 ### 6.6. 합성 데이터셋 — `data/synthetic.py`
 
-실데이터 준비 전에 전 파이프라인을 검증할 개발용 데이터셋. 랜덤 시드로 이미지를 즉석 생성한다.
+실데이터 준비 전에 전 파이프라인을 검증할 개발용 데이터셋으로 만들었고, 지금도 스모크·단위 실험
+(`configs/exp_synthetic.py`)에 쓴다. 랜덤 시드로 이미지를 즉석 생성한다.
 
 - 랜덤 폴리라인(직선·베지어 곡선) 수 개를 배경 위에 그린 이미지 + 같은 폴리라인으로 GT 인코딩.
-- Y자 분기·다른 클래스 T자 접합·교차·완만한 대각선을 **의도적으로 섞어** 생성한다
-  (6.4절 끝칸 미채움·셀 소유권·건너뛰기·3×3 순위 규칙의 실전 검증).
-- 학습 초기 과적합 테스트(M5)·DDP 스모크(M8)에 사용.
+- Y자 분기·다른 클래스 T자 접합·교차·**이중선·파선**을 **의도적으로 섞어** 생성한다
+  (6.4절 끝칸 미채움·셀 소유권·건너뛰기·3×3 순위 규칙의 실전 검증). 완만한 대각선(지그재그 없음
+  불변식)은 `synthetic.py`가 아니라 `test_encode.py`가 `ChainEncoder`를 직접 호출해 검증한다.
+- 학습 초기 과적합 테스트·DDP 스모크에 사용.
 
 ### 6.7. 실데이터 파이프라인 — SEED-MAP (`data/seedmap.py`)
 
@@ -992,32 +1100,53 @@ split을 표현한다. 재구현 코드는 `dataset.json`을 직접 읽었지만
 | --------------------------- | -------------------------------------------------------- | ------------------------------------------------ |
 | 이미지                         | 768×768 RGB, 전부 동일                                       | `image_size = 768` 리사이즈 불필요                      |
 | 차선 인스턴스/장                   | 평균 38.3, 중앙 34, 최대 255                                   |                                                  |
-| 점/폴리라인 (경계 자른 뒤)            | 중앙 14, p99 199, 최대 478                                    | 온라인 인코딩 비용 상한 — 실측 70 ms/샘플로 여유 (6.4.1절)        |
+| 점/폴리라인 (경계 자른 뒤)            | 중앙 14, p99 199, 최대 478                                    | 온라인 인코딩 비용 상한 — 실측 18.2 ms/샘플로 여유 (6.4.1절)        |
 | **GT 노드 수/장**               | **평균 2,121, p90 3,681, p99 5,893, 최대 8,909**             | **`n_max` 8000으로도 최대치를 못 담아 → 9500 확정**          |
 | 미등록 `category_id`           | `599` 697 / `5011` 17 / `None` 3 (차선의 0.2%)               | 6.7.1 표 확정 — 전부 제외                               |
 | 노드 차수 분포 (구 인코딩)            | 0: 6.15% / 1: 2.52% / 2: 90.63% / 3: 0.40% / 4: 0.31%    | 차수 0(고립)·3+·초과 절단(0.307%)은 **구 인코딩의 산물** — 아래 참고 |
 | 종점 셀 (구 인코딩)                | 노드의 2.51%                                                 |                                                  |
-| 파싱·인코딩 시간                   | 30.0 + 15.7 ms (p99 58 ms)                                | 학습 캐시 불필요 확정 (6.4.1절)                            |
+| 파싱·인코딩 시간 (구 인코딩)          | 30.0 + 15.7 ms (p99 58 ms)                                | 선 단위 인코딩(M10) 재실측은 18.2 ms(p99 46 ms) — 6.4.1절    |
+
+**개선 루프 서브샘플 재측정 (E03, train 600장).** `select_mode="topk"`(4.1·7.4절)의 `n_topk` 기본값을
+정하려고 600장 서브샘플로 다시 잰 GT 노드 수: **평균 1,826 / p90 3,181 / p99 4,978 / 최대 6,209.**
+전체 8,979장 기준 위 행보다 작은 것은 서브샘플이라서다 — `n_max`(전체 데이터 최댓값 기준)의 근거는
+바뀌지 않았고, 이 값은 `n_topk = 4,000`(대부분의 타일에서 GT를 덮으면서 토큰 수를 억제)의 근거로만 쓴다.
 
 **차수 통계는 구(클래스 그래프) 인코딩 기준이다.** 새 선 단위 인코딩(6.4절)에서는 분기가 구조적으로
 항상 2라 차수 분포·초과 절단·고립 노드가 **정의상 사라진다**(고립의 원인이던 스침 셀은 3×3 순위
-규칙이 제거). M10에서 새 인코더 기준 통계 — 사슬 길이 분포, 소유권으로 잃는 셀 비율, 2셀 이하로
-줄어드는 선 비율 — 를 다시 뽑는다. 차수 2가 90.6%였다는 사실은 "사슬 가정이 데이터에 맞는다"는
-근거이기도 하다.
+규칙이 제거). 차수 2가 90.6%였다는 사실은 애초에 "사슬 가정이 데이터에 맞는다"는 근거였다.
+
+**M10 재집계 — 선 단위 인코딩(새 인코더) 기준 사슬 통계.**
+
+| 항목 | 실측 | 의미 |
+| --- | --- | --- |
+| 사슬 평균 길이 | **48.2 셀** | 사슬 하나가 온전하려면 링크가 47번 연속 성공해야 한다 — 10.6절 `link_ok` 목표치의 근거 |
+| 1셀 사슬 비율 | 1.50% | 3칸짜리 선(양 끝칸 미채움 후 1칸만 남음) — 소멸하지 않고 양방향 연장으로 3점 폴리라인이 된다(6.2절) |
+| 선 소멸 | 1.23% | 끝칸 미채움 후 채워지는 셀이 하나도 없는 극단적으로 짧은 선 |
+| 소유권으로 잃는 셀 | **2.16%** | X·+자 교차에서 진 선이 그 칸을 잃는 비율(6.4절 (A)-4) — 결정 33 "평행 겹침 드물다"의 근거 데이터 |
+| 건너뛴 간선(체비셰프 ≥ 2) | 0.76% | 소유권 손실 칸을 사슬이 건너뛴 비율 — 디코더 `radius = 2`의 실측 근거(10.3절, GT 주입 간선의 98.7%가 1칸·1.3%가 2칸이라는 수치와 일관) |
+| 끝 셀 비율 | **4.12%** (of nodes) | 끝칸 미채움 후 양성 셀 중 끝 셀 비중 — 8.2절 `end_pos_weight` 불균형 논의의 분모 |
+
+새로 받은 전체 데이터에서 **차선 간 거리(수직 최근접) 중앙값은 12.00 px** — `MetricConfig.buffer_rho`
+기본값과 정확히 같다. 이 우연의 일치가 평가 지표에 주는 함의는 11.1절에 있다(중요한 한계다).
 
 #### 6.7.6. 증강
 
 6.4절대로 **인코딩 전 벡터 단계**에서 한다. SEED-MAP은 위성 정사영상이라 회전·반전이 물리적으로 타당하다.
 
-- 기하: 좌우/상하 반전, 90° 회전 (폴리라인 좌표 변환만). 클래스 의미가 바뀌지 않는다.
-- 색상: 밝기·대비·감마·가우시안 노이즈 — 이미지에만.
-- **적용하지 않는 것:** 임의 각도 회전과 크롭. 전자는 빈 영역을 만들고 후자는 타일 경계를 다시 만든다.
-  둘 다 4번의 경계 자르기를 매번 다시 해야 해서 v1에서는 넣지 않는다.
+- 기하(기본 켜짐): 좌우/상하 반전, 90° 회전 (폴리라인 좌표 변환만). 클래스 의미가 바뀌지 않는다.
+- 색상(기본 켜짐): 밝기·대비·감마·가우시안 노이즈 — 이미지에만.
+- **임의 각도 회전·등방 스케일 (개선 루프 가설 백로그, 기본 꺼짐).** `DataConfig.aug_rotate_deg`·
+  `aug_scale_jitter`로 이미 구현돼 있다 — `augment.py`가 어파인 변환을 이미지·폴리라인에 같은
+  행렬로 적용하고, `seedmap.py`가 변환 후 타일 경계로 다시 클리핑한다(6.7.4절 4번과 같은 로직
+  재사용). 계획 당시엔 "경계를 다시 잘라야 해서 넣지 않는다"고 판단했지만, 실제로는 기존 경계
+  클리핑 코드를 그대로 재사용할 수 있어 구현 비용이 낮았다. 기본값 0(끔)이라 기본 동작은 이전과
+  같고, 회전 불변성 가설을 시험할 때만 켠다.
 
 #### 6.7.7. 알려진 제약
 
-- 샘플 300장은 전체 12,828장의 2.3%다. 위 통계는 **경향 확인용**이고, 전체 데이터를 받으면 M9에서
-  같은 스크립트로 다시 집계해 `n_max`·`max_degree`·클래스 목록을 확정한다.
+- **전체 데이터(train 8,979 / val 1,282 / test 2,567장)를 수령해 6.7.1~6.7.5 표를 전부 이
+  데이터로 재집계했다(M9 완료)** — 초기 300장 파일럿(2.3%)은 더 이상 쓰지 않는다.
 - 논문은 타일 정렬(ICP)이 실패한 이미지를 이미 제외했다고 밝혔지만, 급경사 지형의 잔여 오정렬은 남아 있다.
 - `safety_zone`은 면(area)인데 `LINE_STRING`으로 저장된다(논문도 이 점을 IoU 9.6의 원인으로 지목).
   샘플에서 닫힌 폴리라인은 2개뿐이라 실제로는 열린 외곽선 조각으로 들어온다. 별도 처리는 하지 않는다.
@@ -1068,6 +1197,13 @@ image (B,3,768,768), [0,1]
 **슬롯 순서**(무순서)뿐이다. 그래서 criterion이 하는 일은 유도가 아니라 **매칭**(8.3)과
 손실 계산뿐이다.
 
+**`stella/model/inject.py` — GT를 이 계약 형식으로 직접 채운다.** `gt_model_output(targets, ...)`가
+`class_map`·`coord_map`·`end_map`·`conn_dirs`를 로짓이 포화된(`HIGH_LOGIT`) `ModelOutput`으로
+바꿔 "완벽한 예측"을 만든다. 실제 학습·추론 경로에서는 쓰이지 않고, **파이프라인의 다른 부분을
+독립적으로 검증**하는 테스트·측정 전용 유틸리티다 — 디코더가 GT를 그대로 복원하는지(M12,
+10절), 손실이 매칭된 완벽한 입력에서 0으로 수렴하는지(M11, 8절), 그리고 개선 루프에서 "모델이
+완벽해지면 지표가 얼마까지 오를 수 있는가"(천장, GT 주입 인스턴스 F1 0.976)를 잰다.
+
 ### 7.2. Backbone — `model/backbone.py`
 
 여러 백본을 비교 실험할 것이므로 **3층 구조**로 둔다. 모델 계열마다 출력 형태가 다르므로 **계열별로 클래스 하나**를
@@ -1077,31 +1213,33 @@ image (B,3,768,768), [0,1]
 Backbone(nn.Module, Buildable)          # 계약: forward(x) -> list[Tensor], out_channels, strides
 ├── HuggingFaceBackbone                 # transformers 공통: AutoModel/AutoImageProcessor 로드,
 │   │                                   #   processor에서 mean/std 추출, 게이트 토큰 처리
-│   ├── Dinov3Backbone                  #   ViT 패치 토큰 → 1레벨 맵
-│   ├── PerceptionEncoderBackbone
-│   └── ...
-└── TimmBackbone                        # timm 공통: create_model(features_only=True),
+│   └── Dinov3Backbone                  #   ViT 패치 토큰 → 1레벨 맵 (게이트 승인 대기, 14절)
+└── TimmBackbone                        # timm 공통: create_model(pretrained=True),
     │                                   #   default_cfg에서 mean/std 추출
-    ├── SwinBackbone                    #   4레벨 (stride 4/8/16/32)
-    ├── ConvNeXtBackbone
-    └── ...
+    ├── ConvNeXtBackbone                #   4레벨 (stride 4/8/16/32) — 현재 기본값
+    ├── SwinBackbone                    #   4레벨, img_size 고정 입력
+    ├── HrnetBackbone                   #   5레벨 → out_indices로 4/8/16/32만 선택
+    └── TimmVitBackbone                 #   features_only=False, ViT 패치 토큰 → 1레벨 (SFP 경로 검증용)
 ```
+
+`PerceptionEncoderBackbone`은 계획에는 있었지만 아직 만들지 않았다 — 필요해지면 계열 클래스 하나
+추가로 확장한다(구조는 이미 이를 위해 설계돼 있다).
 
 **계열 안의 스케일 변화(large/base/small/tiny)는 한 클래스가 처리한다.** 클래스를 고르는 것은 `name`이고,
 스케일은 `pretrained` 문자열이 정한다. 채널 수·레이어 수는 로드한 모델에서 읽어 `out_channels`에 채운다.
 
 ```python
+# configs/exp_dinov3.py — 게이트 승인 전에는 check_all은 통과하지만 생성 시 GatedRepoError가 난다
 cfg.model.backbone.name = "Dinov3Backbone"
-cfg.model.backbone.pretrained = (
-    "facebook/dinov3-vitl16-pretrain-sat493m"  # → vitb16으로 바꾸면 base
-)
+cfg.model.backbone.pretrained = "facebook/dinov3-vitl16-pretrain-sat493m"
+cfg.model.neck.name = "SFP"  # ViT는 1레벨만 내므로 SFP와 짝짓는다
 ```
 
 | 층                     | 책임                                                                                            |
 | --------------------- | --------------------------------------------------------------------------------------------- |
 | `Backbone`            | 계약만 정의. `out_channels: tuple[int,...]`, `strides: tuple[int,...]`, `pixel_mean/std` 버퍼        |
 | `HuggingFaceBackbone` | `AutoModel.from_pretrained` 로드, `AutoImageProcessor`에서 정규화 상수 추출, `freeze` 처리                 |
-| `TimmBackbone`        | `timm.create_model(pretrained=True, features_only=True)` 로드, `default_cfg`에서 정규화 상수 추출        |
+| `TimmBackbone`        | `timm.create_model(pretrained=True, ...)` 로드, `default_cfg`에서 정규화 상수 추출. 계층형은 `features_only=True`, ViT류(`TimmVitBackbone`)는 `False`로 불러 패치 토큰을 직접 다룬다 |
 | 계열 클래스                | **출력 형태를 `list[Tensor]`(stride 오름차순)로 맞추는 일.** ViT류는 패치 토큰 → `(B, C, h, w)` reshape, 계층형은 그대로 |
 
 정규화 상수를 백본이 들고 있으므로 데이터셋은 `[0,1]` RGB만 내놓으면 되고(6.2절), 백본을 바꿔도
@@ -1109,10 +1247,12 @@ cfg.model.backbone.pretrained = (
 
 | 우선순위       | 클래스 / 모델                                                                                 | 출력                          | 비고                                                 |
 | ---------- | ---------------------------------------------------------------------------------------- | --------------------------- | -------------------------------------------------- |
-| **1 (확정)** | `Dinov3Backbone` — **DINOv3 ViT-L/16 위성 사전학습** `facebook/dinov3-vitl16-pretrain-sat493m` | 패치 토큰 → `(B, 1024, 48, 48)` | 위성 영상 4.9억 장 사전학습 dense 특화. HF 게이트 라이선스 — 계정 동의 필요 |
-| 2          | `SwinBackbone` — SwinV2-L 등                                                              | 4레벨 (stride 4/8/16/32)      | 게이트 없음. **FPNLite 경로 검증용**                         |
-| 3          | `ConvNeXtBackbone` — ConvNeXtV2-L 등                                                      | 4레벨                         | CNN 대조군                                            |
-| 4          | `PerceptionEncoderBackbone` 등                                                            | 계열마다 다름                     | 필요할 때 계열 클래스 하나 추가로 확장                             |
+| 1 (목표, 대기) | `Dinov3Backbone` — **DINOv3 ViT-L/16 위성 사전학습** `facebook/dinov3-vitl16-pretrain-sat493m` | 패치 토큰 → `(B, 1024, 48, 48)` | 위성 영상 4.9억 장 사전학습 dense 특화. **HF 게이트 미승인 — 아직 못 씀**(14절). `configs/exp_dinov3.py`로 전환 준비는 끝났다 |
+| **2 (현재 기본)** | `ConvNeXtBackbone` — `convnextv2_base.fcmae_ft_in22k_in1k_384`                        | 4레벨 (stride 4/8/16/32)      | `configs/base.py` 기본값. 게이트 없음. DINOv3 승인 전 대역 백본 |
+| 3          | `SwinBackbone` — SwinV2-L 등                                                              | 4레벨, `img_size` 고정 입력 필요    | 게이트 없음. FPNLite 경로 대조군                              |
+| 4          | `TimmVitBackbone` — `vit_base_patch16_224.augreg_in21k` 등                                | 패치 토큰 → 1레벨                  | 게이트 없는 ViT. `configs/exp_vit_sfp.py` — SFP 경로 검증용  |
+| 5          | `HrnetBackbone`                                                                          | 5레벨 → `out_indices`로 4개 선택   | 고해상도 유지형 대조군                                        |
+| 6          | `PerceptionEncoderBackbone` 등                                                            | 계열마다 다름                     | **아직 미구현.** 필요할 때 계열 클래스 하나 추가로 확장                             |
 
 - 백본 추가 = **계열 클래스 하나 추가**. 라이브러리가 이미 있으면 중간 클래스를 상속해 `forward` 출력 정리만 하면 된다.
 - InternImage는 **지원하지 않는다**(13절 결정 4 — DCNv3 커스텀 CUDA 커널이 원칙 #6 위반).
@@ -1125,6 +1265,8 @@ cfg.model.backbone.pretrained = (
 
 `Neck` 베이스클래스의 하위로 구현하고(config `model.neck`으로 고른다, 5절), 백본이 무엇이든
 **공통으로 `(B, 256, 192, 192)`** = `(B, d_model, L, L)`를 낸다. 이 격자가 이후 전부(히트맵·노드 선택·토큰 임베딩)의 좌표계다.
+**기본 config는 `FPNLite`다** — 현재 기본 백본 `ConvNeXtBackbone`(7.2절)이 4레벨을 내기 때문이다.
+`SFP`는 ViT류(`Dinov3Backbone`·`TimmVitBackbone`)와 짝지을 때 `neck.name = "SFP"`로 켠다.
 
 **정규화는 LayerNorm/GroupNorm만 쓴다.** `batch_size = 1`로 시작하므로(결정 8) BatchNorm은 통계가 무의미하다.
 
@@ -1162,14 +1304,16 @@ c2 (s=8)  ─ 1×1 Conv(C_2→256) + GN ───── (+) ────── p
                                                     │ nearest ×2
 c1 (s=4)  ─ 1×1 Conv(C_1→256) + GN ───── (+) ────── p1
                                                     │
-                                   3×3 Conv(256→256) + GN
+                              [3×3 Conv(256→256) + GN] × out_blocks
                                                     ↓
                                           (B, 256, 192, 192)
 ```
 
 - lateral은 전부 `1×1 Conv + GroupNorm(32)`. 상위 레벨은 `F.interpolate(mode="nearest")`로 2배 올려 더한다.
   nearest를 쓰는 이유는 bilinear가 얇은 선을 흐리기 때문이다.
-- 마지막 `3×3 Conv + GN`은 top-down 덧셈이 만드는 계단 현상(aliasing)을 없앤다. FPN의 output conv와 같은 역할이다.
+- 출력단 `3×3 Conv + GN`은 top-down 덧셈이 만드는 계단 현상(aliasing)을 없앤다. FPN의 output conv와 같은
+  역할이다. **`out_blocks`(기본 1)로 이 블록 수를 조절한다** — 격자 위 국소 문맥을 얼마나 더 섞을지의
+  손잡이로, 개선 루프 가설 백로그다(4.1절). 기본값 1은 계획서 원안과 동일하다.
 - 출력이 한 레벨뿐이라 상위 레벨은 **문맥 주입용**으로만 쓰인다. 얇은 선의 위치 정밀도는 $c_1$이 결정한다.
 
 > 참고: 메모리가 부족하면 `grid_stride=8`(L=96)로 낮출 수 있게 열어 둔다. `SFP`는 전치합성곱을 1단으로,
@@ -1183,8 +1327,12 @@ c1 (s=4)  ─ 1×1 Conv(C_1→256) + GN ───── (+) ────── p
   GT 쪽은 감독이 있는 셀을 보장하고, 예측 쪽은 추론에서 만날 거짓 양성 셀을 미리 노출시켜
   "존재 안 함"(exist=0)을 학습시킨다(8.4). $N > N_{\max}$면 GT 셀은 전부 유지하고 예측 셀만 확률순으로 자른다.
   (`"gt"` 옵션: GT 셀만 사용 — 초기 디버깅·과적합 테스트용.)
-- **추론 시 선택:** $\sigma(\text{logit}) > \tau_h$ → `max_pool2d` dilation(3×3) → $N_{\max}$ 상한.
-  (architecture.md 3.2절: 낮은 임계값 + dilation으로 재현율 우선.)
+- **추론 시 선택:** `select_mode`가 고른다(4.1절, 개선 루프 가설 백로그). 기본 `"thresh"`는
+  $\sigma(\text{logit}) > \tau_h$ → `max_pool2d` dilation(3×3) → $N_{\max}$ 상한
+  (architecture.md 3.2절: 낮은 임계값 + dilation으로 재현율 우선). `"topk"`는 확률 상위 `n_topk`개를
+  그대로 뽑는다 — 실측(REF-F)에서 `thresh` 모드의 `heat_recall`(11.5절)이 에폭마다 0.0001~0.75로
+  요동쳤는데, 이는 임계값이 로짓 스케일에 민감해 보정(calibration)이 흔들리면 통째로 무너지기
+  때문이다. `topk`는 보정과 무관하게 상위 확률만 취하므로 이 불안정에서 자유롭다.
 - **최소 1노드 보장:** 선택이 비면 히트맵 최대값 셀 1개를 강제로 넣는다. 뒤 모듈이 항상 실행되어야 DDP unused-parameter 문제가 없다(9.6).
 - 선택은 하드 연산이라 그래디언트가 없다. 단, gather된 임베딩을 통해 **encoder까지는 그래디언트가 흐른다.**
 
@@ -1260,6 +1408,10 @@ $$
   실제 상대 방향 정렬로 비용을 만든다(10.3절).
 - **끝 판정은 자기 셀의 $\hat{\mathrm{end}}$가 담당한다** — 구 설계처럼 이웃 셀의 슬롯($\hat{t}$)에
   맡기지 않는다. 끝 셀도 분기 2개(안쪽 + 끝방향)를 정상적으로 예측한다(6.2 끝 규약).
+- **"2층 MLP"는 `head_hidden`(기본 1) 개의 은닉 블록 + 출력 선형층**을 뜻한다 — `head_hidden=1`이면
+  `Linear→GELU→Linear`로 가중치 행렬이 정확히 2개다. 늘리면 은닉 블록이 그만큼 반복된다(4.1절,
+  개선 루프 가설 백로그). `share_slot_weights`(기본 True)는 연결 헤드의 MLP를 $R$개 슬롯이 공유할지
+  결정한다 — 끄면 슬롯마다 별도 가중치를 갖는다.
 
 ---
 
@@ -1315,7 +1467,11 @@ class HeatmapLoss(nn.Module, Buildable):
 
 
 class SelfSlotLoss(nn.Module, Buildable):
-    def __init__(self, *, w_class: float, w_coord: float): ...
+    # end_pos_weight·class_bg_weight는 개선 루프 가설 백로그(4.1절) — 기본값 1.0은 가중 없음과 동일
+    def __init__(
+        self, *, w_class: float, w_coord: float, w_end: float,
+        end_pos_weight: float, class_bg_weight: float,
+    ): ...
     def forward(self, output, targets) -> dict[str, Tensor]:
         return {
             "class": l_cls,
@@ -1326,6 +1482,7 @@ class SelfSlotLoss(nn.Module, Buildable):
 
 
 class ConnLoss(nn.Module, Buildable):
+    # exist_pos_weight·dir_loss도 가설 백로그 — 기본값(1.0·"cosine")은 아래 수식 그대로
     def __init__(
         self,
         *,
@@ -1334,6 +1491,8 @@ class ConnLoss(nn.Module, Buildable):
         w_dir: float,
         match_w_dir: float,
         match_w_exist: float,
+        exist_pos_weight: float,
+        dir_loss: str,
     ): ...
     def forward(self, output, targets) -> dict[str, Tensor]:
         return {
@@ -1433,6 +1592,9 @@ $$
 - **거짓 양성 셀은 배경(0)으로 감독한다.** 클래스 0을 한 번도 학습하지 않으면 `argmax`가 0을 낼 이유가
   없어져 **디코더의 배경 필터(10.2절 $\arg\max \neq 0$)가 무력해진다.** 히트맵 임계값 하나에만 의존하는
   대신 두 번째 걸름망을 만든다.
+- **`class_bg_weight`(기본 1.0, 개선 루프 가설 백로그)** — 선택된 셀의 ~70%가 배경이라 CE가 배경에
+  지배될 수 있다는 가설을 시험하는 손잡이다. 1.0이면 위 식 그대로이고, 그 외 값이면 배경(0) 항에
+  가중을 곱한 평균으로 바뀐다.
 
 **좌표 손실** — $\mathcal{P}$ 전체
 
@@ -1447,8 +1609,10 @@ $$
 \mathrm{BCE}\!\left(\sigma(\hat{\mathrm{end}}_{ij}),\; \mathrm{end}_{ij}\right)
 $$
 
-끝 셀은 양성 셀의 약 2.5%(6.7.5절 — 새 인코딩에서는 끝칸 미채움으로 소폭 는다)라 불균형이
-있지만, 히트맵과 달리 수백:1이 아니므로 일단 pos_weight 없이 시작하고 곡선을 보고 판단한다.
+끝 셀은 양성 셀의 **4.12%**(6.7.5절 M10 재집계 — 끝칸 미채움 반영)라 불균형이 있지만, 히트맵과
+달리 수백:1이 아니므로 일단 `end_pos_weight = 1.0`(pos_weight 없음)으로 시작했다. 실제로 로짓이
+음수로 눌리는 경향이 보이면 `end_pos_weight`(4.1절, 개선 루프 가설 백로그)를 올려 양성 쪽에
+가중을 준다 — `BCEWithLogitsLoss(pos_weight=...)`에 그대로 전달된다.
 
 ### 8.3. 연결 슬롯 매칭 — `loss/matching.py` (`ConnLoss`가 호출)
 
@@ -1503,18 +1667,24 @@ $N_{match} = 2\,|\mathcal{P}|$ 는 매칭된 쌍의 총수다 (모든 양성 셀
 
 즉 기본 설정에서 exist의 변별 신호는 거짓 양성 셀에서만 나온다 — 사실상 "이 셀이 진짜 노드인가"의
 셀 단위 신호가 슬롯별로 복제된 것이다. 디코더의 슬롯 게이트($\sigma(\hat e) > \tau_e$, 10.3절)로는
-여전히 쓰이므로 유지한다.
+여전히 쓰이므로 유지한다. 거짓 양성 셀이 압도적으로 많은 실행에서는 `exist_pos_weight`(기본 1.0,
+개선 루프 가설 백로그)로 양성(매칭된) 쪽에 가중을 준다 — `BCEWithLogitsLoss(pos_weight=...)`.
 
 $$
 \mathcal{L}_{e} = \frac{1}{|\mathcal{S}| \cdot R} \sum_{(i,j) \in \mathcal{S}} \sum_{k=1}^{R}
 \mathrm{BCE}\!\left(\sigma(\hat{e}_k),\; \mathbf{1}[k \text{ matched}]\right)
 $$
 
-**방향 손실** — 매칭된 쌍에만. 크기·좌표 감독 없이 **방향 차이만** 학습한다. 값 범위 $[0, 2]$:
+**방향 손실** — 매칭된 쌍에만. 크기·좌표 감독 없이 **방향 차이만** 학습한다. `dir_loss`(기본
+`"cosine"`)가 형태를 고른다. 기본값의 값 범위는 $[0, 2]$:
 
 $$
 \mathcal{L}_{dir} = \frac{1}{N_{match}} \sum_{\text{matched}\,(k,m)} \left(1 - \hat{\mathbf{d}}_k \cdot \mathbf{d}^{gt}_m\right)
 $$
+
+`dir_loss = "angle"`(가설 백로그)이면 $\frac{1}{\pi}\arccos(\hat{\mathbf{d}}_k \cdot \mathbf{d}^{gt}_m)$의
+평균으로 바뀐다 — 코사인 항은 오차가 작을수록 기울기가 0에 가까워지는데(1 근처에서 평평), 각도
+항은 작은 오차에서도 기울기가 살아 있다는 가설을 시험한다.
 
 끝 셀의 끝방향 분기도 똑같이 존재 1 + 방향으로 감독된다 — "선이 이쪽으로 끝났다"를 슬롯이
 말하게 하고, 셀이 끝이라는 사실은 $\mathcal{L}_{end}$(8.2)가 따로 말한다.
@@ -1547,24 +1717,34 @@ config dataclass는 4.1절에 있다(`HeatmapLossConfig`·`SelfSlotLossConfig`·
 ```python
 class StellaTrainModule(pl.LightningModule):
     def __init__(self, *, model: StellaModel, criterion: StellaCriterion,
-                 decoder: ChainDecoder, metric: InstanceCCQ,
-                 lr: float, weight_decay: float, warmup_steps: int): ...
+                 decoder: ChainDecoder, metric: InstanceCCQ, cell_diag: CellDiagnostics,
+                 lr: float, weight_decay: float, warmup_steps: int,
+                 backbone_lr_mult: float, batch_size: int): ...
 
-    def training_step(self, batch):        # forward → criterion → 손실 dict 로깅 → total 반환
-    def validation_step(self, batch):      # forward → criterion 로깅 → 디코딩(10절) → 지표 누적
-    def on_validation_epoch_end(self):     # 누적된 인스턴스 지표를 집계·로깅
-    def configure_optimizers(self):        # optim.py 호출
+    def training_step(self, batch):          # forward → criterion → 손실 dict 로깅 → total 반환
+    def validation_step(self, batch):        # forward → criterion·cell_diag 로깅 → 디코딩(10절) → 지표 누적
+    def on_validation_epoch_start(self):     # 디코더 정지 사유 통계(ChainStats, 10.6절) 리셋
+    def on_validation_epoch_end(self):       # 인스턴스·셀·디코더 지표를 집계·로깅 (val/inst, val/cell, val/dec)
+    def on_train_epoch_start(self):          # param group별 lr을 lr/{group}로 로깅 (9.4절)
+    def configure_optimizers(self):          # optim.py 호출
 ```
 
-- 받는 것은 `model`, `criterion`, `decoder`와 옵티마이저 값 몇 개뿐. **전역 cfg를 들고 다니지 않는다.**
+- 받는 것은 `model`·`criterion`·`decoder`·`metric`·`cell_diag`와 옵티마이저 값 몇 개뿐(`backbone_lr_mult`·
+  `batch_size`는 `cfg.model.backbone.lr_mult`·`cfg.data.batch_size`를 `from_cfg`가 값으로 뽑아 넘긴 것).
+  **전역 cfg를 들고 다니지 않는다** — 값만 받고 원본 dataclass는 참조하지 않는다.
 - **`validation_step`은 디코딩까지 한다.** 매 에폭 검증마다 모델 출력을 폴리라인 객체로 만들고(10절),
-  인스턴스 지표(11절)를 누적한다. 여기서는 **호출 지점과 누적 구조만** 다룬다.
+  인스턴스 지표(11절)와 **셀 단위 진단 지표**(`cell_diag.update`, 11.5절)를 함께 누적한다. 여기서는
+  **호출 지점과 누적 구조만** 다룬다.
 - 시각 로그는 module이 아니라 **callback**이 맡는다(9.5절). 학습 로직과 그리기 로직을 섞지 않는다.
 
 ### 9.2. Optimizer / 스케줄 — `optim.py`
 
-- AdamW. param group 3개: (a) 백본 — `lr × lr_mult(0.1)`, (b) bias·norm 파라미터 — weight decay 0, (c) 나머지 — 기본 lr·wd.
-- 스케줄: **linear warmup(1000 step) + cosine decay** (step 단위).
+- AdamW. **param group 4개** — (백본인가) × (bias·norm인가)의 조합 전부: `backbone`(`lr × lr_mult`),
+  `backbone_nodecay`(〃 + weight decay 0), `main`(기본 lr·wd), `main_nodecay`(기본 lr, weight decay 0).
+  계획 당시의 "3개"에서 백본 안의 bias·norm도 별도 그룹으로 갈라졌다 — 백본 lr을 낮추면서도 그 안의
+  bias·norm은 decay를 받지 않아야 하기 때문이다.
+- 스케줄: **linear warmup(1000 step) + cosine decay** (step 단위), 코사인 바닥에 `MIN_LR_RATIO = 0.01`
+  최저-lr 비율을 곱한다 — lr이 0으로 완전히 죽지 않게 한다.
 
 ### 9.3. Trainer 설정과 진입점 — `train.py`
 
@@ -1575,26 +1755,36 @@ trainer = pl.Trainer(
     max_epochs=cfg.train.epochs,
     check_val_every_n_epoch=1,  # 학습 1에폭 ↔ 검증 1에폭 (9.4)
     precision=cfg.train.precision,  # bf16-mixed
-    accelerator="gpu",
-    devices="auto",
-    strategy="ddp",
+    accelerator="gpu" if torch.cuda.is_available() else "cpu",
+    devices=_devices(cfg),  # cfg.train.devices — "auto" 기본, unit 규격은 "1"
+    strategy=_strategy(cfg),  # GPU 1개면 "auto", 여러 개면 "ddp" | "ddp_find_unused_parameters_true"
     gradient_clip_val=cfg.train.grad_clip,
     accumulate_grad_batches=cfg.train.accumulate,
+    limit_val_batches=cfg.train.limit_val_batches,
     callbacks=[
         ModelCheckpoint(
-            monitor="val/total", save_top_k=5, save_last=True, auto_insert_metric_name=False
+            monitor=cfg.train.ckpt_monitor,  # 기본 "val/inst/f1" — 손실이 아니라 최종 지표 기준
+            mode=cfg.train.ckpt_mode,  # "max"
+            save_top_k=cfg.train.ckpt_top_k,  # 3
+            save_last=True,
+            filename="epoch{epoch:03d}",
+            auto_insert_metric_name=False,
         ),
-        build_instance(cfg.log, cfg),  # VizCallback (9.5)
+        build_instance(cfg.log, cfg, out_dir=..., grid_stride=cfg.data.grid_stride),  # VizCallback (9.5)
+        TQDMProgressBar(refresh_rate=20),
     ],
-    logger=CSVLogger(out_dir),
+    logger=CSVLogger(save_dir=str(out_dir), name="", version=""),
+    log_every_n_steps=10,
 )
-trainer.fit(module, train_loader, val_loader, ckpt_path=args.resume)
+trainer.fit(module, train_loader, val_loader, ckpt_path=args.resume or None)
 ```
 
+- **`ckpt_monitor`가 손실이 아니라 지표인 이유:** 과거 실행에서 `last.ckpt`가 도중에 멈춘 사고가
+  있어, "마지막"이 아니라 "가장 좋았던 지표"를 명시적으로 남긴다(9.1절 결정).
 - **배치 크기 확정 (13절 결정 8, 9차 개정에서 실측으로 종결):** 초기 실측에서 bs=2가 OOM이었으나
   원인은 가중치가 아니라 윈도우 어텐션의 활성이었고(7.6절 — 파라미터·옵티마이저는 1.43 GiB로 전체의
   15%뿐), `window_size = 7` + 윈도우 층 checkpointing으로 해소됐다.
-  확정 설정(w=7, ckpt, `n_max = 9500`) 실측(RTX 4090):
+  확정 설정(w=7, ckpt, `n_max = 9500`) 실측(RTX 4090, 단일 GPU 마이크로벤치):
 
   | bs | peak | step | img/s |
   | --- | --- | --- | --- |
@@ -1607,8 +1797,13 @@ trainer.fit(module, train_loader, val_loader, ckpt_path=args.resume)
   아낀 메모리는 `n_max` 9500(GT 셀 절단 제거 — 실제 정확도에 걸리는 값)에 쓴다.
   NF4류 가중치 양자화는 이 병목(활성 85%)에 듣지 않는다 — 백본이 DINOv3 ViT-L(~300M)로
   바뀌어 가중치 몫이 ~4.8 GiB가 되면 QLoRA를 재검토한다.
-- 출력 폴더: `results/{YYMMDD_HHMM}_{config이름}/` — `config.json` + `src/`(소스 전체 복사) + `git_sha.txt` + `checkpoints/` (4.3절).
-- EarlyStopping은 `val/inst/f1`(11절)이 실데이터에서 검증된 뒤 붙인다. 일단 손실 기반 체크포인트만.
+- **실제 학습 실행 속도 (M14, ConvNeXtV2-base 대역 백본):** 단일 GPU 4.8 it/s. 개선 루프 F 규격
+  (4-GPU DDP, `configs/base.py` 그대로)은 에폭당 약 14분 — 위 표의 마이크로벤치는 디코딩·지표
+  계산이 빠진 순수 forward/backward 스텝이고, 이 값은 검증 에폭(매 에폭 디코딩+평가 포함, 9.6절)까지
+  포함한 실측이라 더 대표성이 있다.
+- 출력 폴더: `{train.output_root}/{YYMMDD_HHMMSS}_{config}[_{tag}]/` — `config.json` + `src/`(소스
+  전체 복사) + `git_sha.txt` + `checkpoints/` + `metrics.csv` + `viz/` (4.3절).
+- EarlyStopping은 아직 붙이지 않았다 — `ckpt_monitor`(`val/inst/f1`)로 체크포인트만 지표 기준으로 남긴다.
 
 ### 9.4. 로깅 — 에폭 단위
 
@@ -1644,10 +1839,13 @@ def training_step(self, batch):
 | `train/conn/dir`         | 연결 방향 1 − 내적 (원시)                                                        |
 | `train/conn/match_ambiguity` | **손실 아님.** 배정 모호 셀 비율 — 매칭 불안정성 감시(8.3, 구 `switch_rate`)             |
 | `train/conn/total`       | $w_{e}\mathcal{L}_{e} + w_{dir}\mathcal{L}_{dir}$                        |
-| `lr`, `lr_backbone`      | 스케줄 확인용 (9.2)                                                            |
 
 `*/total`은 그 모듈의 가중합이고 `train/total`은 그것들의 **단순 합**이다(8.0절 — 상위 가중치가 없다).
 개별 항목은 **원시 값**으로 남기므로, 가중치를 조정할 때 항목별 실제 크기를 그대로 비교할 수 있다.
+
+**학습률 로깅은 `training_step`이 아니라 `on_train_epoch_start`에서 한다.** 옵티마이저 param group이
+4개(9.2절)이므로 키도 4개다: `lr/backbone`, `lr/backbone_nodecay`, `lr/main`, `lr/main_nodecay`
+(계획 당시의 `lr`·`lr_backbone` 2키 서술은 낡았다 — 그룹이 갈라진 만큼 늘었다).
 
 **검증에서만 추가로 남기는 것:**
 
@@ -1664,26 +1862,40 @@ def training_step(self, batch):
   | `val/inst/fp_redundant`                | 매칭 안 됐지만 GT 위($C_2 \ge 0.9$)인 잉여 예측 수 — 병합으로 해결 |
   | `val/inst/fp_spurious`                 | GT 밖($C_2 < 0.9$)에 그린 예측 수 — 삭제 필요              |
   | `val/inst/coverage`                    | 집계 완전성 — 순수 커버리지, 연결성 무시 (11.2)                 |
-  | `val/inst/correctness`                 | 집계 정확성 (11.2)                                   |
+  | `val/inst/correctness`                 | 집계 정확성 (11.2) — **한계 있음, 11.1절 참고. 판정에 쓰지 않는다**|
   | `val/inst/rms`                         | 매칭 구간 RMS 횡오차 (11.2)                            |
-  | `val/inst/frag`                        | GT당 예측 조각 수 — 연결성·작업량 (11.2)                    |
+  | `val/inst/frag`                        | GT당 예측 조각 수 — 연결성·작업량, 부풀려짐(11.1절 한계)          |
+  | `val/inst/frag_strict`                 | `frag_min_cov` 이상 덮는 조각만 세는 더 정직한 조각남 (11.1절)  |
   
   주 지표는 **클래스별로 따로** 낸 뒤 전체 micro와 클래스 평균 macro로 묶는다(11.1). **`f1`과
   `coverage`의 격차가 조각남의 크기**이므로 둘을 나란히 본다(11.2).
 
+- **셀 단위 진단 지표 (`val/cell/*`)** — 디코딩을 거치지 않고 격자(셀) 단계의 원시 예측을 GT와
+  직접 대조한다. `self.cell_diag.update(output, batch)`를 검증 배치마다 부르고,
+  `on_validation_epoch_end`에서 `cell_diag.compute()`를 `val/cell/{key}`로 로깅한 뒤 리셋한다.
+  22종 지표의 전체 목록과 뜻은 **11.5절**에 있다 — `link_ok`·`chain_expect`가 특히 중요하다(10.6절).
+
+- **디코더 진단 (`val/dec/*`)** — 사슬 확장이 왜 멈췄는지의 카운터. `on_validation_epoch_start`에서
+  `decoder.stats.reset()`, `on_validation_epoch_end`에서 `decoder.stats.summary()`를 `val/dec/*`로
+  로깅한다. `stella/decode/stats.py`의 `ChainStats`가 담당한다 — 10.6절 참고.
+
 - **시각 로그** (9.5절) — 스칼라가 아니라 PNG 파일이다.
 
-`logger=CSVLogger(out_dir)` → `metrics.csv` 한 장에 에폭별 행이 쌓인다. `ModelCheckpoint`의 `monitor`는
-`"val/total"`로 두고, 파일 이름에 `/`가 들어가지 않도록 `auto_insert_metric_name=False`를 준다.
+`logger=CSVLogger(save_dir=out_dir, name="", version="")` → `metrics.csv` 한 장에 에폭별 행이 쌓인다.
+`ModelCheckpoint`의 `monitor`는 `cfg.train.ckpt_monitor`(기본 `"val/inst/f1"`, `mode="max"`)로 두고,
+파일 이름에 `/`가 들어가지 않도록 `auto_insert_metric_name=False`를 준다(9.3절).
 
 ### 9.5. 시각 로그 — `train/viz.py` + `train/callbacks.py`
 
 검증 중 예측을 눈으로 확인하기 위한 PNG를 남긴다. **배치마다 첫 번째 샘플 하나만** 그린다(전부 그리면 느리다).
 
 ```
-results/{run}/viz/epoch{E:03d}/{sample_id}_heat.png
-                              /{sample_id}_class.png
-                              /{sample_id}_slot.png
+{run}/viz/epoch{E:03d}/{sample_id}_heat.png
+                       /{sample_id}_class.png
+                       /{sample_id}_slot.png
+                       /{sample_id}_end.png
+                       /{sample_id}_inst.png
+                       /{sample_id}_gt.png
 ```
 
 `stella/train/viz.py`는 **Lightning을 모르는 순수 함수 모음**이다(`np.ndarray` in → `np.ndarray` out).
@@ -1692,13 +1904,16 @@ results/{run}/viz/epoch{E:03d}/{sample_id}_heat.png
 (설계 방침 1, 10차 개정) 인자만 바꿔 넣으면 되고, 방향 유도 코드가 필요 없다.
 `stella/train/callbacks.py`의 `VizCallback(pl.Callback)`이 `on_validation_batch_end`에서 샘플 0을 꺼내 호출한다.
 
-**세 가지 그림** (원본 이미지 768×768 위에 그린다):
+**여섯 가지 그림** (원본 이미지 768×768 위에 그린다. 계획 당시엔 앞의 세 개뿐이었다):
 
 | 파일            | 내용                                                                                                         |
 | ------------- | ---------------------------------------------------------------------------------------------------------- |
 | `*_heat.png`  | 히트맵 확률 $\sigma(\text{heatmap\_logit})$를 **파랑→빨강** 컬러맵으로 칠하고 원본과 **반씩 블렌딩**. 192×192를 nearest로 768×768까지 확대 |
 | `*_class.png` | 원본 위에 **4×4 셀마다 중심 2×2 픽셀**을 클래스 색으로 칠하기                                                                   |
 | `*_slot.png`  | 원본 위에 **self 좌표 = 검은 점**, **연결 슬롯 방향 = R/G 선** (자기 점에서 시작, 6.1절 원점 규약)                                    |
+| `*_end.png`   | `end_logit`을 `heat.png`와 같은 방식(파랑→빨강, 블렌딩)으로 그린 것 — 끝 셀 예측 확인용                                            |
+| `*_inst.png`  | **디코딩 결과**(10절 `ChainDecoder` 출력 폴리라인)를 클래스 색으로 그린 것 — GT가 아니라 실제 파이프라인 최종 출력                              |
+| `*_gt.png`    | GT `instances`(원본 폴리라인)를 같은 방식으로 그린 것 — `*_inst.png`와 나란히 보면 조각남·오검출을 육안으로 바로 비교할 수 있다                    |
 
 ```python
 # heat: 파랑(0) → 빨강(1). matplotlib 없이 직접 만든다 (의존성 최소화)
@@ -1751,8 +1966,8 @@ SLOT_COLOR = [(255, 0, 0), (0, 255, 0), (0, 0, 255)]  # 슬롯 0,1 (셋째 색�
 - 클래스 0은 배경이라 칠하지 않는다(색이 검정이라 칠해도 원본을 가리기만 한다).
 - 슬롯 색은 **슬롯 번호 순서**일 뿐 의미가 없다. 슬롯 배정은 매칭이 정하므로(8.3), 같은 방향이 늘 같은 색은 아니다.
   학습이 진행되면 슬롯별로 방향이 분화되는지 보는 용도다.
-- **`batch_size = 1`이면 "배치당 1장"이 곧 "전 이미지"다.** 검증 100장이면 에폭당 300개 PNG가 쌓인다.
-  `log.max_batches`(기본 20)로 상한을 두고, `log.every_n_epochs`로 간격을 조절한다.
+- **`batch_size = 1`이면 "배치당 1장"이 곧 "전 이미지"다.** 검증 100장이면 에폭당 600개 PNG(6종 × 100)가
+  쌓인다. `log.max_batches`(기본 20)로 상한을 두고, `log.every_n_epochs`로 간격을 조절한다.
 - 그리기는 CPU에서 하고, 텐서는 `.detach().cpu().float()`로 옮긴 뒤 넘긴다.
 
 ### 9.6. 알려진 함정과 대비책
@@ -1768,11 +1983,11 @@ SLOT_COLOR = [(255, 0, 0), (0, 255, 0), (0, 0, 255)]  # 슬롯 0,1 (셋째 색�
 
 ---
 
-## 10. 객체 생성 (디코딩) — `stella/decode/graph.py`
+## 10. 객체 생성 (디코딩) — `stella/decode/`
 
 모델 출력은 **셀 단위 예측**이다(7.1). 평가와 실사용에 필요한 것은 **폴리라인 객체 목록**이다.
-이 절이 그 변환을 정의한다. `ChainDecoder`는 **매 에폭 검증 단계에서 실행되고**(9.1), 그 결과가
-인스턴스 단위 성능 평가의 입력이 된다.
+이 절이 그 변환을 정의한다. `ChainDecoder`(`decode/graph.py`)는 **매 에폭 검증 단계에서 실행되고**
+(9.1), 그 결과가 인스턴스 단위 성능 평가의 입력이 된다.
 
 **입력** `ModelOutput` 한 샘플 + `DecodeConfig`.
 **출력** `list[dict]` — `{"class": int, "points": float32 (P, 2) 픽셀 좌표, "score": float}`.
@@ -1783,17 +1998,24 @@ GT 주입에서도 간선 재현율이 97.7%에 그쳤고, 성분당 간선이 �
 연결 성분 수 1.8배로 증폭**됐다(SEED-MAP val 12장 실측 — 소실 원인: 슬롯이 GT 아닌 셀을 지목
 278, `mutual` 탈락 211). 긴 사슬에서는 간선 하나만 끊겨도 인스턴스가 쪼개진다. 새 디코더는
 인코딩(6.4절)과 같은 모양으로 — **사슬을 한 노드씩 확장**하며, 전역 그래프·상호 최선 확인·경로
-절단 단계가 없다. 검증 기준: **GT를 출력 형식으로 주입하면 인스턴스 F1 ≈ 1** (M12).
+절단 단계가 없다. 검증 기준: **GT를 출력 형식으로 주입하면 인스턴스 F1 ≈ 1** — 실측 **0.976**
+(M12 완료, ConvNeXtV2-base 대역 config 기준).
 
-### 10.1. 3단계 개요
+### 10.1. 3단계 개요 — `decode/vertices.py` + `decode/graph.py` + `decode/postprocess.py`
 
 ```
 ModelOutput
- → ① 정점 추출        노드 셀 → (클래스·클래스 확률, 점, 점수, 끝 확률, 슬롯) 목록
- → ② 사슬 확장        클래스 확률 국소 피크에서 양방향으로, 마주봄 확인으로 한 노드씩 연장
+ → ① 정점 추출        노드 셀 → (클래스·클래스 확률, 점, 점수, 끝 확률, 슬롯) 목록      [vertices.py]
+ → ② 사슬 확장        클래스 확률 국소 피크에서 양방향으로, 마주봄 확인으로 한 노드씩 연장  [graph.py]
                       + 완성된 사슬의 클래스 순도 검사 (탈락 시 정점 반환)
- → ③ 후처리           최소 길이·RDP 단순화·점수
+ → ③ 후처리           조각 병합·최소 길이·RDP 단순화·점수                          [postprocess.py]
 ```
+
+계획 당시엔 이 3단계가 `graph.py` 한 파일이었다. 지금은 ①이 `vertices.py`(정점 추출 + 시드 순서),
+③의 조각 병합·단순화가 `postprocess.py`로 분리됐고, `graph.py`에는 `ChainDecoder` 본체(②의 확장
+로직 + ①③ 호출 오케스트레이션)가 남는다 — 세 단계가 각자 단위 테스트(`test_decode.py`·
+`test_postprocess.py`) 대상이라 갈랐다(3절). 디코더 정지 사유 카운터(`stats.py`)·예측 캐시(`cache.py`)·
+평가 코어(`sweep.py`)는 10.6절에 별도로 다룬다.
 
 각 단계가 독립 함수라 단위 테스트가 가능하다. 합성 데이터 과적합 모델에서 **GT 폴리라인이 그대로 복원되는지**가
 전체 검증 기준이다(M6·M12).
@@ -1828,13 +2050,15 @@ $$
 붙인다. mutual best는 슬롯이 한 칸 건너 셀을 지목하는 사소한 오차만으로 간선을 통째로 버려
 긴 사슬을 끊었다(GT 주입에서 소실 간선 489개 중 211개가 mutual 탈락).
 
-**시드 선정 — 클래스 확률 국소 피크에서 양방향으로 (10차 개정).** 자기 클래스 확률
-$\max_c \pi_c$가 **정점 이웃($3\times3$) 중 최대인 정점**(국소 피크)을 확률 내림차순으로 시드로
-삼는다. 모델이 가장 확신하는 지점에서 출발해야 사슬 클래스가 안정적으로 정해진다 — 끝 셀은
-감독이 상대적으로 어렵고(양성의 ~2.5%) 예측이 흔들리면 시작점 자체가 틀어지므로, 끝에서
-출발하는 구 방식을 버렸다. **사슬 클래스 $y^\ast$ = 시드의 argmax 클래스**로 고정하고, 시드의
-활성 슬롯들을 따라 **양방향으로** 확장한 뒤 두 반쪽을 이어 붙인다. 국소 피크가 소진되면 남은
-미사용 정점을 확률 내림차순으로 시드에 쓴다(안전망).
+**시드 선정 — 클래스 확률 국소 피크에서 양방향으로 (10차 개정, 기본 `seed_mode = "class_peak"`).**
+자기 클래스 확률 $\max_c \pi_c$가 **정점 이웃($3\times3$) 중 최대인 정점**(국소 피크)을 확률
+내림차순으로 시드로 삼는다. 모델이 가장 확신하는 지점에서 출발해야 사슬 클래스가 안정적으로
+정해진다 — 끝 셀은 감독이 상대적으로 어렵고(양성의 4.12%, 6.7.5절) 예측이 흔들리면 시작점 자체가
+틀어지므로, 끝에서 출발하는 구 방식을 버렸다. **사슬 클래스 $y^\ast$ = 시드의 argmax 클래스**로
+고정하고, 시드의 활성 슬롯들을 따라 **양방향으로** 확장한 뒤 두 반쪽을 이어 붙인다. 국소 피크가
+소진되면 남은 미사용 정점을 확률 내림차순으로 시드에 쓴다(안전망). `seed_mode = "end_peak"`(개선
+루프 가설 백로그, 10.6절)는 끝 확률이 높은 정점을 먼저 시드로 쓰는 구 방식으로 되돌리는 실험용
+스위치다 — 기본값은 여전히 위 근거대로 `class_peak`다.
 
 **확장 한 스텝.** 정점 $a$, 미사용 슬롯 $k$ ($\sigma(\hat{e}_{a,k}) > \tau_e$)에서:
 
@@ -1866,11 +2090,22 @@ $$
    거리 항은 없다 — 구 설계 실측에서 거리 항은 정렬 나쁜 가까운 셀을 끌어들여 해로웠다
    (`w_dist = 0.3` → 간선 정확도 0.985 → 0.953). 대신 방향이 같은 원거리 후보와의 동률은
    **마주봄 항**이 가른다(건너뛴 셀은 되가리키는 슬롯이 없다).
+
+   `align_mode`(개선 루프 가설 백로그, 기본 `"cosine"` = 위 3번의 각도 게이트)를 `"perp"`로 바꾸면
+   비용·게이트가 달라진다 — 예측 방향 $\hat{\mathbf{d}}_{a,k}$가 그리는 직선에서 $b$가 벗어난
+   **수직 거리**(셀 단위, $\text{align} = \hat{\mathbf{d}}_{a,k}\cdot\mathbf{u}_{ab}$일 때
+   $\lVert \mathbf{p}_b - \mathbf{p}_a\rVert\sqrt{1-\text{align}^2}$)가 `perp_thresh` 이하인
+   후보만 남긴다. 각도 게이트는 먼 후보에 관대하고 가까운 후보에 엄격한 반면, perp 게이트는 그
+   반대라는 가설을 시험한다.
 5. **이동.** $b$를 사슬에 붙이고, $b$의 되가리킴 슬롯 $\mathbf{n}_b$를 사용 처리한 뒤
    $b$의 **반대쪽 활성 슬롯**으로 계속 확장한다.
 
 **정지 조건.** ① $b$의 끝 확률 $> \tau_{end}$ (사슬 끝 도달) ② 게이트(방향 + **사슬 클래스 확률
-하한**)를 통과한 후보 없음 ③ 사슬의 시작 정점으로 복귀(고리 폐쇄) ④ 정점 수 상한(이상 동작 안전망).
+하한**)를 통과한 후보 없음 ③ 정점 수 상한(이상 동작 안전망). **고리 폐쇄는 독립 조건이 아니다** —
+사슬의 시작 정점은 이미 "사용됨"으로 표시돼 있어 후보 집합에서 자동으로 빠지고, 결과적으로
+②(후보 없음)로 흡수돼 정지한다. `stop_needs_nocand`(기본 False, 개선 루프 가설 백로그)를 True로
+켜면 ①만으로는 정지하지 않고 **끝 확률 조건과 후보 없음을 모두** 만족해야 멈춘다 — 끝 확률이
+높아도 근처에 이어 붙일 후보가 남아 있으면 계속 확장해 보는 실험용 스위치다.
 
 **순도 검사 (10차 개정).** 양방향 확장이 끝나 사슬이 완성되면, 구성 정점 중 **argmax 클래스가
 사슬 클래스 $y^\ast$와 일치하는 비율**을 잰다. `purity_thresh`(기본 0.6) **이하면 사슬을 버린다** —
@@ -1890,18 +2125,24 @@ $\mathbf{p}_{\text{ext}} = \mathbf{p} + \hat{\mathbf{d}} \cdot \texttt{end\_exte
 곁가지 끝 셀을 후보로 만나도 방향 게이트가 거르고, 곁가지는 자기 끝 셀에서 정지한다 —
 **본선이 접합점에서 잘리던 구 문제(구 open_questions 4)가 구조적으로 사라진다.**
 
-### 10.4. ③ 후처리
+### 10.4. ③ 후처리 — `decode/postprocess.py`
 
+0. **조각 병합 (`ChainMerger`, 개선 루프 가설 백로그).** 사슬 확장이 다 끝난 폴리라인 목록에서,
+   `merge_gap`(기본 0.0 = 끔)이 양수면 끝점끼리 이 거리(픽셀) 안에 있고 접선이 서로를 향하는
+   정도(`merge_align`, 기본 0.8)를 넘는 조각 쌍을 하나로 잇는다. 후보 탐색은 `cKDTree`로 한다.
+   기본값이 꺼짐인 이유는 사슬 확장 자체가 이미 `radius=2`로 소유권 손실 칸을 건너뛰기 때문이다
+   (10.3절) — 병합은 확장으로도 못 잇는 더 큰 간격을 다루기 위한 후속 실험 손잡이다.
 1. **폴리라인의 클래스 = 사슬 클래스 $y^\ast$(시드의 클래스).** 순도 검사(10.3)가 구성 정점의
    60% 초과 일치를 보증하므로 다수결과 항상 일치한다 — 별도 다수결 단계를 두지 않는다.
 2. 정점 수 < `min_points`면 버린다(연장점 포함). `simplify_tol > 0`이면 RDP로 단순화한다(기본 0 = 안 함).
 3. **점수.** 폴리라인의 점수 = 구성 정점 점수의 평균. 평가에서 confidence 임계값 스윕에 쓴다.
 
 **이 규약은 모델이 아니라 디코더에만 있다.** 확장 방식을 바꾸고 싶으면 재학습 없이 여기만 고치면 된다.
-`radius`·$\tau_{align}$·$\tau_{opp}$·$\tau_{end}$·$\tau_e$·`min_class_prob`·`purity_thresh`는
-학습된 체크포인트로 검증 셋에서 스윕해 확정한다 — GT 주입만으로는 오탐 필터 강도를 정할 수 없다
-(13절 남은 확인). GT 주입에서는 확률이 0/1이라 `min_class_prob`·`purity_thresh`가 자명하게
-통과되므로, M12 수용 기준(F1 ≈ 1)에는 영향이 없다.
+`radius`·$\tau_{align}$·$\tau_{opp}$·$\tau_{end}$·$\tau_e$·`min_class_prob`·`purity_thresh`와
+개선 루프가 덧붙인 `seed_mode`·`stop_needs_nocand`·`merge_gap`·`merge_align`·`align_mode`·
+`perp_thresh`(4.1절)는 전부 학습된 체크포인트로 검증 셋에서 스윕해 확정한다(`scripts/tune_decoder.py`,
+14절) — GT 주입만으로는 오탐 필터 강도를 정할 수 없다. GT 주입에서는 확률이 0/1이라
+`min_class_prob`·`purity_thresh`가 자명하게 통과되므로, M12 수용 기준(F1 ≈ 1)에는 영향이 없다.
 
 ### 10.5. 학습 파이프라인과의 연결
 
@@ -1925,6 +2166,41 @@ self.metric.reset()
 - **지표 객체(`self.metric`)는 `build_instance(cfg.eval, cfg)`로 만든다**(11.4절). 인터페이스는
   `update(pred, gt)` / `compute() -> dict` / `reset()`이고, 실제 지표는 11절의 커버리지 중심 인스턴스 F1이다.
 - DDP에서는 지표를 `all_gather`로 모아야 한다. `torchmetrics.Metric`을 상속하면 자동으로 처리된다.
+- 위 스니펫은 골자만 보여준다. 실제 `validation_step`은 같은 배치에서 `self.cell_diag.update(out, batch)`도
+  부르고(11.5절), `on_validation_epoch_start`/`on_validation_epoch_end`에서 `self.decoder.stats`를
+  리셋·로깅한다(`val/dec/*`, 10.6절, 9.4절).
+
+### 10.6. 셀 단위 진단과 사슬 신뢰도 — `decode/stats.py`, `stella/eval/cellstat.py`
+
+디코더 자체와 별개로, **디코더가 왜 실패하는지**를 두 층위에서 진단한다.
+
+**`ChainStats`(`decode/stats.py`)는 디코더 실행 그 자체의 카운터다.** 사슬이 멈춘 사유
+(`end`·`nocand`·`exist`·`slotused`)별 횟수, 순도 검사 탈락 수, 병합 횟수, 정점 사용률을 세고,
+`summary()`가 비율 dict를 낸다 — 검증 에폭마다 `val/dec/*`로 로깅된다(9.4절). 디코더 파라미터를
+바꿨을 때 "정지 사유 분포가 어떻게 바뀌는가"를 바로 보여준다(예: `stop_needs_nocand`를 켜면
+`end` 정지 비율이 줄고 `nocand` 정지가 는다).
+
+**`CellDiagnostics`(`stella/eval/cellstat.py`)는 디코딩을 거치지 않는, 한 단계 더 이른 진단이다** —
+격자(셀) 단계의 원시 예측(히트맵 확률·`class_logit`·`self_coord`·`end_logit`·`conn_dir`·`exist_logit`)을
+GT 텐서와 셀 단위로 직접 대조해 "어느 헤드가 문제인지"를 손실(8절)보다 해석 가능한 형태로 분해한다.
+전체 22종 지표는 11.5절에 있다.
+
+**사슬 신뢰도 계산 — `link_ok`가 왜 개선의 기준 지표인가.** 6.7.5절(M10 재집계)에서 사슬 평균
+길이가 **48.2 셀**로 나왔다 — 사슬 하나가 처음부터 끝까지 온전히 이어지려면 링크(한 노드에서
+다음 노드로의 연결 예측)가 **47번 연속 성공**해야 한다는 뜻이다. `link_ok`(11.5절 — 방향 오차가
+디코더 정렬 게이트 `align_thresh` 이내인 비율)를 링크 하나의 성공 확률로 보면, 선 하나가
+쪼개지지 않고 살아남을 확률은 $(\text{link\_ok})^{47}$이고, 선당 기대 조각 수는 근사적으로
+
+$$
+\mathbb{E}[\text{조각 수}] \approx 1 + 47\,(1 - \text{link\_ok})
+$$
+
+이다. `link_ok = 0.99`면 기대 조각 수 $\approx 1.47$, `link_ok = 0.95`면 $\approx 3.35$,
+`link_ok = 0.90`이면 $\approx 5.7$로 급격히 나빠진다 — 사슬이 길수록 링크 하나의 실패가 비싸다.
+**그래서 `link_ok`는 0.99가 목표다.** `chain_expect`(11.5절, $= 1/(1-\text{link\_ok})$)는 같은
+계산을 링크 실패까지의 기대 사슬 길이로 뒤집어 보여준다. **이 계산이 이후 모든 연결성 개선의
+기준이다** — `link_ok`를 올리는 변경(손실 가중치·모델 구조·인코딩)은 위 공식으로 곧장 "선당
+조각 수가 몇 개 줄어드는가"로 환산된다.
 
 ---
 
@@ -1968,12 +2244,15 @@ $$
 - 커버리지는 **관대하게**($\theta_{cov} = 0.5$): GT를 절반 넘게 덮은 조각 하나는 살린다. 아깝게 끊긴 예측도 대표 조각이 인정된다.
 - 정확성은 **엄격하게**($\theta_{cor} = 0.9$): GT 밖에 그린 선, 진짜 끊긴 곳을 이은 헛다리를 걸러낸다.
 
-**매칭.** 두 조건을 통과한 $(G, P)$ 쌍만 후보로 두고 $C_1 + C_2$를 가중치로 **일대일 최대가중 매칭**한다.
-매칭된 쌍 = TP, 남은 GT = FN, 남은 예측 = FP.
+**매칭.** 같은 클래스의 $(G, P)$ 쌍 중 두 조건을 통과한 것만 후보로 두고, $C_1 + C_2$ 내림차순으로
+정렬해 **그리디로 선점**한다(`InstanceCCQ._greedy_match`) — 계획 당시엔 "일대일 최대가중 매칭"
+(Hungarian/LSA급)을 상정했지만 실제 구현은 정확한 최대가중이 아니라 그 근사인 그리디다. 각
+GT·예측이 최대 한 번만 매칭되는 일대일 성질은 그대로 유지된다. 매칭된 쌍 = TP, 남은 GT = FN,
+남은 예측 = FP.
 
 $\rho$가 인접 차선 간격의 절반보다 작으면 예측 위 한 점은 많아야 하나의 GT 버퍼에만 들 수 있어 $C_2$의
-"모든 GT"가 중복 없이 잘 정의된다. **$\rho$는 반드시 차선 간격의 절반 이하로 잡는다.** 이 선을 넘으면
-예측이 자기 GT보다 이웃 GT에 가까워져 매칭이 뒤바뀐다.
+"모든 GT"가 중복 없이 잘 정의된다. **설계상 $\rho$는 차선 간격의 절반 이하여야 한다** — 그런데 실측
+결과 이 전제가 깨져 있다. 아래 "알려진 한계"를 반드시 읽어라.
 
 **FP를 두 종류로 나눠 보고한다.** HD맵 보정 관점에서 비용이 다르기 때문이다.
 
@@ -1985,6 +2264,25 @@ $\rho$가 인접 차선 간격의 절반보다 작으면 예측 위 한 점은 �
 $\text{precision} = TP/(TP+FP)$, $\text{recall} = TP/(TP+FN)$, $F1$은 조화평균이다. **매칭과 집계는
 클래스별로 따로 한다** — 차선 11종 각각에 대해 precision·recall·F1을 내고, 그 위에 전체를 합친
 micro와 클래스 단순평균 macro를 함께 보고한다. redundant/spurious FP 분해도 클래스별로 유지한다.
+
+**알려진 한계 — $\rho$가 설계 전제를 어긴다 (중요).** `buffer_rho = 12.0`은 애초에 "차선 간격의
+절반 이하"로 잡을 계획이었다. 그런데 전체 데이터 실측 결과 **차선 간 거리(수직 최근접) 중앙값이
+정확히 12.00 px다**(6.7.5절) — 즉 $\rho$가 절반이 아니라 **간격 전체와 같다.** 그 결과 전형적인
+차선은 **길이의 절반 가까이가 이웃 차선의 버퍼 안에도 들어간다.** 이 때문에:
+
+- **`correctness`(집계 정확성, 11.2절)는 거의 무력하다** — 예측이 자기 GT가 아니라 이웃 GT의
+  버퍼에 걸쳐도 "맞았다"고 세어질 여지가 커서, 실제 위치 오차를 변별하지 못한다.
+- **`frag`(GT당 조각 수, 11.2절)도 부풀려진다** — GT 주입(모델 오류가 전혀 없는 상태)에서도
+  `frag = 3.05`가 나온다. 완벽한 예측조차 이웃 차선 버퍼와의 겹침 때문에 "조각났다"고 잘못
+  집계되는 것이다.
+- $\rho$를 좁히면 이 문제는 줄지만 `cov_thresh`·`cor_thresh`와의 상호작용이 다시 튜닝 대상이
+  되고, 아직 그 재튜닝은 하지 않았다(14절 남은 확인).
+
+**그래서 판정은 `f1`·`coverage`로 하고 `correctness`는 쓰지 않는다.** `f1`은 비대칭 임계값과
+일대일 매칭을 거치므로 이웃 버퍼 오염의 영향이 상대적으로 작고, `coverage`(11.2절, 매칭 없는
+연속값)는 애초에 "정확성"을 재지 않으므로 이 문제에서 자유롭다. `frag`는 참고용으로만 보고,
+조각남의 크기는 `f1`과 `coverage`의 격차로 판단한다(11.2절). `frag_strict`(`frag_min_cov` 이상
+덮는 조각만 세는 지표, 4.1절)가 완화책이지만 근본 해결은 아니다.
 
 ### 11.2. 보조 지표
 
@@ -2015,6 +2313,11 @@ $$
 \text{Frag} = \frac{1}{|\mathcal{M}|} \sum_{G \in \mathcal{M}} \#\{P : C_1(G, P) > 0 \;\wedge\; C_2(P) \ge \theta_{cor}\}
 $$
 
+$C_1(G, P) > 0$ 조건은 "조금이라도 겹치면 조각으로 센다"는 뜻이라 위 11.1절 한계(이웃 버퍼 오염)의
+영향을 그대로 받는다. **`frag_strict`**는 같은 식에서 $C_1(G, P) > 0$ 대신 $C_1(G, P) \ge$
+`frag_min_cov`(기본 0.1)를 요구한다 — 스치기만 한 예측을 조각 수에서 빼는, 더 보수적이고
+정직한 조각남 측정치다(`val/inst/frag_strict`, 9.4절).
+
 ### 11.3. 채택하지 않은 지표와 이유
 
 상세 근거는 `metric_survey.md`. 요지만 적는다.
@@ -2040,7 +2343,8 @@ $$
   자리에 꽂는다. `torchmetrics.Metric`을 상속해 DDP `all_gather`를 위임한다. 인터페이스는
   `update(pred, gt)` / `compute() -> dict` / `reset()`이다.
 - 파라미터는 `MetricConfig`(4.1절)에 둔다: $\rho$(버퍼), $\theta_{cov} = 0.5$, $\theta_{cor} = 0.9$,
-  방향 게이트, 길이 샘플 간격. 계산은 폴리라인을 일정 간격으로 샘플해 점-폴리라인 거리로 하며, 그래서
+  방향 게이트, 길이 샘플 간격, `max_instances`(샘플당 평가 인스턴스 상한, 안전장치), `frag_min_cov`
+  (11.1·11.2절). 계산은 폴리라인을 일정 간격으로 샘플해 점-폴리라인 거리로 하며, 그래서
   성긴 점의 대각선 문제가 없다.
 - 출력 dict가 그대로 `val/inst/*`로 로깅된다(9.4절).
 - **파선 GT 규약 — 종결 (9차 개정).** "GT 쪽 일대다 매칭 허용"이나 "평가 전 공선 GT 병합" 보정은
@@ -2048,7 +2352,42 @@ $$
   아니라(구 인코더 그래프 성분 451 < GT 인스턴스 504 — 오히려 병합하고 있었다) **디코더의 간선
   소실 증폭**이었다. 선 단위 인코딩(6.4절)은 라벨 인스턴스와 사슬이 1:1이라 지표와 정확히
   정합한다 — dash마다 별도 객체면 사슬도 별도라 매칭이 그대로 성립한다. 새 수용 기준:
-  **GT 주입 인스턴스 F1 ≈ 1** (M12). 이 기준이 안 나오면 그때 지표가 아니라 인코더·디코더를 본다.
+  **GT 주입 인스턴스 F1 ≈ 1** (M12) — **실측 0.976으로 통과했다** (ConvNeXtV2-base 대역 config).
+
+### 11.5. 셀 단위 진단 지표 — `stella/eval/cellstat.py`의 `CellDiagnostics` (개선 루프 전용, 문서 신설)
+
+`InstanceCCQ`(11.1~11.2절)는 디코딩까지 거친 **최종 결과**를 재므로 "성능이 나쁘다"는 말해줘도
+"어느 헤드가 원인인지"는 말해주지 않는다. `CellDiagnostics`는 디코딩을 **거치지 않고** 격자(셀)
+단계의 원시 예측을 GT 텐서(`class_map`·`coord_map`·`end_map`·`conn_dirs`)와 셀 단위로 직접
+대조해 이 틈을 메운다. 손실(8절)과 달리 미분 불가능한 정답률·재현율 통계이고, `CellDiagConfig`
+(4.1절, `build_instance(cfg.cell_diag, cfg)`)로 만들어 `StellaTrainModule`에 꽂는다(9.1절) —
+인터페이스는 `update(output, targets)` / `compute() -> dict` / `reset()`으로 `InstanceCCQ`와
+같고, 결과는 매 검증 에폭 `val/cell/*`로 로깅된다(9.4절).
+
+**22종 지표.** 헤드별로 묶어서 본다.
+
+| 헤드 | 지표 | 뜻 |
+| --- | --- | --- |
+| 히트맵 | `heat_recall` | GT 양성 셀 중 노드 선택 파이프라인(임계+dilation+n_max 전체)에 걸린 비율 |
+| 〃 | `heat_precision` | 선택된 노드 중 실제 GT 양성인 비율 |
+| 〃 | `heat_pos` / `heat_neg` | GT 양성/음성 셀에서의 평균 히트맵 확률(임계 무관, 순위 품질) |
+| 〃 | `node_per_img` | 이미지당 평균 선택 노드 수 |
+| 클래스 | `class_acc` | 선택∩GT양성 셀 중 클래스 정답률(분모 = 선택된 GT 셀) |
+| 〃 | `class_fg` | 같은 분모에서 "배경 아님"만 맞춘 비율(클래스 종류는 틀려도 됨) |
+| 〃 | `class_recall` | 분모를 **전체 GT 셀**로 바꾼 클래스 정답률(실행 간 비교용 — 선택 수 차이에 안전) |
+| 〃 | `vertex_recall` | 같은 분모에서 "배경 아님" 비율 — 디코더가 실제로 받는 정점 재현율 |
+| 〃 | `class_bg_recall` | 거짓 양성 셀(선택됐지만 GT 음성)을 배경으로 맞게 예측한 비율 |
+| 좌표 | `coord_err_px` | self 좌표 예측 오차의 L2 노름 평균(픽셀 단위) |
+| 끝 | `end_recall` / `end_precision` | 끝 셀 판정의 재현율·정밀도 |
+| 〃 | `end_pos` / `end_neg` | GT 끝/비끝 셀에서의 평균 end 확률(임계 무관) |
+| 연결 존재 | `exist_pos` / `exist_neg` | GT 양성/거짓 양성 셀 연결 슬롯의 평균 존재 확률 |
+| 연결 방향 | `dir_err_deg` / `dir_err_p90` | 매칭된 슬롯의 방향 오차 평균·90퍼센타일(도) |
+| 사슬 신뢰도 | `link_ok` | 방향 오차가 디코더 정렬 게이트(`decode.align_thresh`, 각도 환산) 이내인 비율 — 한 링크가 성공할 확률 |
+| 〃 | `link_ok_20deg` | 방향 오차 20도(느슨한 고정 기준) 이내인 비율 |
+| 〃 | `chain_expect` | $= 1/(1-\text{link\_ok})$ — 링크 실패까지의 기대 사슬 길이(10.6절 계산의 근거) |
+
+`link_ok`·`chain_expect`는 `stella/loss/matching.py`의 배정 로직을 재사용해 "디코더를 실제로
+돌리지 않고" 사슬 성공 가능성을 대수적으로 근사한다 — 10.6절의 "선당 기대 조각 수" 계산이 여기서 나온다.
 
 ---
 
@@ -2079,11 +2418,22 @@ $$
 
 | 단계      | 내용                                                                                       | 완료 판정                                                                                                       |
 | ------- | ---------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| **M10** | **인코더 v2** (6.4절 — 선별 래스터·끝칸 미채움·3×3 순위 규칙·**`conn_dirs` 직접 저장**) + `test_encode` 재작성 + 합성 데이터 케이스 보강 | 새 불변식 9종 통과(반평행성·표적 검증 포함). `viz_gt.py` 육안 확인 — T접합·X교차·완만한 대각선·파선. 새 인코더 기준 통계(사슬 길이·소유권 손실·2셀 이하 선 비율)와 인코딩 시간 기록 |
-| **M11** | **손실 v2** (8절 — `conn_dirs` 직접 매칭(유도 제거), $\mathcal{L}_{end}$ 신설, $\mathcal{L}_t$ 제거, `match_ambiguity`) + 모델 출력에 `end_logit` | 합성 1장 과적합에서 total → ~0, `match_ambiguity` → ~0, 끝 셀 end 확률 → 1                                               |
-| **M12** | **디코더 v2** (`ChainDecoder`, 10절) + `test_decode` 재작성                                      | **SEED-MAP val GT 주입에서 인스턴스 F1 ≈ 1, 조각/GT ≈ 1.0** (구 설계 상한 0.69·1.7배를 뚫는 것이 재설계의 존재 이유). 합성 접합·교차 케이스 육안 확인 |
-| **M13** | **split 폴더 재정리** — 파일 복사는 **완료**(6.7.2절, 8,979/1,282/2,567 검증 끝). 남은 것: 로더가 splits 폴더를 읽도록 수정 | 세 split 로드 건수가 `dataset.json`과 일치, 기존 학습 스모크 통과                                                              |
-| **M14** | **재학습 + 스윕** — base config로 재학습, 학습된 체크포인트로 디코더 임계값 스윕, w=7 vs w=9 비교                     | `val/inst/f1`이 coverage에 근접(조각 벌점 소멸 확인). 스윕 결과를 `DecodeConfig` 기본값에 반영                                      |
+| **M10** ✅ | **인코더 v2** (6.4절 — 선별 래스터·끝칸 미채움·3×3 순위 규칙·**`conn_dirs` 직접 저장**) + `test_encode` 재작성 + 합성 데이터 케이스 보강 | 새 불변식 9종 통과(반평행성·표적 검증 포함). `viz_gt.py` 육안 확인 — T접합·X교차·완만한 대각선·파선. 새 인코더 기준 통계(사슬 길이·소유권 손실·2셀 이하 선 비율)와 인코딩 시간 기록 |
+| **M11** ✅ | **손실 v2** (8절 — `conn_dirs` 직접 매칭(유도 제거), $\mathcal{L}_{end}$ 신설, $\mathcal{L}_t$ 제거, `match_ambiguity`) + 모델 출력에 `end_logit` | 합성 1장 과적합에서 total → ~0, `match_ambiguity` → ~0, 끝 셀 end 확률 → 1                                               |
+| **M12** ✅ | **디코더 v2** (`ChainDecoder`, 10절) + `test_decode` 재작성                                      | **SEED-MAP val GT 주입에서 인스턴스 F1 ≈ 1, 조각/GT ≈ 1.0** (구 설계 상한 0.69·1.7배를 뚫는 것이 재설계의 존재 이유). **실측 F1 0.976으로 통과.** |
+| **M13** ✅ | **split 폴더 재정리** — 파일 복사·로더 수정 모두 완료(6.7.2절, 8,979/1,282/2,567 검증 끝)                    | 세 split 로드 건수가 라벨 파일 수와 일치, 학습 스모크 통과                                                                      |
+| **M14** ✅ | **재학습 + 스윕** — base config(ConvNeXtV2-base + FPNLite)로 재학습, 학습된 체크포인트로 디코더 임계값 스윕      | 학습 모델 인스턴스 F1(SEED-MAP val, 40에폭) **0.199**(구 설계 0.066에서 개선). 스윕 도구(`scripts/tune_decoder.py`)를 갖췄다 |
+
+**M0~M14 전부 완료됐다** — `feat/reimplement` 브랜치가 PR #3으로 `main`에 병합됐다. w=7 vs w=9
+정확도 비교처럼 M14 표에 있던 개별 ablation 결론은 아직 확정되지 않았지만, 그것 때문에 M14가
+막혀 있지는 않다 — 기본값(w=7 등)으로 재학습·스윕 인프라가 완주됐고, 남은 ablation은 이제
+**마일스톤이 아니라 개선 루프의 실험 백로그**로 관리한다(14절, `.claude/skills/improve-loop/SKILL.md`).
+
+**이후는 개선 루프로 넘어갔다.** 마일스톤 단위로 "다음에 뭘 만들지"를 계획하는 단계는 끝났고,
+지금은 이미 완성된 파이프라인의 성능을 실험으로 끌어올리는 반복(가설 → 실험 → 판정 → 병합)
+단계다. 그 운영 규약·자원 배분·판정 기준은 `.claude/skills/improve-loop/SKILL.md`에 있고, 이
+문서(`docs/design.md`)와는 역할이 다르다 — 여기는 "무엇을 어떻게 설계했나", 그쪽은 "무엇을
+어떻게 실험하나"를 다룬다.
 
 ---
 
@@ -2095,7 +2445,7 @@ $$
 | ---- | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1    | 연결 슬롯 수           | **$R = 2$ 확정 (K = 3, 10차 개정 — 사용자 결정).** GT 분기 수와 일치. Y자 분기도 "주도선 + 보조선" 두 인스턴스로 찾으면 되므로 셀이 세 방향을 낼 필요가 없다. 매칭 순열 2개, 무매칭 슬롯 없음. $R = 3$은 ablation(`exp_r3`)으로만                                |
 | 2    | ~~$t$의 의미~~       | **폐기 (9차 개정).** 슬롯 종점 라벨 $t$는 끝과 다른 클래스 접합을 겸해 디코더 규약 충돌을 낳았다. 끝은 셀 단위 `end_map` 직접 감독(`end_logit`, 8.2절)으로, 다른 클래스 접합 간선은 인코딩에서 제거(6.4절)                                                    |
-| 3    | 백본                | DINOv3 ViT-L/16 위성판(`sat493m`). HF 게이트 동의 진행                                                                                                                                                   |
+| 3    | 백본                | 목표는 DINOv3 ViT-L/16 위성판(`sat493m`)이지만 **HF 게이트 미승인이 지속돼 아직 못 쓴다** — 전환 준비(`configs/exp_dinov3.py`)는 끝났다. 승인 전까지 **기본 config는 게이트 없는 `ConvNeXtBackbone`**(`convnextv2_base`) + `FPNLite`이고, **현재 모든 실측 성능은 이 대역 백본 기준**이다(14절)              |
 | 4    | InternImage       | 미지원 (커스텀 CUDA 커널 배제)                                                                                                                                                                           |
 | 5    | 매칭 비용             | **방향 정렬 + 존재 확률만.** 클래스 일관성 항은 상황이 복잡해 제외                                                                                                                                                      |
 | 6    | `grid_stride`     | 4 (L = 192) 유지                                                                                                                                                                                 |
@@ -2134,43 +2484,68 @@ $$
 | 34   | target 형태         | **모델 출력과 같은 형태로 (10차 개정, 사용자 결정 — 구 방침 폐기).** 인코더가 셀마다 **연결 방향 2개를 직접 저장**(`conn_dirs`, 자기 점 → 이웃 점). `conn_cells`(이웃 좌표)·`end_point`·criterion 유도를 전부 폐지 — 분기가 항상 2로 고정되면서 간접층의 근거가 사라졌다 (6.2절)  |
 | 35   | 디코더 시드·클래스 관리     | **(10차 개정, 사용자 결정)** 시드 = **클래스 확률 국소 피크**(양방향 확장), 사슬 클래스 = 시드 클래스 고정. 확장 게이트에 사슬 클래스 확률 하한 `min_class_prob = 0.1`(일시적 하락 허용), 완성 사슬은 **순도 검사** `purity_thresh = 0.6` 초과 필수 — 미달 시 정점 반환 후 다른 시드에서 재시작 (10.3절) |
 
-### 남은 확인 (구현하며 확정)
+### 남은 확인 — M14 시점 상태
 
-**측정해서 정할 것 (9차 개정 후)**
+M10~M14가 전부 완료되면서(12절) 아래는 대부분 측정이 끝났거나, 반복 측정할 수 있는 인프라로
+바뀌었다. 개별 최적값 탐색은 14절이 말하는 개선 루프 백로그로 넘어갔다.
 
-- **새 인코더 통계 (M10)**: 선 단위 인코딩 기준으로 재집계 — 사슬 길이 분포, 소유권으로 잃는 셀
-  비율(연속 손실 길이 포함 — 결정 33의 "드물다" 확인용), 1셀 사슬이 되는 선의 비율,
-  인코딩 시간(선별 그리기 비용).
+- **새 인코더 통계 (M10) — 완료.** 6.7.5절에 수치가 있다: 사슬 평균 길이 48.2셀, 소유권으로
+  잃는 셀 2.16%(결정 33 "드물다"의 근거 데이터), 1셀 사슬 1.50%, 인코딩 시간 18.2 ms/샘플.
 - **디코더 하이퍼파라미터** (`DecodeConfig`의 `radius`·`align_thresh`·`opp_thresh`·`end_thresh`·
-  `exist_thresh`·`min_class_prob`·`purity_thresh`·`end_extend`): 설계는 확정했고 **값은 학습된
-  체크포인트로** 검증 셋에서 스윕한다(M14) — GT 주입에는 걸러낼 오탐이 없고 확률이 0/1이라
-  필터 강도를 판단할 수 없다(구 `mutual` 스윕의 교훈).
-- **w=7 vs w=9** (M14): 메모리·속도는 실측 완료(7.6절), 정확도 비교가 남았다.
-- **평가 지표 값**: ① 버퍼 $\rho$를 차선 간격 실측 후 확인(현재 12 px, GSD 0.1278 m/px 기준 1.5 m).
-  ② $\theta_{cov} = 0.5$ / $\theta_{cor} = 0.9$를 검증 셋에서 확인. (파선 GT 보정은 도입하지 않는 것으로
-  종결 — 11.4절.)
+  `exist_thresh`·`min_class_prob`·`purity_thresh`·`end_extend` + 개선 루프가 늘린
+  `seed_mode`·`merge_gap`·`align_mode` 등, 4.1·10.4절): 스윕 인프라(`scripts/tune_decoder.py`)가
+  갖춰졌고 기본값으로 M12(F1 0.976)·M14(F1 0.199)를 통과했다. 개별 축의 최적값 탐색은 계속된다.
+- **w=7 vs w=9**: 메모리·속도는 실측 완료(7.6절), 정확도 비교는 개선 루프 백로그(14절)로 남았다.
+- **평가 지표 값 — 중요한 발견.** 버퍼 $\rho$를 차선 간격 실측으로 확인한 결과, **$\rho = 12$ px가
+  차선 간 거리 중앙값과 정확히 같다**(6.7.5·11.1절) — 원래 의도("간격의 절반 이하")를 어긴다.
+  이 때문에 `correctness`는 판정에 쓰지 않기로 했고(11.1절 "알려진 한계"), $\rho$ 자체의 재조정은
+  아직 하지 않았다. $\theta_{cov} = 0.5$ / $\theta_{cor} = 0.9$ 재확인도 마찬가지로 열려 있다.
+  (파선 GT 보정은 도입하지 않는 것으로 종결 — 11.4절.)
 
-**해결됨 (9차 개정에서 종결)** — GT 인코딩 캐시(불필요 실측 확정, 6.4.1), 전체 데이터 재집계(6.7.5),
-미등록 `category_id`(6.7.1 확정), batch_size(1 확정, 9.3), `n_max`(9500, 7.1), 분기점 통과 규칙
-(사슬 확장으로 개념 자체가 소멸, 10절), 파선 GT 규약(보정 불필요, 11.4).
+**해결됨** — GT 인코딩 캐시(불필요 실측 확정, 6.4.1), 전체 데이터 재집계(6.7.5), 미등록
+`category_id`(6.7.1 확정), batch_size(1 확정, 9.3), `n_max`(9500, 7.1), 분기점 통과 규칙(사슬
+확장으로 개념 자체가 소멸, 10절), 파선 GT 규약(보정 불필요, 11.4), split 폴더 로더 수정(M13),
+디코더·평가 파이프라인 완주(M12·M14, GT 주입 F1 0.976·학습 모델 F1 0.199).
 
 > `architecture.md`는 과거 설계 문서이므로 정합을 맞추지 않는다.
 
 ---
 
-## 14. 남은 의문점 (9차 개정 후)
+## 14. 남은 의문점
 
 9차 개정에서 설계가 갈리던 네 가지 — ① split 정리 방법(→ 복사), ② 끝칸 미채움 범위(→ 일괄 적용
 + 디코더 끝 연장), ③ 끝 예측 주체(→ `end_logit` 신설), ④ 평행 겹침(→ 무시) — 는 **전부 사용자
-결정으로 종결**됐다(13절 결정 30~33). 남은 것은 결정이 급하지 않은 확인 항목들이다.
+결정으로 종결**됐다(13절 결정 30~33). M0~M14 완료(12절)로 아래 나머지 항목도 대부분 정리됐다.
 
-- **$R = 3$ ablation** (급하지 않음): $R = 2$는 확정됐다(결정 1). 여분 슬롯 1개가 오히려
-  도움이 되는지(예: 분기 근처에서 두 후보를 동시에 들고 있다가 매칭이 고르게 하는 효과)만
-  나중에 `exp_r3`로 확인해 볼 수 있다 (4.2절 예시).
-- **`end_extend` 값** (스윕): 끝 연장 길이 기본 1셀은 기하 추정이다(끝점이 미채움 이웃 칸 안).
-  M14 디코더 스윕에 포함한다.
-- **w=7 vs w=9** (M14): 메모리·속도는 실측 완료(7.6절), 정확도 비교가 남았다.
-- **자기 교차 선**: 한 선이 자기 자신과 교차하면 같은 셀이 사슬에 두 번 나올 수 있다.
-  드물어서(라벨 특성상 거의 없음) 뒤 등장을 무시하는 것으로 두고, M10 통계에서 빈도만 확인한다.
-- **끝 셀 클래스 불균형**: $\mathcal{L}_{end}$의 양성(끝 셀)이 약 2.5%다. pos_weight 없이
-  시작하되 end 재현율이 낮으면 조정한다(8.2절).
+### 열린 것 — 유일한 차단 요인
+
+- **DINOv3 게이트 승인.** `facebook/dinov3-vitl16-pretrain-sat493m`은 HF 계정 승인이 필요한
+  게이트 저장소이고, 아직 승인되지 않았다. **그래서 현재 결과는 전부 "대역 백본
+  `ConvNeXtBackbone`(ConvNeXtV2-base) 기준"이다**(13절 결정 3) — DINOv3로 바꿨을 때 성능이
+  어떻게 달라지는지는 승인 후에야 잴 수 있다. 전환 자체는 `configs/exp_dinov3.py` 하나로
+  끝나도록 준비돼 있다.
+
+### 개선 루프 백로그로 이관된 것
+
+M10~M14가 기본값(w=7, R=2 등)으로 완주되면서, 아래는 더 이상 "다음 마일스톤을 막는 결정 대기"가
+아니라 **개선 루프가 우선순위에 따라 도는 실험 백로그**다(`.claude/skills/improve-loop/SKILL.md`).
+`configs/schema.py`에 이미 손잡이가 만들어져 있는 것들이다.
+
+- **$R = 3$ ablation**: $R = 2$는 여전히 기본이다(결정 1). `configs/exp_r3.py`로 언제든 시험 가능.
+- **`end_extend`·디코더 하이퍼파라미터 스윕**: `scripts/tune_decoder.py`로 반복 가능한 인프라가
+  갖춰졌다 — `radius`·`align_thresh`·`opp_thresh`·`purity_thresh`·`end_extend` 등(4.1·10.4절).
+  개별 최적값은 개선 루프가 계속 찾는다.
+- **w=7 vs w=9**: 메모리·속도는 실측 완료(7.6절), 정확도 비교는 `configs/exp_*`와
+  `scripts/run_experiments.py`로 돌릴 수 있는 백로그 항목이다.
+- **끝 셀 클래스 불균형**: 대응 수단(`end_pos_weight`, 8.2절)이 신설됐다 — 기본은 여전히
+  1.0(가중 없음)이고, 최적값은 개선 루프가 탐색한다. 같은 성격의 손잡이로 `class_bg_weight`·
+  `exist_pos_weight`·`dir_loss`(가설 백로그 B, 8절)도 함께 추가됐다.
+- **디코더 알고리즘 변형**(`seed_mode`·`stop_needs_nocand`·`merge_gap`·`align_mode` 등, 10.3~10.4절)·
+  **모델 구조 변형**(`select_mode`·`head_hidden`·`share_slot_weights`·`neck.out_blocks` 등, 7절)도
+  같은 성격이다 — 계획 당시엔 없던 가설들이고, 전부 기본값이 M12까지의 기존 동작과 같다.
+
+### 확인 안 됨 (증거 없음)
+
+- **자기 교차 선**: 한 선이 자기 자신과 교차하면 같은 셀이 사슬에 두 번 나올 수 있다. 드물다고
+  가정하고 뒤 등장을 무시하는 설계를 그대로 두고 있는데, 실제 빈도를 재확인한 기록은 찾지 못했다
+  — 이번 개정에서도 검증하지 못했다.
