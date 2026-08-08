@@ -85,18 +85,20 @@ class SFP(Neck):
 
 
 class FPNLite(Neck):
-    """멀티스케일 백본용 — 레벨별 출력을 만들지 않고 stride-4 한 레벨만 내보낸다."""
+    """멀티스케일 백본용 — 레벨별 출력을 만들지 않고 stride-4 한 레벨만 내보낸다.
 
-    def __init__(self, *, in_channels: tuple[int, ...], d_model: int):
+    `out_blocks`는 출력단 3x3 블록 수다. 격자 해상도(192x192)에서 이웃 셀 문맥을 얼마나
+    섞을지를 정하며, 연결 방향 예측이 국소 문맥에 의존한다는 가설을 시험할 손잡이다.
+    """
+
+    def __init__(self, *, in_channels: tuple[int, ...], d_model: int, out_blocks: int = 1):
         super().__init__()
         self.check_levels(in_channels, 4, "FPNLite")
         self.lateral = nn.ModuleList(
             nn.Sequential(nn.Conv2d(c, d_model, kernel_size=1), _group_norm(d_model))
             for c in in_channels
         )
-        self.output_conv = nn.Sequential(
-            nn.Conv2d(d_model, d_model, kernel_size=3, padding=1), _group_norm(d_model)
-        )
+        self.output_conv = nn.Sequential(*_output_blocks(d_model, out_blocks))
 
     def forward(self, features: list[torch.Tensor]) -> torch.Tensor:
         merged = self.lateral[-1](features[-1])
@@ -105,6 +107,16 @@ class FPNLite(Neck):
             upsampled = F.interpolate(merged, size=lateral.shape[-2:], mode="nearest")
             merged = lateral + upsampled
         return self.output_conv(merged)
+
+
+def _output_blocks(d_model: int, count: int) -> list[nn.Module]:
+    """3x3 + GroupNorm 블록을 count개. 2개 이상이면 사이에 GELU를 넣는다."""
+    layers: list[nn.Module] = []
+    for index in range(max(count, 1)):
+        if index:
+            layers.append(nn.GELU())
+        layers += [nn.Conv2d(d_model, d_model, kernel_size=3, padding=1), _group_norm(d_model)]
+    return layers
 
 
 def _group_norm(channels: int) -> nn.GroupNorm:

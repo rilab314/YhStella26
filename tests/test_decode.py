@@ -165,6 +165,34 @@ def test_low_purity_chain_is_discarded():
     assert len(lenient(output[0])) == 1  # 순도 하한을 낮추면 한 사슬로 살아난다
 
 
+def test_variants_still_recover_a_straight_line():
+    """알고리즘 변형(A2·A4·A5)은 GT 주입 복원을 깨뜨리면 안 된다 — 변형의 회귀 시험."""
+    points = np.array([[30.0, 100.0], [220.0, 100.0]], dtype=np.float32)
+    for name, value in (
+        ("seed_mode", "end_peak"),
+        ("stop_needs_nocand", True),
+        ("merge_gap", 8.0),
+        ("align_mode", "perp"),
+    ):
+        cfg = make_cfg()
+        setattr(cfg.decode, name, value)
+        decoded = decode_gt(cfg, build_instance(cfg.decode, cfg), [{"class": 3, "points": points}])
+        assert len(decoded) == 1, f"{name}={value} 에서 사슬이 쪼개졌다: {len(decoded)}"
+        assert covered_fraction(points, decoded) > 0.98, f"{name}={value} 복원 실패"
+
+
+def test_stop_reasons_are_recorded():
+    """정지 사유 카운터가 실제로 채워지는지 (improve_plan 3절 층 3)."""
+    cfg = make_cfg()
+    decoder = build_instance(cfg.decode, cfg)
+    points = np.array([[30.0, 100.0], [220.0, 100.0]], dtype=np.float32)
+    decode_gt(cfg, decoder, [{"class": 3, "points": points}])
+    summary = decoder.stats.summary()
+    assert summary["chains_per_img"] == 1.0
+    assert summary["chain_len"] > 40  # 190 px / 4 px 셀에서 끝칸을 뺀 만큼
+    assert abs(sum(summary[f"stop_{r}"] for r in ("end", "nocand", "exist", "slotused")) - 1) < 1e-6
+
+
 def test_simplify_removes_collinear_points():
     cfg = make_cfg()
     cfg.decode.simplify_tol = 1.0

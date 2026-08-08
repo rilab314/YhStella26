@@ -1,12 +1,13 @@
 """객체 생성(디코딩) — 셀 단위 예측을 폴리라인 객체로 (impl_plan 10절, 9·10차 개정).
 
-    ① 정점 추출 -> ② 사슬 확장 (클래스 확률 국소 피크 시드, 양방향) -> ③ 후처리
+    ① 정점 추출 -> ② 사슬 확장 (시드에서 양방향) -> ③ 후처리(병합·단순화)
 
 핵심 확인은 **"서로가 서로의 점을 향하는가"**다: 내 확장 슬롯 방향 c와 후보의 되가리킴
 슬롯 방향 n이 마주보면 c . n -> -1. 인코딩(6.4절 사슬)과 같은 모양으로 한 노드씩
 확장하며, 구 GraphDecoder의 전역 그래프·상호 최선 확인·경로 절단은 폐기했다 —
 간선 소실 2.3%가 성분 수 1.8배로 증폭되던 구조였다.
 
+① 은 `vertices.py`, ③ 은 `postprocess.py`, 진단 카운터는 `stats.py`에 있다.
 좌표 규약: 내부 계산은 전부 **격자 단위**다. 반환 직전에만 픽셀로 바꾼다 —
 격자 좌표 p는 픽셀 p * s - 0.5 에 대응한다(인코더가 픽셀 면적 중심 +0.5를 쓰기 때문).
 """
@@ -14,15 +15,18 @@
 from dataclasses import fields as dataclass_fields
 
 import numpy as np
-import torch
+
+from stella.decode.postprocess import ChainMerger, simplify_polyline
+from stella.decode.stats import ChainStats
+from stella.decode.vertices import VertexExtractor
 
 PIXEL_CENTER_SHIFT = 0.5
-PEAK_EPS = 1e-12  # 국소 피크 판정에서 자기 자신과의 부동소수 비교 여유
 # 동률 해소용 미세 거리 항. 일직선 위에서는 한 칸 뒤와 두 칸 뒤가 정렬·마주봄 모두
 # 동률이라(둘 다 같은 선의 셀이라 되가리킴 슬롯도 있다) 가까운 쪽을 골라야 정점을
 # 건너뛰지 않는다. 계획이 배제한 것은 "정렬 나쁜 가까운 셀을 끌어들이는" 크기의
 # 거리 항(w_dist = 0.3)이고, 이 값은 반경 2에서 최대 0.004라 동률만 가른다 (10.3절).
 DISTANCE_TIEBREAK = 1e-3
+ALIGN_MODES = ("cosine", "perp")
 
 
 class ChainDecoder:
@@ -52,13 +56,18 @@ class ChainDecoder:
         end_extend: float,
         min_points: int,
         simplify_tol: float,
+        seed_mode: str,
+        stop_needs_nocand: bool,
+        merge_gap: float,
+        merge_align: float,
+        align_mode: str,
+        perp_thresh: float,
     ):
+        if align_mode not in ALIGN_MODES:
+            raise ValueError(f"align_mode 는 {ALIGN_MODES} 중 하나여야 한다: {align_mode}")
         self.grid_stride = grid_stride
-        self.grid_size = grid_size
-        self.heatmap_thresh = heatmap_thresh
         self.exist_thresh = exist_thresh
         self.end_thresh = end_thresh
-        self.radius = radius
         self.align_thresh = align_thresh
         self.opp_thresh = opp_thresh
         self.w_opp = w_opp
@@ -67,49 +76,29 @@ class ChainDecoder:
         self.end_extend = end_extend
         self.min_points = min_points
         self.simplify_tol = simplify_tol
+        self.stop_needs_nocand = stop_needs_nocand
+        self.align_mode = align_mode
+        self.perp_thresh = perp_thresh
+        self.extractor = VertexExtractor(
+            grid_size=grid_size,
+            heatmap_thresh=heatmap_thresh,
+            radius=radius,
+            seed_mode=seed_mode,
+            end_thresh=end_thresh,
+        )
+        self.merger = ChainMerger(gap=merge_gap, align_cos=merge_align)
+        self.stats = ChainStats()
 
     def __call__(self, output) -> list[dict]:
-        vertices = self._extract_vertices(output)
+        vertices = self.extractor(output)
         if vertices["point"].shape[0] == 0:
+            self.stats.add_vertices(0, 0)
             return []
-        instances = [self._to_instance(vertices, *chain) for chain in self._grow_chains(vertices)]
-        return [item for item in instances if item is not None]
-
-    # --- ① 정점 추출 (10.2절) ----------------------------------------------------
-
-    def _extract_vertices(self, output) -> dict:
-        """학습 dilation 없이 노드 셀을 고르고 정점 속성을 모은다."""
-        arrays = {k: _to_numpy(v) for k, v in vars(output).items()}
-        heat = _sigmoid(arrays["heatmap_logit"])
-        label = arrays["class_logit"].argmax(axis=-1)
-        keep = arrays["node_mask"] & (heat > self.heatmap_thresh) & (label > 0)
-        cells = np.argwhere(keep)
-        rows, cols = cells[:, 0], cells[:, 1]
-        coord = arrays["self_coord"][rows, cols]
-        class_prob = _softmax(arrays["class_logit"][rows, cols])
-        return {
-            "cells": cells,
-            "point": np.stack([cols + coord[:, 0], rows + coord[:, 1]], axis=-1),
-            "label": label[rows, cols],
-            "class_prob": class_prob,
-            "score": heat[rows, cols] * class_prob.max(axis=-1),
-            "end_prob": _sigmoid(arrays["end_logit"][rows, cols]),
-            "exist": _sigmoid(arrays["exist_logit"][rows, cols]),
-            "dir": arrays["conn_dir"][rows, cols],
-            "neighbors": self._neighbor_table(cells, self.radius),
-        }
-
-    def _neighbor_table(self, cells: np.ndarray, radius: int) -> np.ndarray:
-        """각 정점의 체비셰프 반경 안 정점 인덱스 (V, (2r+1)^2). 빈 칸은 -1."""
-        if cells.shape[0] == 0:  # 학습 초기엔 임계값을 넘는 정점이 없을 수 있다
-            return np.zeros((0, (2 * radius + 1) ** 2), dtype=np.int64)
-        grid = np.full((self.grid_size, self.grid_size), -1, dtype=np.int64)
-        grid[cells[:, 0], cells[:, 1]] = np.arange(cells.shape[0])
-        padded = np.pad(grid, radius, constant_values=-1)
-        span = np.arange(2 * radius + 1)
-        rows = cells[:, 0:1] + span
-        cols = cells[:, 1:2] + span
-        return padded[rows[:, :, None], cols[:, None, :]].reshape(cells.shape[0], -1)
+        chains = self._grow_chains(vertices)
+        instances = [self._to_instance(vertices, *chain) for chain in chains]
+        merged, removed = self.merger([item for item in instances if item is not None])
+        self.stats.add_merge(removed)
+        return merged
 
     # --- ② 사슬 확장 (10.3절) ----------------------------------------------------
 
@@ -120,25 +109,15 @@ class ChainDecoder:
         slot_used = np.zeros((total, slots), dtype=bool)
         failed = np.zeros(total, dtype=bool)
         chains = []
-        for seed in self._seed_order(vertices):
+        for seed in self.extractor.seed_order(vertices):
             if used[seed] or failed[seed]:
                 continue
             chain = self._grow_from_seed(vertices, used, slot_used, failed, int(seed))
             if chain is not None:
                 chains.append(chain)
+                self.stats.add_chain(len(chain[0]))
+        self.stats.add_vertices(total, int(used.sum()))
         return chains
-
-    def _seed_order(self, vertices: dict) -> np.ndarray:
-        """클래스 확률 국소 피크(정점 3x3 이웃 중 최대)를 확률 내림차순으로,
-        소진되면 남은 정점을 확률 내림차순으로 (안전망)."""
-        best = vertices["class_prob"].max(axis=-1)
-        table = self._neighbor_table(vertices["cells"], radius=1)
-        around = np.where(table >= 0, best[np.maximum(table, 0)], -1.0)
-        peak = best >= around.max(axis=1) - PEAK_EPS
-        ids = np.arange(best.shape[0])
-        peaks = ids[peak][np.argsort(-best[peak], kind="stable")]
-        rest = ids[~peak][np.argsort(-best[~peak], kind="stable")]
-        return np.concatenate([peaks, rest])
 
     def _grow_from_seed(self, vertices, used, slot_used, failed, seed) -> tuple | None:
         """시드의 슬롯 두 개를 따라 양방향 확장 -> 순도 검사 -> 끝 연장.
@@ -158,28 +137,42 @@ class ChainDecoder:
             used[touched] = False
             slot_used[touched] = False
             failed[seed] = True
+            self.stats.add_reject()
             return None
         head_ext, tail_ext = self._extensions(vertices, slot_used, chain)
         return chain, head_ext, tail_ext, label
 
     def _expand(self, vertices, used, slot_used, start, slot, label, touched) -> list[int]:
-        """한 노드씩 단방향 확장. 정지: 끝 확률·후보 없음·비활성 슬롯.
+        """한 노드씩 단방향 확장. 정지 사유는 전부 stats에 기록한다.
 
         고리 폐쇄(시작 정점 복귀)는 시작 정점이 이미 사용 상태라 후보에서 빠져
         "후보 없음" 정지에 흡수된다. 스텝마다 미사용 정점을 하나 소비하므로 무한 루프가 없다.
         """
         path: list[int] = []
         vertex, k = start, slot
-        while k is not None and not slot_used[vertex, k]:
+        while True:
+            if k is None or slot_used[vertex, k]:
+                return self._stop(path, "slotused")
             if vertices["exist"][vertex, k] <= self.exist_thresh:
-                break
+                return self._stop(path, "exist")
             found = self._best_candidate(vertices, used, slot_used, vertex, k, label)
             if found is None:
-                break
+                return self._stop(path, "nocand")
             vertex, k = self._step(vertices, used, slot_used, (vertex, k), found, touched, path)
-            if vertices["end_prob"][vertex] > self.end_thresh:
-                break
+            if self._should_stop_at_end(vertices, used, slot_used, vertex, k, label):
+                return self._stop(path, "end")
+
+    def _stop(self, path: list[int], reason: str) -> list[int]:
+        self.stats.add_stop(reason)
         return path
+
+    def _should_stop_at_end(self, vertices, used, slot_used, vertex, k, label) -> bool:
+        """끝 확률로 멈춘다. `stop_needs_nocand`면 이어갈 후보까지 없을 때만 멈춘다 (A4)."""
+        if vertices["end_prob"][vertex] <= self.end_thresh:
+            return False
+        if not self.stop_needs_nocand or k is None or slot_used[vertex, k]:
+            return True
+        return self._best_candidate(vertices, used, slot_used, vertex, k, label) is None
 
     def _step(self, vertices, used, slot_used, current, found, touched, path):
         """후보를 사슬에 붙이고 (다음 정점, 계속 확장할 슬롯)을 돌려준다."""
@@ -210,16 +203,29 @@ class ChainDecoder:
         heading = vertices["dir"][vertex, k]
         delta = vertices["point"][nearby] - vertices["point"][vertex]
         distance = np.linalg.norm(delta, axis=-1)
-        unit = delta / np.maximum(distance, 1e-9)[:, None]
-        align = unit @ heading
+        align = (delta / np.maximum(distance, 1e-9)[:, None]) @ heading
         opposite, back = self._facing_slots(vertices, slot_used, nearby, heading)
-        cost = (1.0 - align) + self.w_opp * (1.0 + opposite) + DISTANCE_TIEBREAK * distance
-        allowed = (align >= self.align_thresh) & (-opposite >= self.opp_thresh)
-        cost = np.where(allowed, cost, np.inf)
+        cost = self._candidate_cost(align, distance, opposite)
         best = int(cost.argmin())
         if not np.isfinite(cost[best]):
             return None
         return int(nearby[best]), int(back[best])
+
+    def _candidate_cost(self, align, distance, opposite) -> np.ndarray:
+        """게이트를 통과하지 못한 후보는 inf.
+
+        `cosine` 게이트는 각도만 보므로 **먼 후보에게 관대하다** — 45도 안이면 두 칸 떨어진
+        엉뚱한 선도 통과한다. `perp` 게이트는 예측 방향 직선에서의 수직 이탈(셀 단위)을 보므로
+        거리에 비례해 엄격해진다. 기하적으로 이쪽이 "예측한 선 위에 있는가"에 가깝다 (§7 A6).
+        """
+        facing = -opposite >= self.opp_thresh
+        shared = self.w_opp * (1.0 + opposite) + DISTANCE_TIEBREAK * distance
+        if self.align_mode == "perp":
+            perpendicular = distance * np.sqrt(np.maximum(1.0 - align**2, 0.0))
+            allowed = facing & (align > 0.0) & (perpendicular <= self.perp_thresh)
+            return np.where(allowed, perpendicular + shared, np.inf)
+        allowed = facing & (align >= self.align_thresh)
+        return np.where(allowed, (1.0 - align) + shared, np.inf)
 
     def _facing_slots(self, vertices, slot_used, nearby, heading) -> tuple[np.ndarray, np.ndarray]:
         """후보별 되가리킴 슬롯: 활성·미사용 슬롯 중 c . n 이 가장 작은 것 (마주봄 최대)."""
@@ -258,56 +264,9 @@ class ChainDecoder:
             return None
         pixels = points * self.grid_stride - PIXEL_CENTER_SHIFT
         if self.simplify_tol > 0:
-            pixels = _simplify(pixels, self.simplify_tol)
+            pixels = simplify_polyline(pixels, self.simplify_tol)
         return {
             "class": label,
             "points": pixels.astype(np.float32),
             "score": float(vertices["score"][chain].mean()),
         }
-
-
-def _simplify(points: np.ndarray, tolerance: float) -> np.ndarray:
-    """Ramer-Douglas-Peucker 단순화. 반복 스택으로 구현해 깊은 재귀를 피한다."""
-    if points.shape[0] < 3:
-        return points
-    keep = np.zeros(points.shape[0], dtype=bool)
-    keep[0] = keep[-1] = True
-    stack = [(0, points.shape[0] - 1)]
-    while stack:
-        start, end = stack.pop()
-        if end <= start + 1:
-            continue
-        offset = _perpendicular_distance(points[start + 1 : end], points[start], points[end])
-        far = int(offset.argmax())
-        if offset[far] <= tolerance:
-            continue
-        split = start + 1 + far
-        keep[split] = True
-        stack += [(start, split), (split, end)]
-    return points[keep]
-
-
-def _perpendicular_distance(points: np.ndarray, start: np.ndarray, end: np.ndarray) -> np.ndarray:
-    segment = end - start
-    length = float(np.linalg.norm(segment))
-    if length < 1e-9:
-        return np.linalg.norm(points - start, axis=1)
-    offset = points - start
-    cross = segment[0] * offset[:, 1] - segment[1] * offset[:, 0]
-    return np.abs(cross) / length
-
-
-def _to_numpy(value) -> np.ndarray:
-    if not isinstance(value, torch.Tensor):
-        return value
-    tensor = value.detach().cpu()
-    return tensor.numpy() if tensor.dtype == torch.bool else tensor.float().numpy()
-
-
-def _sigmoid(x: np.ndarray) -> np.ndarray:
-    return 1.0 / (1.0 + np.exp(-np.clip(x, -30, 30)))
-
-
-def _softmax(x: np.ndarray) -> np.ndarray:
-    shifted = np.exp(x - x.max(axis=-1, keepdims=True))
-    return shifted / shifted.sum(axis=-1, keepdims=True)

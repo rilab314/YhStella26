@@ -40,6 +40,9 @@ class DataConfig(ModuleConfig):
         "/media/humpback/435806fd-079f-4ba1-ad80-109c8f6e2ec0/Ongoing/2026_stella/gt_cache"
     )
     augment: bool = True  # 학습 split에만 적용 (6.7.6절)
+    # 격자 대칭 외의 기하 증강 (improve_plan §7 D1·D2). 0이면 끈다 — 기본은 기존 동작.
+    aug_rotate_deg: float = 0.0  # +-이 각도까지 임의 회전. 타일 밖은 검게 채운다
+    aug_scale_jitter: float = 0.0  # 1 +- 이 비율까지 등방 스케일
     limit: int = 0  # >0이면 split당 앞에서 N개만 사용 (스모크·디버깅용)
 
     @property
@@ -56,12 +59,16 @@ class BackboneConfig(ModuleConfig):
     pretrained: str = "convnextv2_base.fcmae_ft_in22k_in1k_384"  # HF/timm 모델 ID
     lr_mult: float = 0.1  # optim.py가 읽는다 (__init__ 인자 아님)
     freeze: bool = False
+    # 5레벨 백본(HRNet·ResNet·MaxViT)에서 FPNLite가 쓰는 stride 4/8/16/32만 고른다.
+    out_indices: tuple = ()  # 비우면 timm 기본값
+    img_size: int = 0  # 고정 입력 크기 백본(Swin)에만. 0이면 지정하지 않는다
 
 
 @dataclass(kw_only=True)
 class NeckConfig(ModuleConfig):
     path: str = "stella.model.neck"
     name: str = "FPNLite"  # "SFP"(ViT 단일 스케일) | "FPNLite"(멀티스케일)
+    out_blocks: int = 1  # FPNLite 출력단 3x3 블록 수 — 격자 위 국소 문맥의 양 (§7 C4)
 
 
 @dataclass(kw_only=True)
@@ -80,11 +87,19 @@ class ModelConfig(ModuleConfig):
     ffn_dim: int = 1024
     dropout: float = 0.0
     grad_checkpoint: bool = True  # 윈도우 층만 재계산 (활성의 대부분이 거기 있다, 7.6절)
+    head_hidden: int = 1  # 헤드 MLP의 은닉층 수. 1 = 계획서 원안(2층) (§7 C5)
+    share_slot_weights: bool = True  # 연결 슬롯 R개가 MLP를 공유하는가 (§7 C5)
     node_sampling: str = "gt+pred"  # "gt+pred"(기본) | "gt" (7.4절)
     # 전체 train 8979장 실측: 평균 2121, p90 3681, p99 5893, 최대 8909 (6.7.5절).
     n_max: int = 9500
     heatmap_thresh: float = 0.3  # tau_h
     dilate: int = 3  # 예측 마스크 팽창: 0 | 3 | 5
+    # "thresh" = 확률 > tau_h (기본) | "topk" = 확률 상위 K개 — 보정에 흔들리지 않는다 (§7 C8).
+    # REF-F 실측: thresh 모드의 heat_recall이 에폭마다 0.0001~0.75로 요동쳤다.
+    select_mode: str = "thresh"
+    # topk 모드의 K. 실측 GT 노드 수는 평균 1,826 / p90 3,181 / p99 4,978 (E03)이라
+    # 4,000이면 대부분의 타일에서 GT를 덮으면서 학습 토큰 수가 현재와 비슷하게 유지된다.
+    n_topk: int = 4000
 
 
 @dataclass(kw_only=True)
@@ -103,6 +118,10 @@ class SelfSlotLossConfig(ModuleConfig):
     w_class: float = 1.0
     w_coord: float = 1.0
     w_end: float = 1.0  # 끝 셀 BCE — end_map 직접 감독 (8.2절, 9차 개정)
+    # 끝 셀 양성이 전체 양성의 ~2.5%라 로짓이 음수로 눌린다 (improve_plan §7 B2).
+    end_pos_weight: float = 1.0  # 1.0 = 가중 없음
+    # 선택 셀의 ~70%가 배경이라 클래스 CE가 배경에 지배당한다 (§7 B6). 1.0 = 가중 없음
+    class_bg_weight: float = 1.0
 
 
 @dataclass(kw_only=True)
@@ -113,6 +132,9 @@ class ConnLossConfig(ModuleConfig):
     w_dir: float = 1.0
     match_w_dir: float = 1.0  # lambda_dir — 손실 가중치가 아니라 매칭 비용 계수 (8.3절)
     match_w_exist: float = 1.0  # lambda_e
+    exist_pos_weight: float = 1.0  # 거짓 양성 셀이 압도적일 때 양성 쪽을 든다 (§7 B3)
+    # "cosine" = 1 - cos (기본) | "angle" = acos/pi — 작은 오차에서 기울기가 살아 있다 (§7 B4)
+    dir_loss: str = "cosine"
 
 
 @dataclass(kw_only=True)
@@ -146,6 +168,14 @@ class DecodeConfig(ModuleConfig):
     end_extend: float = 1.0  # 끝 셀에서 끝방향 슬롯으로 연장하는 길이(셀) — 10.3절 끝 연장
     min_points: int = 2  # 이보다 짧은 폴리라인은 버린다 (연장점 포함)
     simplify_tol: float = 0.0  # >0이면 RDP 단순화 (픽셀)
+    # --- 알고리즘 변형 (improve_plan §7 A). 기본값은 전부 기존 동작이다 ---
+    seed_mode: str = "class_peak"  # "class_peak" | "end_peak" (선의 끝에서 시작, A5)
+    stop_needs_nocand: bool = False  # True면 끝 확률 + 후보 없음을 모두 만족해야 정지 (A4)
+    merge_gap: float = 0.0  # >0이면 끝점 간 이 거리(픽셀) 안의 조각을 병합 (A2)
+    merge_align: float = 0.8  # 병합 정렬 하한 — 두 조각이 서로를 향하는 정도
+    # "cosine" = 각도 게이트(기본) | "perp" = 예측 방향 직선에서의 수직 이탈 게이트 (A6)
+    align_mode: str = "cosine"
+    perp_thresh: float = 0.7  # perp 모드의 수직 이탈 상한 (셀 단위)
 
 
 @dataclass(kw_only=True)
@@ -158,6 +188,17 @@ class MetricConfig(ModuleConfig):
     angle_gate: float = 30.0  # 매칭 시 접선 방향 차 상한(도)
     sample_step: float = 2.0  # 길이 계산용 폴리라인 샘플 간격(픽셀)
     max_instances: int = 400  # 샘플당 평가 인스턴스 상한 (안전장치)
+    # frag는 "조금이라도 겹치는" 예측을 다 세어 정확성이 높을수록 부풀려진다(E00에서 확인).
+    # frag_strict는 그 GT를 이 비율 이상 덮는 조각만 센다 — 조각남의 정직한 측정치다.
+    frag_min_cov: float = 0.1
+
+
+@dataclass(kw_only=True)
+class CellDiagConfig(ModuleConfig):
+    """셀 단위 진단 (improve_plan 3절 층 2). 임계값은 `decode`에서 가져다 쓴다."""
+
+    path: str = "stella.eval.cellstat"
+    name: str = "CellDiagnostics"
 
 
 @dataclass(kw_only=True)
@@ -186,6 +227,12 @@ class TrainConfig(ModuleConfig):
     devices: str = "auto"  # pl.Trainer devices
     limit_val_batches: float = 1.0
     seed: int = 42  # train.py가 읽는다
+    # 체크포인트 — 구 실행에서 last.ckpt가 13 에폭에 멈춘 사고가 있어 명시적으로 둔다.
+    ckpt_monitor: str = "val/inst/f1"  # 손실이 아니라 최종 지표를 기준으로 남긴다
+    ckpt_mode: str = "max"
+    ckpt_top_k: int = 3
+    # 최소 1노드 보장(7.4절) 덕에 미사용 파라미터가 없다 — 끄면 매 스텝 그래프 순회가 사라진다.
+    find_unused_parameters: bool = False
     output_root: str = (
         "/media/humpback/435806fd-079f-4ba1-ad80-109c8f6e2ec0/Ongoing/2026_stella/log"
     )
@@ -200,5 +247,6 @@ class ExperimentConfig:
     loss: LossConfig = field(default_factory=LossConfig)
     decode: DecodeConfig = field(default_factory=DecodeConfig)
     eval: MetricConfig = field(default_factory=MetricConfig)
+    cell_diag: CellDiagConfig = field(default_factory=CellDiagConfig)
     log: LogConfig = field(default_factory=LogConfig)
     train: TrainConfig = field(default_factory=TrainConfig)

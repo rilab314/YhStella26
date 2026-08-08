@@ -23,16 +23,40 @@ class HeatmapHead(nn.Module):
         return self.conv(feature).squeeze(1)
 
 
-class NodeSelector:
-    """학습: GT 양성 ∪ 예측 마스크. 추론: 예측 마스크만."""
+SELECT_MODES = ("thresh", "topk")
 
-    def __init__(self, *, node_sampling: str, heatmap_thresh: float, dilate: int, n_max: int):
+
+class NodeSelector:
+    """학습: GT 양성 ∪ 예측 마스크. 추론: 예측 마스크만.
+
+    `select_mode`가 핵심 손잡이다 (improve_plan §7 C8).
+    - `thresh` — 확률 > tau_h. **히트맵의 절대 보정에 전적으로 의존한다.**
+    - `topk`   — 확률 상위 K개. 보정과 무관하게 **선택 수가 고정**된다.
+
+    REF-F 실측에서 `thresh`의 `heat_recall`이 에폭마다 0.0001 ~ 0.75로 요동쳤다.
+    임계 근처에 확률 질량이 몰려 있으면 미세한 이동이 수만 개 셀을 뒤집기 때문이다.
+    """
+
+    def __init__(
+        self,
+        *,
+        node_sampling: str,
+        heatmap_thresh: float,
+        dilate: int,
+        n_max: int,
+        select_mode: str = "thresh",
+        n_topk: int = 6000,
+    ):
         if node_sampling not in ("gt+pred", "gt"):
             raise ValueError(f"node_sampling 은 'gt+pred' | 'gt' 여야 한다: {node_sampling}")
+        if select_mode not in SELECT_MODES:
+            raise ValueError(f"select_mode 는 {SELECT_MODES} 중 하나여야 한다: {select_mode}")
         self.node_sampling = node_sampling
         self.heatmap_thresh = heatmap_thresh
         self.dilate = dilate
         self.n_max = n_max
+        self.select_mode = select_mode
+        self.n_topk = n_topk
 
     def __call__(
         self,
@@ -50,6 +74,8 @@ class NodeSelector:
         return selected
 
     def _predicted_mask(self, probability: torch.Tensor) -> torch.Tensor:
+        if self.select_mode == "topk":
+            return self._topk_mask(probability)
         mask = probability > self.heatmap_thresh
         if self.dilate <= 0:
             return mask
@@ -57,6 +83,14 @@ class NodeSelector:
             mask.float().unsqueeze(1), self.dilate, stride=1, padding=self.dilate // 2
         )
         return pooled.squeeze(1) > 0
+
+    def _topk_mask(self, probability: torch.Tensor) -> torch.Tensor:
+        """샘플마다 확률 상위 K개 셀. 팽창은 하지 않는다 — K가 이미 여유를 담고 있다."""
+        flat = probability.flatten(1)
+        chosen = flat.topk(min(self.n_topk, flat.shape[1]), dim=1).indices
+        mask = torch.zeros_like(flat, dtype=torch.bool)
+        mask.scatter_(1, chosen, True)
+        return mask.view_as(probability)
 
     def _combine(
         self, predicted: torch.Tensor, gt: torch.Tensor | None, training: bool

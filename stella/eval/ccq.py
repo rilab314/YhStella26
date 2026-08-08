@@ -31,6 +31,7 @@ class InstanceCCQ(Metric):
             angle_gate=module_cfg.angle_gate,
             sample_step=module_cfg.sample_step,
             max_instances=module_cfg.max_instances,
+            frag_min_cov=module_cfg.frag_min_cov,
         )
 
     def __init__(
@@ -43,6 +44,7 @@ class InstanceCCQ(Metric):
         angle_gate: float,
         sample_step: float,
         max_instances: int,
+        frag_min_cov: float,
     ):
         super().__init__()
         self.num_classes = num_classes
@@ -52,11 +54,12 @@ class InstanceCCQ(Metric):
         self.angle_cos = float(np.cos(np.deg2rad(angle_gate)))
         self.sample_step = sample_step
         self.max_instances = max_instances
+        self.frag_min_cov = frag_min_cov
         for name in ("tp", "fp", "fn", "fp_redundant", "fp_spurious"):
             self.add_state(name, torch.zeros(num_classes), dist_reduce_fx="sum")
         for name in ("gt_covered", "gt_total", "pred_covered", "pred_total"):
             self.add_state(name, torch.zeros(()), dist_reduce_fx="sum")
-        for name in ("sq_error", "covered_points", "frag_sum", "frag_count"):
+        for name in ("sq_error", "covered_points", "frag_sum", "frag_count", "frag_strict_sum"):
             self.add_state(name, torch.zeros(()), dist_reduce_fx="sum")
 
     def update(self, predictions: list[dict], targets: list[dict]) -> None:
@@ -121,10 +124,7 @@ class InstanceCCQ(Metric):
         for gt_index, target in enumerate(gt):
             if gt_index in matched_gt:
                 self.tp[target["class"]] += 1
-                self.frag_sum += float(
-                    ((coverage[gt_index] > 0) & (correctness >= self.cor_thresh)).sum()
-                )
-                self.frag_count += 1
+                self._accumulate_fragments(coverage[gt_index], correctness)
             else:
                 self.fn[target["class"]] += 1
         for pred_index, item in enumerate(pred):
@@ -137,6 +137,14 @@ class InstanceCCQ(Metric):
                 else self.fp_spurious
             )
             bucket[item["class"]] += 1
+
+    def _accumulate_fragments(self, coverage: np.ndarray, correctness: np.ndarray) -> None:
+        """조각 수 두 가지. `frag`는 스치기만 해도 세고(정확성이 높을수록 부풀려진다),
+        `frag_strict`는 그 GT를 `frag_min_cov` 이상 덮은 조각만 센다 (E00 관찰)."""
+        accurate = correctness >= self.cor_thresh
+        self.frag_sum += float(((coverage > 0) & accurate).sum())
+        self.frag_strict_sum += float(((coverage >= self.frag_min_cov) & accurate).sum())
+        self.frag_count += 1
 
     def compute(self) -> dict[str, torch.Tensor]:
         tp, fp, fn = self.tp, self.fp, self.fn
@@ -158,6 +166,7 @@ class InstanceCCQ(Metric):
             "correctness": self.pred_covered / self.pred_total.clamp(min=1e-9),
             "rms": (self.sq_error / self.covered_points.clamp(min=1e-9)).sqrt(),
             "frag": self.frag_sum / self.frag_count.clamp(min=1e-9),
+            "frag_strict": self.frag_strict_sum / self.frag_count.clamp(min=1e-9),
         }
 
 

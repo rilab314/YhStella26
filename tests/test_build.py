@@ -58,7 +58,7 @@ def test_unknown_module_path_names_the_config():
 def test_leaf_modules_build_without_weights():
     """백본 다운로드가 필요 없는 부품들은 CI에서 항상 조립된다."""
     cfg = importlib.import_module("configs.exp_synthetic").get_config()
-    for section in (cfg.loss, cfg.decode, cfg.eval):
+    for section in (cfg.loss, cfg.decode, cfg.eval, cfg.cell_diag):
         assert build_instance(section, cfg) is not None
 
 
@@ -68,13 +68,14 @@ def test_full_build_smoke():
     from stella.data.types import GridDatasetBase
 
     cfg = importlib.import_module("configs.exp_synthetic").get_config()
-    model = build_instance(cfg.model, cfg)
-    criterion = build_instance(cfg.loss, cfg)
-    decoder = build_instance(cfg.decode, cfg)
-    metric = build_instance(cfg.eval, cfg)
+    parts = {
+        "model": build_instance(cfg.model, cfg),
+        "criterion": build_instance(cfg.loss, cfg),
+        "decoder": build_instance(cfg.decode, cfg),
+        "metric": build_instance(cfg.eval, cfg),
+        "cell_diag": build_instance(cfg.cell_diag, cfg),
+    }
     dataset = build_instance(cfg.data, cfg, base=GridDatasetBase, split="val")
-    module = build_instance(
-        cfg.train, cfg, model=model, criterion=criterion, decoder=decoder, metric=metric
-    )
+    module = build_instance(cfg.train, cfg, **parts)
     assert len(dataset) > 0
-    assert module.model is model
+    assert module.model is parts["model"]

@@ -6,7 +6,6 @@
 
 import argparse
 import dataclasses
-import importlib
 import json
 import os
 import shutil
@@ -21,6 +20,7 @@ from pytorch_lightning.loggers import CSVLogger
 from torch.utils.data import DataLoader
 
 from stella.builder import build_instance, check_all
+from stella.config_io import load_config
 from stella.data.types import GridDatasetBase, collate_fn
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -49,33 +49,6 @@ def parse_args() -> argparse.Namespace:
         "--override", nargs="*", default=[], help="data.batch_size=2 처럼 점 경로로 덮어쓴다"
     )
     return parser.parse_args()
-
-
-def load_config(module_name: str, overrides: list[str]):
-    cfg = importlib.import_module(module_name).get_config()
-    for item in overrides:
-        path, _, raw = item.partition("=")
-        apply_override(cfg, path.split("."), raw)
-    return cfg
-
-
-def apply_override(node, path: list[str], raw: str) -> None:
-    for key in path[:-1]:
-        node = getattr(node, key)
-    current = getattr(node, path[-1])
-    setattr(node, path[-1], _cast_like(current, raw))
-
-
-def _cast_like(current, raw: str):
-    if isinstance(current, bool):
-        return raw.lower() in ("1", "true", "yes")
-    if isinstance(current, int):
-        return int(raw)
-    if isinstance(current, float):
-        return float(raw)
-    if isinstance(current, tuple):
-        return tuple(raw.split(","))
-    return raw
 
 
 def prepare_output_dir(cfg, args: argparse.Namespace) -> Path:
@@ -119,13 +92,14 @@ def _git_state() -> str:
 
 
 def build_everything(cfg, out_dir: Path) -> tuple[pl.LightningModule, tuple[DataLoader, ...]]:
-    model = build_instance(cfg.model, cfg)
-    criterion = build_instance(cfg.loss, cfg)
-    decoder = build_instance(cfg.decode, cfg)
-    metric = build_instance(cfg.eval, cfg)
-    module = build_instance(
-        cfg.train, cfg, model=model, criterion=criterion, decoder=decoder, metric=metric
-    )
+    parts = {
+        "model": build_instance(cfg.model, cfg),
+        "criterion": build_instance(cfg.loss, cfg),
+        "decoder": build_instance(cfg.decode, cfg),
+        "metric": build_instance(cfg.eval, cfg),
+        "cell_diag": build_instance(cfg.cell_diag, cfg),
+    }
+    module = build_instance(cfg.train, cfg, **parts)
     train_set = build_instance(cfg.data, cfg, base=GridDatasetBase, split="train")
     val_set = build_instance(cfg.data, cfg, base=GridDatasetBase, split="val")
     print(f"[stella] train {len(train_set)} / val {len(val_set)} samples")
@@ -149,11 +123,11 @@ def make_loader(cfg, dataset: GridDatasetBase, shuffle: bool) -> DataLoader:
 def build_trainer(cfg, out_dir: Path) -> pl.Trainer:
     checkpoint = ModelCheckpoint(
         dirpath=out_dir / "checkpoints",
-        monitor="val/total",
-        mode="min",
-        save_top_k=5,
+        monitor=cfg.train.ckpt_monitor,
+        mode=cfg.train.ckpt_mode,
+        save_top_k=cfg.train.ckpt_top_k,
         save_last=True,
-        filename="epoch{epoch:03d}-val{val/total:.4f}",
+        filename="epoch{epoch:03d}",
         auto_insert_metric_name=False,
     )
     viz_callback = build_instance(
@@ -165,7 +139,7 @@ def build_trainer(cfg, out_dir: Path) -> pl.Trainer:
         precision=cfg.train.precision,
         accelerator="gpu" if torch.cuda.is_available() else "cpu",
         devices=_devices(cfg),
-        strategy="ddp_find_unused_parameters_true" if _multi_gpu(cfg) else "auto",
+        strategy=_strategy(cfg),
         gradient_clip_val=cfg.train.grad_clip,
         accumulate_grad_batches=cfg.train.accumulate,
         limit_val_batches=cfg.train.limit_val_batches,
@@ -173,6 +147,13 @@ def build_trainer(cfg, out_dir: Path) -> pl.Trainer:
         logger=CSVLogger(save_dir=str(out_dir), name="", version=""),
         log_every_n_steps=10,
     )
+
+
+def _strategy(cfg) -> str:
+    """단일 GPU는 Lightning에 맡기고, 다중 GPU만 ddp를 명시한다 (결과 #1 6-(2))."""
+    if not _multi_gpu(cfg):
+        return "auto"
+    return "ddp_find_unused_parameters_true" if cfg.train.find_unused_parameters else "ddp"
 
 
 def _devices(cfg):

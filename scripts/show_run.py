@@ -28,6 +28,30 @@ VAL_COLUMNS = (
     ("val/inst/correctness", "correct"),
     ("val/inst/rms", "rms"),
     ("val/inst/frag", "frag"),
+    ("val/inst/frag_strict", "fragS"),
+)
+DIAGNOSTIC_COLUMNS = (
+    ("val/cell/heat_recall", "heatR"),
+    ("val/cell/heat_precision", "heatP"),
+    ("val/cell/heat_pos", "heatPos"),
+    ("val/cell/heat_neg", "heatNeg"),
+    ("val/cell/class_acc", "clsAcc"),
+    ("val/cell/class_fg", "clsFg"),
+    ("val/cell/class_bg_recall", "bgAcc"),
+    ("val/cell/coord_err_px", "coordPx"),
+    ("val/cell/end_recall", "endR"),
+    ("val/cell/end_precision", "endP"),
+    ("val/cell/end_pos", "endPos"),
+    ("val/cell/end_neg", "endNeg"),
+    ("val/cell/dir_err_deg", "dirDeg"),
+    ("val/cell/link_ok", "linkOk"),
+    ("val/cell/chain_expect", "chainEx"),
+    ("val/cell/exist_pos", "exPos"),
+    ("val/cell/exist_neg", "exNeg"),
+    ("val/dec/chain_len", "decLen"),
+    ("val/dec/stop_end", "stpEnd"),
+    ("val/dec/stop_nocand", "stpNo"),
+    ("val/dec/stop_exist", "stpEx"),
 )
 
 
@@ -36,7 +60,9 @@ def main() -> None:
     run_dir = Path(args.run) if args.run else latest_run()
     print(f"[run] {run_dir}")
     rows = list(csv.DictReader(open(run_dir / "metrics.csv", encoding="utf-8")))
-    print_table(merge_by_epoch(rows))
+    merged = merge_by_epoch(rows)
+    print_table("손실·인스턴스", merged, LOSS_COLUMNS + VAL_COLUMNS)
+    print_table("셀·디코더 진단", merged, DIAGNOSTIC_COLUMNS)
     if args.classes:
         print_class_scores(rows)
 
@@ -66,8 +92,8 @@ def merge_by_epoch(rows: list[dict]) -> dict[int, dict]:
     return merged
 
 
-def print_table(merged: dict[int, dict]) -> None:
-    columns = LOSS_COLUMNS + VAL_COLUMNS
+def print_table(title: str, merged: dict[int, dict], columns: tuple) -> None:
+    print(f"\n[{title}]")
     print("ep  " + " ".join(f"{label:>7}" for _, label in columns))
     for epoch in sorted(merged):
         values = (_fmt(merged[epoch].get(key)) for key, _ in columns)

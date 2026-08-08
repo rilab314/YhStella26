@@ -98,14 +98,30 @@ class Dinov3Backbone(HuggingFaceBackbone):
 
 
 class TimmBackbone(Backbone):
-    """timm 공통: create_model(features_only=True) 로드, default_cfg에서 정규화 상수 추출."""
+    """timm 공통: create_model(features_only=True) 로드, default_cfg에서 정규화 상수 추출.
 
-    def __init__(self, *, pretrained: str, freeze: bool, features_only: bool = True):
+    `out_indices` — 5레벨을 내는 백본(HRNet·ResNet·MaxViT 등)에서 FPNLite가 기대하는
+    stride 4/8/16/32 네 레벨만 고른다. `img_size` — 고정 입력 크기 백본(Swin)에 실제 타일
+    크기를 알려 준다(위치 임베딩은 timm이 보간한다).
+    """
+
+    def __init__(
+        self,
+        *,
+        pretrained: str,
+        freeze: bool,
+        out_indices: tuple = (),
+        img_size: int = 0,
+        features_only: bool = True,
+    ):
         import timm
 
-        model = timm.create_model(
-            pretrained, pretrained=True, features_only=features_only, **self.extra_kwargs()
-        )
+        options = {"features_only": features_only, **self.extra_kwargs()}
+        if out_indices:
+            options["out_indices"] = tuple(int(index) for index in out_indices)
+        if img_size:
+            options["img_size"] = int(img_size)
+        model = timm.create_model(pretrained, pretrained=True, **options)
         cfg = model.default_cfg if hasattr(model, "default_cfg") else model.pretrained_cfg
         super().__init__(pixel_mean=tuple(cfg["mean"]), pixel_std=tuple(cfg["std"]))
         self.model = model
@@ -134,13 +150,25 @@ class ConvNeXtBackbone(TimmBackbone):
 
 
 class SwinBackbone(TimmBackbone):
-    """4레벨 (stride 4/8/16/32). timm swin은 NHWC로 내므로 `_to_nchw`가 정리한다."""
+    """4레벨 (stride 4/8/16/32). timm swin은 NHWC로 내므로 `_to_nchw`가 정리한다.
+
+    입력 크기가 고정된 계열이라 `img_size`를 반드시 준다 (768).
+    """
+
+
+class HrnetBackbone(TimmBackbone):
+    """고해상도 병렬 분기 CNN — 얇은 선형 구조에 유리하다는 가설로 넣는다.
+
+    stride 2 레벨을 함께 내므로 `out_indices=(1,2,3,4)`로 FPNLite 규격에 맞춘다.
+    """
 
 
 class TimmVitBackbone(TimmBackbone):
     """단일 스케일 ViT — SFP 경로 검증용 (게이트 없는 DINOv3 대역)."""
 
-    def __init__(self, *, pretrained: str, freeze: bool):
+    def __init__(
+        self, *, pretrained: str, freeze: bool, out_indices: tuple = (), img_size: int = 0
+    ):
         super().__init__(pretrained=pretrained, freeze=freeze, features_only=False)
         self.patch_size = int(self.model.patch_embed.patch_size[0])
         self.embed_dim = int(self.model.embed_dim)

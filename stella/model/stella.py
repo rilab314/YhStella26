@@ -53,6 +53,8 @@ class StellaModel(nn.Module):
         ffn_dim: int,
         dropout: float,
         grad_checkpoint: bool,
+        head_hidden: int,
+        share_slot_weights: bool,
         num_classes: int,
         grid_size: int,
     ):
@@ -74,8 +76,15 @@ class StellaModel(nn.Module):
             )
             for kind in layers
         )
-        self.self_head = SelfHead(d_model=d_model, num_classes=num_classes)
-        self.conn_head = ConnHead(d_model=d_model)
+        self.self_head = SelfHead(
+            d_model=d_model, num_classes=num_classes, hidden_layers=head_hidden
+        )
+        self.conn_head = ConnHead(
+            d_model=d_model,
+            num_slots=num_conn_slots,
+            hidden_layers=head_hidden,
+            share_slots=share_slot_weights,
+        )
 
     @classmethod
     def from_cfg(cls, module_cfg, cfg, **kwargs) -> "StellaModel":
@@ -93,6 +102,8 @@ class StellaModel(nn.Module):
             heatmap_thresh=module_cfg.heatmap_thresh,
             dilate=module_cfg.dilate,
             n_max=module_cfg.n_max,
+            select_mode=module_cfg.select_mode,
+            n_topk=module_cfg.n_topk,
         )
         return cls(
             backbone=backbone,
@@ -106,6 +117,8 @@ class StellaModel(nn.Module):
             ffn_dim=module_cfg.ffn_dim,
             dropout=module_cfg.dropout,
             grad_checkpoint=module_cfg.grad_checkpoint,
+            head_hidden=module_cfg.head_hidden,
+            share_slot_weights=module_cfg.share_slot_weights,
             num_classes=cfg.data.num_classes,
             grid_size=cfg.data.grid_size,
         )

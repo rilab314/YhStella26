@@ -40,6 +40,23 @@ def test_fpnlite_outputs_grid_resolution():
     assert neck(levels).shape == (1, 256, GRID, GRID)
 
 
+def test_heads_survive_module_apply():
+    """`.to()`·`.float()`은 `nn.Module._apply`를 재귀 호출한다 — 헤드가 그 이름을 가리면
+    모델을 장치로 옮기는 순간 죽는다. 조립 테스트로는 안 잡혀서 여기서 직접 시험한다."""
+    from stella.model.heads import ConnHead, SelfHead
+
+    for head in (SelfHead(d_model=32, num_classes=12), ConnHead(d_model=32, num_slots=2)):
+        head.to(torch.float64).float()  # 예약 메서드를 가리면 여기서 TypeError가 난다
+    shared = ConnHead(d_model=32, num_slots=2, share_slots=True).float()
+    split = ConnHead(d_model=32, num_slots=2, share_slots=False).float()
+    tokens = torch.randn(5, 2, 32)
+    for head in (shared, split):
+        exist, direction = head(tokens)
+        assert exist.shape == (5, 2)
+        assert direction.shape == (5, 2, 2)
+        assert torch.allclose(direction.norm(dim=-1), torch.ones(5, 2), atol=1e-4)
+
+
 def test_neck_rejects_wrong_level_count():
     try:
         FPNLite(in_channels=(768,), d_model=256)

@@ -13,6 +13,8 @@ from stella.loss.criterion import LossModule
 from stella.loss.matching import assign_slots, pad_branches
 
 VALID_NORM_THRESH = 0.5  # conn_dirs는 단위벡터, 빈 분기는 0 — 노름으로 유효를 가른다
+DIR_LOSSES = ("cosine", "angle")
+ANGLE_SCALE = 1.0 / torch.pi  # acos 를 [0, 1]로 — cosine 손실과 크기를 맞춘다
 
 
 class ConnLoss(LossModule):
@@ -25,6 +27,8 @@ class ConnLoss(LossModule):
             w_dir=module_cfg.w_dir,
             match_w_dir=module_cfg.match_w_dir,
             match_w_exist=module_cfg.match_w_exist,
+            exist_pos_weight=module_cfg.exist_pos_weight,
+            dir_loss=module_cfg.dir_loss,
         )
 
     def __init__(
@@ -35,13 +39,19 @@ class ConnLoss(LossModule):
         w_dir: float,
         match_w_dir: float,
         match_w_exist: float,
+        exist_pos_weight: float,
+        dir_loss: str,
     ):
         super().__init__()
+        if dir_loss not in DIR_LOSSES:
+            raise ValueError(f"dir_loss 는 {DIR_LOSSES} 중 하나여야 한다: {dir_loss}")
         self.num_conn_slots = num_conn_slots
         self.w_exist = w_exist
         self.w_dir = w_dir
         self.match_w_dir = match_w_dir
         self.match_w_exist = match_w_exist
+        self.exist_pos_weight = exist_pos_weight
+        self.dir_loss = dir_loss
 
     def forward(self, output, targets: dict) -> dict[str, torch.Tensor]:
         supervised = (targets["class_map"] > 0) & output.node_mask
@@ -68,25 +78,28 @@ class ConnLoss(LossModule):
             "total": self.w_exist * exist + self.w_dir * direction,
         }
 
-    @staticmethod
-    def _exist_loss(output, supervised, matched) -> torch.Tensor:
+    def _exist_loss(self, output, supervised, matched) -> torch.Tensor:
         """선택된 전 셀에서 계산한다 — 거짓 양성 셀은 전 슬롯 0으로 감독한다(8.4절)."""
         target = torch.zeros_like(output.exist_logit)
         target[supervised] = matched.float()
         node_mask = output.node_mask
-        return F.binary_cross_entropy_with_logits(
-            output.exist_logit[node_mask].float(), target[node_mask]
-        )
+        logit = output.exist_logit[node_mask].float()
+        weight = logit.new_tensor(self.exist_pos_weight)
+        return F.binary_cross_entropy_with_logits(logit, target[node_mask], pos_weight=weight)
 
-    @staticmethod
-    def _direction_loss(pred_dir, gt_dir, assignment, matched) -> torch.Tensor:
-        """매칭된 쌍에만 1 - 내적. 크기·좌표 감독 없이 방향 차이만 학습한다."""
+    def _direction_loss(self, pred_dir, gt_dir, assignment, matched) -> torch.Tensor:
+        """매칭된 쌍에만 방향 손실. 크기·좌표 감독 없이 방향 차이만 학습한다.
+
+        `cosine`은 오차 0 근처에서 기울기가 0으로 죽는다 — `angle`은 그 구간을 살린다 (§7 B4).
+        """
         if not bool(matched.any()):
             return pred_dir.sum() * 0.0
         index = assignment.unsqueeze(-1).expand(-1, -1, 2)
         assigned_dir = torch.gather(gt_dir, 1, index)
-        alignment = (pred_dir * assigned_dir).sum(dim=-1)
-        return (1.0 - alignment)[matched].mean()
+        alignment = (pred_dir * assigned_dir).sum(dim=-1)[matched]
+        if self.dir_loss == "angle":
+            return torch.arccos(alignment.clamp(-1.0 + 1e-6, 1.0 - 1e-6)).mean() * ANGLE_SCALE
+        return (1.0 - alignment).mean()
 
     def _empty(self, output) -> dict:
         zero = output.exist_logit.sum() * 0.0

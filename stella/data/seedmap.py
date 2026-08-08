@@ -11,6 +11,7 @@
 """
 
 import json
+import os
 from collections import Counter
 from pathlib import Path
 
@@ -39,6 +40,8 @@ class SeedMapDataset(GridDatasetBase, Buildable):
         max_degree: int,
         encode_supersample: int,
         augment: bool,
+        aug_rotate_deg: float,
+        aug_scale_jitter: float,
         limit: int,
         cache_gt: str,
         cache_dir: str,
@@ -55,7 +58,15 @@ class SeedMapDataset(GridDatasetBase, Buildable):
             supersample=encode_supersample,
         )
         use_aug = augment and split == "train"
-        self.augment = VectorAugment(image_size=image_size) if use_aug else None
+        self.augment = (
+            VectorAugment(
+                image_size=image_size,
+                rotate_deg=aug_rotate_deg,
+                scale_jitter=aug_scale_jitter,
+            )
+            if use_aug
+            else None
+        )
         self.cache_dir = self._cache_directory(cache_gt, cache_dir, split)
         self.unknown_categories: Counter = Counter()
 
@@ -66,7 +77,7 @@ class SeedMapDataset(GridDatasetBase, Buildable):
         stems = sorted(path.stem for path in label_dir.glob("*.json"))
         if not stems:
             raise FileNotFoundError(f"라벨이 하나도 없다: {label_dir} (6.7.2절 splits 구조 확인)")
-        return stems[:limit] if limit > 0 else stems
+        return _subsample(stems, limit)
 
     def _cache_directory(self, cache_gt: str, cache_dir: str, split: str) -> Path | None:
         if split not in CACHED_SPLITS[cache_gt] or self.augment is not None:
@@ -89,9 +100,20 @@ class SeedMapDataset(GridDatasetBase, Buildable):
         if self.augment is not None:
             rng = np.random.default_rng([hash(stem) % (2**31), index])
             image, instances = self.augment(image, instances, rng)
+            instances = self._reclip(instances)
         target = self.encoder.encode(instances)
         self._write_cache(stem, target, instances)
         return make_sample(image, instances, target, {"filename": stem})
+
+    def _reclip(self, instances: list[dict]) -> list[dict]:
+        """회전·스케일이 타일 밖으로 밀어낸 구간을 다시 자른다. 격자 대칭 증강은 대상이 아니다."""
+        if not self.augment.reshapes:
+            return instances
+        clipped = []
+        for inst in instances:
+            for piece in clip_polyline(inst["points"], self.image_size - 1):
+                clipped.append({**inst, "points": piece})
+        return clipped
 
     def _load_image(self, stem: str) -> np.ndarray:
         path = self.root / self.split / "image" / f"{stem}.png"
@@ -128,18 +150,40 @@ class SeedMapDataset(GridDatasetBase, Buildable):
         path = self.cache_dir / f"{stem}.npz"
         if not path.exists():
             return None
-        with np.load(path) as data:
-            if any(key not in data for key in TARGET_KEYS):
-                return None  # 구 인코더 캐시 — 미스로 취급하고 새 형식으로 덮어쓴다
-            target = {key: data[key] for key in TARGET_KEYS}
-            instances = _unpack_instances(data)
+        try:
+            with np.load(path) as data:
+                if any(key not in data for key in TARGET_KEYS):
+                    return None  # 구 인코더 캐시 — 미스로 취급하고 새 형식으로 덮어쓴다
+                target = {key: data[key] for key in TARGET_KEYS}
+                instances = _unpack_instances(data)
+        except (OSError, ValueError, EOFError):
+            return None  # 손상된 캐시는 미스로 취급하고 다시 만든다 (학습을 죽이지 않는다)
         return target, instances
 
     def _write_cache(self, stem: str, target: dict, instances: list[dict]) -> None:
-        """캐시 미스일 때만 불린다 — 구 형식 파일은 여기서 새 형식으로 갱신된다."""
+        """캐시 미스일 때만 불린다 — 구 형식 파일은 여기서 새 형식으로 갱신된다.
+
+        **원자적으로 쓴다.** 여러 실험 arm이 같은 캐시 폴더를 동시에 채우므로, 직접 쓰면
+        다른 프로세스가 절반만 쓰인 파일을 읽는다. 임시 파일에 쓰고 rename 하면
+        같은 파일시스템 안에서 rename이 원자적이라 그 창이 사라진다.
+        """
         if self.cache_dir is None:
             return
-        np.savez(self.cache_dir / f"{stem}.npz", **target, **_pack_instances(instances))
+        final = self.cache_dir / f"{stem}.npz"
+        temporary = self.cache_dir / f".{stem}.{os.getpid()}.tmp.npz"
+        np.savez(temporary, **target, **_pack_instances(instances))
+        temporary.replace(final)
+
+
+def _subsample(stems: list[str], limit: int) -> list[str]:
+    """부분집합은 **균등 간격**으로 뽑는다 — 파일명이 지역 순이라 앞에서 자르면 편향된다.
+
+    단위 실험(improve_plan §2.2)이 전체 분포를 대표해야 순위가 전체 학습과 어긋나지 않는다.
+    """
+    if limit <= 0 or limit >= len(stems):
+        return stems
+    index = np.linspace(0, len(stems) - 1, limit).round().astype(np.int64)
+    return [stems[i] for i in np.unique(index)]
 
 
 def clip_polyline(points: np.ndarray, limit: float) -> list[np.ndarray]:
