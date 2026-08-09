@@ -12,7 +12,7 @@ from configs.schema import ExperimentConfig
 def get_config() -> ExperimentConfig:
     cfg = get_base()
     cfg.data.limit = 3000  # 전체 8,979장에서 균등 간격 추출 (seedmap._subsample)
-    cfg.data.num_workers = 6  # arm 4개 x 6 = 24 워커 (32 코어)
+    cfg.data.num_workers = 4  # arm 4개 x 4 = 16 워커 — 시스템에 절반을 남긴다
     cfg.train.epochs = 10
     cfg.train.devices = "1"
     cfg.train.accumulate = 4  # 유효 배치 4 — 짧은 실행에서는 step 수가 곧 학습량
