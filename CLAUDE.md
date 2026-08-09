@@ -64,6 +64,18 @@ tests/              pytest — 인코더 불변식·매칭·RoPE·디코더·지
 - 학습 결과: 데이터셋 옆 `.../2026_stella/log/{YYMMDD_HHMMSS}_{config}_{tag}/`
   — `config.json`, 소스 전체 복사본 `src/`, `git_sha.txt`, `checkpoints/`, `metrics.csv`, `viz/`.
 
+## 개선 실험 (진행 중인 작업)
+
+지금 이 저장소의 주 작업은 **성능 개선 루프**다. 실험·성능 관련 요청을 받으면
+**먼저 `experiment/STATE.md`를 읽는다** — 현재 무엇이 돌고 있고 다음 행동이 무엇인지가
+거기 한 파일에 있다. 방법·규약은 `.claude/skills/improve-loop/SKILL.md`.
+
+- **`/stella`** 한 마디로 루프가 한 바퀴 돈다. 반복은 **`/loop /stella`** (간격 생략).
+- 판정은 `scripts/judge_round.py`, 무인 배정은 `scripts/dispatch.py`가 한다.
+- **병합 전에 `scripts/gate.py`를 통과시킨다.** 게이트가 못 잡았을 실패를 발견하면
+  그 자리에서 `gate_baseline.json`에 검사를 추가한다 (SKILL 16절).
+- 학습이 도는 중에는 게이트·D 트랙을 얹지 않는다 — CPU 부하 상한 16.
+
 ## 작성 규칙
 
 - **코드를 새로 쓰거나 고칠 때는 `coding` 스킬(`.claude/skills/coding/SKILL.md`)을 먼저 읽고 그 규칙을 따른다.**
