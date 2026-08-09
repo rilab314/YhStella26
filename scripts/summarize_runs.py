@@ -9,10 +9,10 @@
 """
 
 import argparse
-import csv
 from pathlib import Path
 
 from configs.base import get_config
+from stella.eval.runlog import latest_runs, tail_mean
 
 INSTANCE_COLUMNS = (
     ("val/inst/f1", "f1"),
@@ -53,8 +53,9 @@ DIAGNOSTIC_COLUMNS = (
 
 def main() -> None:
     args = parse_args()
-    runs = [Path(p) for p in args.runs] if args.runs else latest_runs(args.last)
-    rows = [summarize(run, args.tail) for run in runs]
+    root = Path(get_config().train.output_root)
+    runs = [Path(p) for p in args.runs] if args.runs else latest_runs(root, args.last)
+    rows = [tail_mean(run, args.tail, all_keys()) for run in runs]
     rows = [row for row in rows if row]
     print_block("인스턴스 지표", rows, INSTANCE_COLUMNS)
     print_block("셀·디코더 진단", rows, DIAGNOSTIC_COLUMNS)
@@ -68,39 +69,8 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def latest_runs(count: int) -> list[Path]:
-    root = Path(get_config().train.output_root)
-    runs = sorted((p for p in root.iterdir() if (p / "metrics.csv").exists()), key=lambda p: p.name)
-    return runs[-count:]
-
-
-def summarize(run: Path, tail: int) -> dict | None:
-    merged = merge_by_epoch(run / "metrics.csv")
-    epochs = [e for e in sorted(merged) if "val/inst/f1" in merged[e]]
-    if not epochs:
-        return None
-    window = epochs[-tail:]
-    values = {key: _mean(merged, window, key) for key in _all_keys()}
-    return {"name": run.name, "epochs": len(epochs), **values}
-
-
-def merge_by_epoch(path: Path) -> dict[int, dict]:
-    """Lightning은 train/val 스칼라를 다른 행에 쓴다 — 에폭 기준으로 합친다."""
-    merged: dict[int, dict] = {}
-    with open(path, encoding="utf-8") as handle:
-        for row in csv.DictReader(handle):
-            target = merged.setdefault(int(row["epoch"]), {})
-            target.update({k: v for k, v in row.items() if v not in ("", None)})
-    return merged
-
-
-def _all_keys() -> tuple[str, ...]:
+def all_keys() -> tuple[str, ...]:
     return tuple(key for key, _ in INSTANCE_COLUMNS + DIAGNOSTIC_COLUMNS)
-
-
-def _mean(merged: dict, epochs: list[int], key: str) -> float | None:
-    values = [float(merged[e][key]) for e in epochs if key in merged[e]]
-    return sum(values) / len(values) if values else None
 
 
 def print_block(title: str, rows: list[dict], columns: tuple) -> None:
