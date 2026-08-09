@@ -6,7 +6,7 @@ dist
 *_out.*
 .python-version
 docs/*
-!docs/design.md
+!docs/*.md
 
 .claude
 .venv

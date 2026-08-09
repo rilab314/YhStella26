@@ -48,4 +48,4 @@ SEED-MAP v1.1 (768×768, GSD 0.1278 m/px). `SEED_MAP_v1.1_splits/{train,val,test
 
 ## 문서
 
-설계 근거와 결정 사항은 `docs/design.md`(git 추적), 코드 규약은 `CLAUDE.md`에 있다.
+설계 근거와 결정 사항은 `docs/`에 있다 — `docs/design.md`가 색인이다. 코드 규약은 `CLAUDE.md`에 있다.
