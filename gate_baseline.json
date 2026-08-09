@@ -1,0 +1,64 @@
+{
+  "updated": "2026-08-10",
+  "note": [
+    "게이트는 고정된 검사 목록이 아니라 '지금까지 배운 실패 양식'의 누적이다.",
+    "새로운 방식으로 깨지는 것을 볼 때마다 여기에 검사를 하나 추가한다 (SKILL 16절).",
+    "why 는 '이 검사가 어떤 사고를 막는가'다. 답할 수 없는 검사는 지운다.",
+    "bounds 의 min 은 --update 로 래칫된다 — 좋아지면 따라 올라가고, 내리려면 사람이 --force."
+  ],
+  "checks": [
+    {
+      "id": "pytest",
+      "kind": "command",
+      "cmd": [".venv/bin/python", "-m", "pytest", "tests/", "-q", "-m", "not slow"],
+      "why": "인코더 불변식·매칭·RoPE·디코더·지표의 계약. 이게 깨지면 아래 수치는 의미가 없다",
+      "since": "초기"
+    },
+    {
+      "id": "ruff",
+      "kind": "command",
+      "cmd": [".venv/bin/python", "-m", "ruff", "check", "."],
+      "why": "린트. 죽은 import·미사용 변수는 대개 리팩터가 덜 끝났다는 신호다",
+      "since": "초기"
+    },
+    {
+      "id": "format",
+      "kind": "command",
+      "cmd": [".venv/bin/python", "-m", "ruff", "format", "--check", "."],
+      "why": "포맷 미적용 상태로 병합되면 다음 PR의 diff가 오염된다",
+      "since": "초기"
+    },
+    {
+      "id": "configs",
+      "kind": "configs",
+      "why": "config의 path+name 오타는 학습 몇 시간 뒤가 아니라 여기서 잡혀야 한다",
+      "since": "초기"
+    },
+    {
+      "id": "install",
+      "kind": "install",
+      "why": "editable 설치가 worktree를 가리키면 `python scripts/*.py`가 남의 코드로 돈다. `-m` 실행(학습)은 cwd가 우선해 멀쩡하므로 학습만 보면 끝까지 눈치채지 못한다. 실제로 4커밋 전 worktree를 가리키고 있었다",
+      "since": "2026-08-10 (E06 D트랙 도중 발견)"
+    },
+    {
+      "id": "ceiling_gt",
+      "kind": "decode",
+      "cache": "gt_val320",
+      "config": "configs.base",
+      "count": 120,
+      "bounds": { "f1": { "min": 0.95 } },
+      "why": "GT를 인코딩해 넣었는데 디코더가 복원하지 못하면 학습과 무관하게 그 변경이 틀렸다. 천장 실측 0.976 (E00)",
+      "since": "E00"
+    },
+    {
+      "id": "model_regress",
+      "cache": "reff_ep11_val200",
+      "kind": "decode",
+      "config": "configs.base",
+      "count": 120,
+      "bounds": { "f1": { "min": 0.09 } },
+      "why": "천장(완벽한 입력)만 보면 약한 입력에서의 퇴행을 놓친다. 기본값(radius=2) 실측 0.1012 (E06)",
+      "since": "E06"
+    }
+  ]
+}
