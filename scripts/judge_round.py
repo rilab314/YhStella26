@@ -150,7 +150,7 @@ def body_line(row: dict, columns: tuple[str, ...]) -> str:
     values = " | ".join(fmt_value(row.get(key)) for key in columns)
     verdict = VERDICT_NOTE[row["verdict"]]
     return (
-        f"| {row['name'][-30:]} | {row['epochs']} | {values} | "
+        f"| {row['name']} | {row['epochs']} | {values} | "
         f"{fmt_percent(row['primary_rel'])} | {fmt_percent(row['watch_rel'])} | **{verdict}** |"
     )
 

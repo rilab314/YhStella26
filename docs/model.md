@@ -427,7 +427,9 @@ $$
 \end{cases}
 $$
 
-기본값 $\alpha = 0.25$, $\gamma = 2$ (`HeatmapLossConfig.focal_alpha/gamma`).
+기본값 $\alpha = 0.75$, $\gamma = 2$ (`HeatmapLossConfig.focal_alpha/gamma`). $\alpha$는 실측으로
+정했다 — 통상값 0.25는 양성 쪽을 눌러 히트맵 재현율을 깎는다. 이 과제에서는 **놓친 정점이 곧
+사라진 폴리라인**이라 거짓 양성보다 비싸므로, 0.75로 양성을 들어 재현율을 산다.
 
 ### 8.2. `SelfSlotLoss` — 클래스·좌표·끝
 
