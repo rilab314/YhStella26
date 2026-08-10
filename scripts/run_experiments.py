@@ -42,7 +42,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--config", default="configs.unit")
     parser.add_argument("--arms", nargs="+", required=True)
     parser.add_argument("--gpus", default="0,1,2,3")
-    parser.add_argument("--timeout", type=int, default=21600, help="arm 하나의 상한(초)")
+    # **폭주 방지 장치이지 일정 관리 도구가 아니다.** 6시간(21600)으로 두었다가 정상 실행 셋을
+    # SIGKILL 했다 — U arm 실측이 단독 4.3~6.9 h이고 4 arm 경합에서는 에폭당 85분(≈14 h)까지 간다.
+    # 24시간을 넘기는 U arm은 정상이 아니므로 그때는 죽이는 것이 맞다.
+    parser.add_argument(
+        "--timeout", type=int, default=86400, help="arm 하나의 상한(초). 폭주 방지용"
+    )
     return parser.parse_args()
 
 
@@ -106,6 +111,9 @@ def reap(job: dict, timeout: int) -> bool:
     if code is None and time.time() - job["start"] < timeout:
         return False
     if code is None:
+        # 상한 초과로 **우리가** 죽인 것이다. code=-9만 남기면 외부 요인처럼 보여 원인 추적이
+        # 몇 시간씩 샌다(실제로 그랬다). 누가 죽였는지 로그에 분명히 적는다.
+        print(f"[runner] TIMEOUT {job['tag']} — 상한 {timeout}s 초과로 러너가 죽였다", flush=True)
         job["process"].kill()
         job["process"].wait()
         code = -9
