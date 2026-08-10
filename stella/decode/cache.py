@@ -15,6 +15,8 @@ import torch
 from stella.model.stella import ModelOutput
 
 SPARSE_KEYS = ("heat", "class_logit", "coord", "end", "exist", "dir")
+# 나중에 생긴 키. **옛 캐시에는 없다** — 없으면 0으로 채운다(그 모델엔 전경 헤드가 없었다).
+OPTIONAL_KEYS = ("fg",)
 BACKGROUND_LOGIT = -30.0  # 비노드 셀의 히트맵 로짓 — sigmoid ~ 0
 
 
@@ -32,6 +34,7 @@ def save_prediction(path: Path, output: ModelOutput, instances: list[dict]) -> N
         end=arrays["end_logit"][rows, cols].astype(np.float16),
         exist=arrays["exist_logit"][rows, cols].astype(np.float16),
         dir=arrays["conn_dir"][rows, cols].astype(np.float16),
+        fg=arrays["fg_logit"][rows, cols].astype(np.float16),
         **_pack_instances(instances),
     )
 
@@ -40,6 +43,7 @@ def load_prediction(path: Path, shape: dict) -> tuple[ModelOutput, list[dict]]:
     """shape: {"grid_size", "num_classes", "num_slots"} — dense 버퍼 크기를 정한다."""
     with np.load(path) as data:
         sparse = {key: data[key] for key in ("cells", *SPARSE_KEYS)}
+        sparse |= {key: data[key] for key in OPTIONAL_KEYS if key in data}
         instances = _unpack_instances(data)
     return _to_dense(sparse, shape), instances
 
@@ -59,7 +63,9 @@ def _to_dense(sparse: dict, shape: dict) -> ModelOutput:
         conn_dir=torch.zeros((side, side, slots, 2)),
     )
     output.node_mask[rows, cols] = True
-    for key, field in zip(SPARSE_KEYS, _DENSE_FIELDS):
+    for key, field in zip((*SPARSE_KEYS, *OPTIONAL_KEYS), _DENSE_FIELDS):
+        if key not in sparse:  # 옛 캐시 — 그 필드는 0으로 남는다
+            continue
         getattr(output, field)[rows, cols] = torch.from_numpy(sparse[key].astype(np.float32))
     return output
 
@@ -71,6 +77,7 @@ _DENSE_FIELDS = (
     "end_logit",
     "exist_logit",
     "conn_dir",
+    "fg_logit",  # OPTIONAL_KEYS 와 짝이다 — 순서를 맞춰 둔다
 )
 
 
