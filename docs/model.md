@@ -317,10 +317,13 @@ class HeatmapLoss(nn.Module, Buildable):
 
 
 class SelfSlotLoss(nn.Module, Buildable):
-    # end_pos_weight·class_bg_weight는 개선 루프 가설 백로그(4.1절) — 기본값 1.0은 가중 없음과 동일
+    # end_pos_weight·class_bg_weight·class_freq_power는 개선 루프 가설 백로그(4.1절).
+    # 기본값(1.0 / 1.0 / 0.0)은 전부 "가중 없음"이다.
+    # num_classes는 손실 config가 아니라 data config에 있어 from_cfg가 끌어온다.
     def __init__(
         self, *, w_class: float, w_coord: float, w_end: float,
         end_pos_weight: float, class_bg_weight: float,
+        class_freq_power: float, num_classes: int,
     ): ...
     def forward(self, output, targets) -> dict[str, Tensor]:
         return {
@@ -442,9 +445,16 @@ $$
 - **거짓 양성 셀은 배경(0)으로 감독한다.** 클래스 0을 한 번도 학습하지 않으면 `argmax`가 0을 낼 이유가
   없어져 **디코더의 배경 필터(10.2절 $\arg\max \neq 0$)가 무력해진다.** 히트맵 임계값 하나에만 의존하는
   대신 두 번째 걸름망을 만든다.
-- **`class_bg_weight`(기본 1.0, 개선 루프 가설 백로그)** — 선택된 셀의 ~70%가 배경이라 CE가 배경에
-  지배될 수 있다는 가설을 시험하는 손잡이다. 1.0이면 위 식 그대로이고, 그 외 값이면 배경(0) 항에
-  가중을 곱한 평균으로 바뀐다.
+- **클래스 CE는 클래스별 가중 벡터 $\mathbf{w} \in \mathbb{R}^{C}$ 를 받는다.** 감소는
+  $\sum_i w_{y_i} \ell_i / \sum_i w_{y_i}$ 이므로 **가중이 전부 1이면 단순 평균과 같다.**
+  손잡이 둘이 이 벡터를 만든다 (둘 다 개선 루프 가설 백로그).
+  - **`class_bg_weight`(기본 1.0)** — 배경 성분 $w_0$. 선택된 셀의 ~70%가 배경이라 CE가 배경에
+    지배될 수 있다는 가설을 시험한다.
+  - **`class_freq_power`(기본 0.0)** — 전경 성분. 인스턴스 빈도(`CLASS_INSTANCE_COUNT`)의
+    `-power` 승으로 희소 클래스를 올리고, **전경 성분의 평균이 1이 되도록 정규화**한다.
+    정규화가 있어야 `power`를 키워도 클래스 손실의 스케일이 변하지 않아 손실 균형이 유지된다.
+    희소 클래스 3종(`bus_only_lane`·`safety_zone`·`bicycle_lane`)이 검증 200장에서 한 번도
+    예측되지 않은 관측이 근거다. 빈도가 셀 수가 아니라 인스턴스 수라 선 길이만큼 근사가 섞인다.
 
 **좌표 손실** — $\mathcal{P}$ 전체
 

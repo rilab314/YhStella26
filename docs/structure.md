@@ -268,6 +268,8 @@ class SelfSlotLossConfig(ModuleConfig):
     # 끝 셀 양성이 전체 양성의 ~2.5%라 로짓이 음수로 눌린다 (가설 백로그, 14절).
     end_pos_weight: float = 1.0  # 1.0 = 가중 없음
     class_bg_weight: float = 1.0  # 선택 셀의 ~70%가 배경이라 클래스 CE가 배경에 지배당한다 (가설 백로그)
+    # 희소 클래스 3종이 검증 200장에서 0회 예측됐다. 전경을 빈도^(-power)로 가중한다 (가설 백로그).
+    class_freq_power: float = 0.0  # 0.0 = 가중 없음
 
 
 @dataclass(kw_only=True)
