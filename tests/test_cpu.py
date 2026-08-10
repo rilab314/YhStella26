@@ -52,3 +52,37 @@ def test_budget_builds_from_config():
     budget = build_instance(cfg.cpu, cfg)
     assert isinstance(budget, CpuBudget)
     assert budget.torch_threads == cfg.cpu.torch_threads
+
+
+def test_apply_pins_every_thread_not_just_the_caller():
+    """`sched_setaffinity(0, ...)`는 **부르는 스레드 하나만** 바꾼다.
+
+    프로세스 단위로 걸린다고 착각하면, torch가 import 시점에 띄워 둔 스레드들이 그대로
+    전 코어에 남아 예약이 무너진다(실측: 34개 중 31개가 안 묶였다). 그때 사람이 쓰는
+    코어까지 학습 스레드가 올라가 대화형 반응이 느려진다. 이 테스트가 그 재발을 막는다.
+    """
+    import threading
+
+    total = os.cpu_count() or 1
+    if total < 2:
+        return  # 코어가 하나면 예약할 것이 없다
+    started = threading.Event()
+    keep = threading.Event()
+
+    def idle():
+        started.set()
+        keep.wait(5)
+
+    worker = threading.Thread(target=idle, daemon=True)
+    worker.start()
+    started.wait(5)
+    try:
+        budget = CpuBudget(torch_threads=1, interop_threads=1, cores="", reserved_cores=1)
+        expected = set(budget.core_ids())
+        budget.apply()
+        seen = {frozenset(os.sched_getaffinity(int(tid))) for tid in os.listdir("/proc/self/task")}
+        assert seen == {frozenset(expected)}, f"묶이지 않은 스레드가 있다: {seen}"
+    finally:
+        keep.set()
+        worker.join(5)
+        os.sched_setaffinity(0, range(total))  # 테스트가 프로세스를 좁혀 둔 채 끝나지 않게
