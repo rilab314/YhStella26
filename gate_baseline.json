@@ -10,21 +10,42 @@
     {
       "id": "pytest",
       "kind": "command",
-      "cmd": [".venv/bin/python", "-m", "pytest", "tests/", "-q", "-m", "not slow"],
+      "cmd": [
+        ".venv/bin/python",
+        "-m",
+        "pytest",
+        "tests/",
+        "-q",
+        "-m",
+        "not slow"
+      ],
       "why": "인코더 불변식·매칭·RoPE·디코더·지표의 계약. 이게 깨지면 아래 수치는 의미가 없다",
       "since": "초기"
     },
     {
       "id": "ruff",
       "kind": "command",
-      "cmd": [".venv/bin/python", "-m", "ruff", "check", "."],
+      "cmd": [
+        ".venv/bin/python",
+        "-m",
+        "ruff",
+        "check",
+        "."
+      ],
       "why": "린트. 죽은 import·미사용 변수는 대개 리팩터가 덜 끝났다는 신호다",
       "since": "초기"
     },
     {
       "id": "format",
       "kind": "command",
-      "cmd": [".venv/bin/python", "-m", "ruff", "format", "--check", "."],
+      "cmd": [
+        ".venv/bin/python",
+        "-m",
+        "ruff",
+        "format",
+        "--check",
+        "."
+      ],
       "why": "포맷 미적용 상태로 병합되면 다음 PR의 diff가 오염된다",
       "since": "초기"
     },
@@ -46,8 +67,12 @@
       "cache": "gt_val320",
       "config": "configs.base",
       "count": 120,
-      "bounds": { "f1": { "min": 0.95 } },
-      "why": "GT를 인코딩해 넣었는데 디코더가 복원하지 못하면 학습과 무관하게 그 변경이 틀렸다. 천장 실측 0.976 (E00)",
+      "bounds": {
+        "f1": {
+          "min": 0.95
+        }
+      },
+      "why": "GT를 인코딩해 넣었는데 디코더가 복원하지 못하면 그 변경은 틀렸다. 천장 0.976(radius 2) → 0.957(radius 24). **반경을 키우면 천장은 조금 내린다** — 정점이 완벽하면 반경 2가 최적이기 때문이다. 하한은 내리지 않는다(SKILL 16.1).",
       "since": "E00"
     },
     {
@@ -56,8 +81,12 @@
       "kind": "decode",
       "config": "configs.base",
       "count": 120,
-      "bounds": { "f1": { "min": 0.09 } },
-      "why": "천장(완벽한 입력)만 보면 약한 입력에서의 퇴행을 놓친다. 기본값(radius=2) 실측 0.1012 (E06)",
+      "bounds": {
+        "f1": {
+          "min": 0.25
+        }
+      },
+      "why": "천장(완벽한 입력)만 보면 약한 입력에서의 퇴행을 놓친다. radius 24 실측 0.2826 (radius 2 시절 0.1012)",
       "since": "E06"
     }
   ]

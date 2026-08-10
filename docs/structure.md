@@ -301,7 +301,7 @@ class DecodeConfig(ModuleConfig):  # 사슬 확장 디코더 (10절)
     heatmap_thresh: float = 0.3  # τ_h — 노드 후보 (추론 경로, 7.4절)
     exist_thresh: float = 0.5  # τ_e — 연결 슬롯 존재
     end_thresh: float = 0.5  # τ_end — 끝 셀 판정 (σ(end_logit)), 사슬 정지 조건
-    radius: int = 2  # 탐색 반경(셀). 5×5 — 교차점에서 잃은 한 칸을 건너뛴다 (6.4절)
+    radius: int = 24  # 탐색 반경(셀). 실측으로 정했다 — f1 +65% (10.3절)
     align_thresh: float = 0.7  # 내 슬롯 방향과 실제 상대 방향의 코사인 하한 (c·u_ab)
     opp_thresh: float = 0.7  # 마주봄 하한 — -(c·n) ≥ 이 값 (10.3절)
     w_opp: float = 1.0  # 후보 비용에서 마주봄 항의 비중

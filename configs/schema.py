@@ -173,7 +173,11 @@ class DecodeConfig(ModuleConfig):
     heatmap_thresh: float = 0.3  # tau_h — 노드 후보 (추론 경로, 7.4절)
     exist_thresh: float = 0.5  # tau_e — 연결 슬롯 존재
     end_thresh: float = 0.5  # tau_end — 끝 셀 판정 (sigmoid(end_logit)), 사슬 정지 조건
-    radius: int = 2  # 탐색 반경(셀). 5x5 — 교차점에서 잃은 한 칸을 건너뛴다 (6.4절)
+    # 탐색 반경(셀). **실측으로 정했다** — 2는 f1을 1.6배 깎고 있었다.
+    # 현재 기본값 모델(α=0.75) 예측 200장, 기본 동작점: r=2 0.2173 · 8 0.2932 · 16 0.3436 ·
+    # **24 0.3589** · 32 0.3617. 24가 비용/이득의 무릎이다(40장 디코딩 114초 vs 32의 129초).
+    # 사슬이 "다음 후보 없음"으로 멈추던 것이 원인 — chain_len 4.40 → 8.90 (GT 평균 48.2셀).
+    radius: int = 24
     align_thresh: float = 0.7  # 내 슬롯 방향과 실제 상대 방향의 코사인 하한 (c . u_ab)
     opp_thresh: float = 0.7  # 마주봄 하한 — -(c . n) >= 이 값 (10.3절)
     w_opp: float = 1.0  # 후보 비용에서 마주봄 항의 비중
