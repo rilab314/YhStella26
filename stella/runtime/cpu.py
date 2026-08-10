@@ -41,11 +41,11 @@ class CpuBudget(Buildable):
     def apply(self) -> dict:
         """예산을 이 프로세스에 건다. 반환값은 로그·기록용 요약이다."""
         core_ids = self.core_ids()
-        if core_ids:
-            os.sched_setaffinity(0, core_ids)
+        pinned = pin_all_threads(core_ids) if core_ids else 0
         self._apply_threads()
         return {
             "cores": len(core_ids) if core_ids else os.cpu_count(),
+            "pinned_threads": pinned,
             "torch_threads": self.torch_threads,
             "interop_threads": self.interop_threads,
             "expected_threads": self.expected_threads(),
@@ -71,6 +71,27 @@ class CpuBudget(Buildable):
     def expected_threads(self, processes: int = 1) -> int:
         """프로세스 수를 주면 예상 러너블 스레드 수를 낸다 — 부하를 미리 가늠하는 용도."""
         return processes * max(self.torch_threads, 1)
+
+
+def pin_all_threads(core_ids: list[int]) -> int:
+    """이 프로세스의 **모든 스레드**를 주어진 코어에 묶고, 묶은 개수를 낸다.
+
+    `sched_setaffinity(0, ...)`는 **부르는 스레드 하나만** 바꾼다. 프로세스 단위로 걸린다고
+    착각하기 쉬운데, torch는 import 시점에 이미 스레드를 여럿 띄워 두므로 그것들이 그대로
+    전 코어에 남는다(실측: 34개 중 31개가 안 묶였다). 그래서 `/proc/self/task`를 훑어
+    TID마다 건다.
+
+    지금 있는 스레드를 전부 묶으면 **이후에 생기는 스레드는 자동으로 따라온다** —
+    새 스레드는 자기를 만든 스레드의 친화도를 물려받기 때문이다.
+    """
+    pinned = 0
+    for entry in os.listdir("/proc/self/task"):
+        try:
+            os.sched_setaffinity(int(entry), core_ids)
+            pinned += 1
+        except (OSError, ValueError):  # 그 사이에 끝난 스레드는 넘어간다
+            continue
+    return pinned
 
 
 def _set_interop_threads(count: int) -> None:
