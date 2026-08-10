@@ -80,3 +80,32 @@ def test_rotated_prediction_lowers_link_ok():
     scores = diagnostics.compute()
     assert float(scores["link_ok"]) < 0.05
     assert 85.0 < float(scores["dir_err_deg"]) < 95.0
+
+
+def test_vertex_recall_factorizes_into_heat_recall_and_class_fg():
+    """`vertex_recall == heat_recall × class_fg` 를 고정한다.
+
+    `class_fg`의 분모가 "선택된 GT 셀"에서 벗어나면 이 항등식이 조용히 깨진다. 그러면
+    **지표를 나중에 추가한 라운드와 옛 대조군을 비교할 수 없다** — 옛 실행에 `vertex_recall`
+    열이 없을 때 두 인수로 복원하는 길이 막히기 때문이다 (E08 판정에서 실제로 필요했다).
+    """
+    import numpy as np
+
+    cfg = make_cfg()
+    lines = [
+        {"class": 3, "points": np.array([[30.0, 100.0], [220.0, 100.0]], dtype=np.float32)},
+        {"class": 5, "points": np.array([[60.0, 20.0], [60.0, 200.0]], dtype=np.float32)},
+    ]
+    targets = encode_batch(lines)
+    output = gt_model_output(targets, cfg.data.num_classes, cfg.model.num_conn_slots)
+    cells = ((targets["class_map"] > 0) & output.node_mask).nonzero()
+    output.node_mask[tuple(cells[::3].T)] = False  # 일부를 놓친다 → heat_recall < 1
+    called_background = cells[1::3]
+    output.class_logit[tuple(called_background.T)] = 0.0
+    output.class_logit[(*called_background.T, 0)] = 10.0  # 배경이라 부른다 → class_fg < 1
+    diagnostics = build_instance(cfg.cell_diag, cfg)
+    diagnostics.update(output, targets)
+    scores = {key: float(value) for key, value in diagnostics.compute().items()}
+    assert 0.0 < scores["heat_recall"] < 1.0
+    assert 0.0 < scores["class_fg"] < 1.0
+    assert abs(scores["vertex_recall"] - scores["heat_recall"] * scores["class_fg"]) < 1e-6
