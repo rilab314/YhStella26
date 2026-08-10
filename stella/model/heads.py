@@ -21,19 +21,30 @@ CONN_OUTPUT_DIM = 3  # exist 1 + dir 2
 class SelfHead(nn.Module):
     """self 슬롯 -> 클래스 로짓 + 셀 내 좌표 + 끝 로짓 (end_map 직접 감독, 8.2절)."""
 
-    def __init__(self, *, d_model: int, num_classes: int, hidden_layers: int = 1):
+    def __init__(self, *, d_model: int, num_classes: int, fg_head: bool, hidden_layers: int = 1):
         super().__init__()
         self.class_mlp = build_mlp(d_model, num_classes, hidden_layers)
         self.coord_mlp = build_mlp(d_model, 2, hidden_layers)
         self.end_mlp = build_mlp(d_model, 1, hidden_layers)
+        # 끄면 파라미터가 아예 생기지 않는다 — 기존 실행과 초기화까지 동일해야 비교가 선다.
+        self.fg_mlp = build_mlp(d_model, 1, hidden_layers) if fg_head else None
 
-    def forward(self, tokens: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """tokens: (N, D) -> class_logit (N, C), self_coord (N, 2) in [0, 1], end_logit (N,)."""
+    def forward(self, tokens: torch.Tensor) -> tuple[torch.Tensor, ...]:
+        """tokens: (N, D) -> class_logit (N, C), self_coord (N, 2), end_logit (N,), fg_logit (N,).
+
+        `fg_logit`은 헤드를 끄면 0이다 — 계약을 한 가지로 유지해 하류가 분기하지 않게 한다.
+        """
         return (
             self.class_mlp(tokens),
             self.coord_mlp(tokens).sigmoid(),
             self.end_mlp(tokens).squeeze(-1),
+            self._foreground(tokens),
         )
+
+    def _foreground(self, tokens: torch.Tensor) -> torch.Tensor:
+        if self.fg_mlp is None:
+            return tokens.new_zeros(tokens.shape[0])
+        return self.fg_mlp(tokens).squeeze(-1)
 
 
 class ConnHead(nn.Module):

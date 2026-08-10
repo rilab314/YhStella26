@@ -23,6 +23,7 @@ def gt_model_output(targets: dict, num_classes: int, num_slots: int) -> ModelOut
         class_logit=torch.zeros((*shape, num_classes)),
         self_coord=torch.zeros((*shape, 2)),
         end_logit=torch.where(targets["end_map"] > 0, HIGH_LOGIT, -HIGH_LOGIT),
+        fg_logit=torch.where(positive, HIGH_LOGIT, -HIGH_LOGIT),
         exist_logit=torch.full((*shape, num_slots), -HIGH_LOGIT),
         conn_dir=torch.zeros((*shape, num_slots, 2)),
     )

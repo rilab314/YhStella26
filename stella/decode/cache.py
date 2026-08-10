@@ -54,6 +54,7 @@ def _to_dense(sparse: dict, shape: dict) -> ModelOutput:
         class_logit=torch.zeros((side, side, classes)),
         self_coord=torch.zeros((side, side, 2)),
         end_logit=torch.zeros((side, side)),
+        fg_logit=torch.zeros((side, side)),
         exist_logit=torch.zeros((side, side, slots)),
         conn_dir=torch.zeros((side, side, slots, 2)),
     )

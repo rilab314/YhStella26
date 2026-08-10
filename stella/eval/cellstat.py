@@ -28,6 +28,7 @@ COUNT_STATES = (
     "node_count",
     "node_on_gt",
     "class_hit",
+    "fg_hit",
     "class_count",
     "class_fg_hit",
     "bg_hit",
@@ -121,6 +122,7 @@ class CellDiagnostics(Metric):
         self.class_count += both.sum()
         self.class_hit += (predicted[both] == targets["class_map"][both]).sum()
         self.class_fg_hit += (predicted[both] > 0).sum()
+        self.fg_hit += (output.fg_logit[both] > 0.0).sum()  # 이진 헤드 기준 (E12)
         self.bg_count += false_positive.sum()
         self.bg_hit += (predicted[false_positive] == 0).sum()
 
@@ -186,6 +188,8 @@ class CellDiagnostics(Metric):
             "node_per_img": _ratio(self.node_count, self.samples),
             "class_acc": _ratio(self.class_hit, self.class_count),
             "class_fg": _ratio(self.class_fg_hit, self.class_count),
+            # 이진 전경 헤드가 같은 셀을 전경이라 부르는 비율 (E12). 헤드가 꺼져 있으면 0이다.
+            "fg_acc": _ratio(self.fg_hit, self.class_count),
             # 분모가 **전체 GT 셀**이라 선택 수가 달라도 비교할 수 있다 (아래 주석).
             "class_recall": _ratio(self.class_hit, self.heat_gt),
             "vertex_recall": _ratio(self.class_fg_hit, self.heat_gt),

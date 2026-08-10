@@ -28,6 +28,9 @@ class ModelOutput:
     class_logit: torch.Tensor  # (B, L, L, C)
     self_coord: torch.Tensor  # (B, L, L, 2) in [0, 1], 원점 = 셀 좌상단
     end_logit: torch.Tensor  # (B, L, L) — "이 셀이 사슬의 끝", end_map 직접 감독 (9차 개정)
+    # (B, L, L) — "이 셀이 전경이냐"만 보는 이진 로짓.
+    # `model.fg_head`가 꺼져 있으면 전부 0이다 (E12).
+    fg_logit: torch.Tensor
     exist_logit: torch.Tensor  # (B, L, L, R)
     conn_dir: torch.Tensor  # (B, L, L, R, 2) 단위벡터, 원점 = 자기 노드 점 (6.1절)
 
@@ -54,6 +57,7 @@ class StellaModel(nn.Module):
         dropout: float,
         grad_checkpoint: bool,
         head_hidden: int,
+        fg_head: bool,
         share_slot_weights: bool,
         num_classes: int,
         grid_size: int,
@@ -77,7 +81,7 @@ class StellaModel(nn.Module):
             for kind in layers
         )
         self.self_head = SelfHead(
-            d_model=d_model, num_classes=num_classes, hidden_layers=head_hidden
+            d_model=d_model, num_classes=num_classes, fg_head=fg_head, hidden_layers=head_hidden
         )
         self.conn_head = ConnHead(
             d_model=d_model,
@@ -118,6 +122,7 @@ class StellaModel(nn.Module):
             dropout=module_cfg.dropout,
             grad_checkpoint=module_cfg.grad_checkpoint,
             head_hidden=module_cfg.head_hidden,
+            fg_head=module_cfg.fg_head,
             share_slot_weights=module_cfg.share_slot_weights,
             num_classes=cfg.data.num_classes,
             grid_size=cfg.data.grid_size,
@@ -166,6 +171,7 @@ class StellaModel(nn.Module):
             class_logit=zeros((batch, side, side, classes)),
             self_coord=zeros((batch, side, side, 2)),
             end_logit=zeros((batch, side, side)),
+            fg_logit=zeros((batch, side, side)),
             exist_logit=zeros((batch, side, side, slots)),
             conn_dir=zeros((batch, side, side, slots, 2)),
         )
@@ -174,12 +180,13 @@ class StellaModel(nn.Module):
         self, output: ModelOutput, index: int, cells: torch.Tensor, tokens: torch.Tensor
     ) -> None:
         rows, cols = cells[:, 0], cells[:, 1]
-        class_logit, self_coord, end_logit = self.self_head(tokens[:, 0])
+        class_logit, self_coord, end_logit, fg_logit = self.self_head(tokens[:, 0])
         exist_logit, conn_dir = self.conn_head(tokens[:, 1:])
         output.node_mask[index, rows, cols] = True
         output.class_logit[index, rows, cols] = class_logit.float()
         output.self_coord[index, rows, cols] = self_coord.float()
         output.end_logit[index, rows, cols] = end_logit.float()
+        output.fg_logit[index, rows, cols] = fg_logit.float()
         output.exist_logit[index, rows, cols] = exist_logit.float()
         output.conn_dir[index, rows, cols] = conn_dir.float()
 

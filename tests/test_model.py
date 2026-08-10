@@ -45,7 +45,12 @@ def test_heads_survive_module_apply():
     모델을 장치로 옮기는 순간 죽는다. 조립 테스트로는 안 잡혀서 여기서 직접 시험한다."""
     from stella.model.heads import ConnHead, SelfHead
 
-    for head in (SelfHead(d_model=32, num_classes=12), ConnHead(d_model=32, num_slots=2)):
+    heads = [
+        SelfHead(d_model=32, num_classes=12, fg_head=False),
+        SelfHead(d_model=32, num_classes=12, fg_head=True),  # 전경 헤드도 같은 계약을 지켜야 한다
+        ConnHead(d_model=32, num_slots=2),
+    ]
+    for head in heads:
         head.to(torch.float64).float()  # 예약 메서드를 가리면 여기서 TypeError가 난다
     shared = ConnHead(d_model=32, num_slots=2, share_slots=True).float()
     split = ConnHead(d_model=32, num_slots=2, share_slots=False).float()
@@ -170,8 +175,44 @@ def _imperfect_output(targets: dict, cfg):
         class_logit=torch.zeros((*shape, classes)),
         self_coord=torch.zeros((*shape, 2)),
         end_logit=torch.zeros(shape),
+        fg_logit=torch.zeros(shape),
         exist_logit=torch.zeros((*shape, slots)),
         conn_dir=torch.zeros((*shape, slots, 2)),
     )
     output.conn_dir[..., 0] = 1.0
     return output
+
+
+def test_fg_head_is_off_by_default_and_costs_nothing():
+    """`fg_head=False`면 파라미터가 **아예 생기지 않아야** 한다.
+
+    끈 상태가 기존 실행과 초기화까지 같아야 E12 arm과 대조군을 비교할 수 있다. 로짓만 0으로
+    두고 MLP는 만들어 두면 난수 소비 순서가 달라져 그 비교가 무너진다.
+    """
+    from stella.model.heads import SelfHead
+
+    off = SelfHead(d_model=32, num_classes=12, fg_head=False)
+    on = SelfHead(d_model=32, num_classes=12, fg_head=True)
+    assert off.fg_mlp is None
+    assert sum(p.numel() for p in on.parameters()) > sum(p.numel() for p in off.parameters())
+    tokens = torch.randn(4, 32)
+    for head in (off, on):
+        class_logit, coord, end_logit, fg_logit = head(tokens)
+        assert class_logit.shape == (4, 12)
+        assert coord.shape == (4, 2)
+        assert end_logit.shape == (4,) and fg_logit.shape == (4,)
+    assert torch.count_nonzero(off(tokens)[3]) == 0  # 끄면 전경 로짓은 항상 0
+
+
+def test_fg_loss_is_skipped_when_weight_is_zero():
+    """`w_fg=0`이면 전경 항이 손실 총합을 바꾸지 않는다 — 기존 실행과 값이 같아야 한다."""
+    cfg = get_config()
+    cfg.data.image_size = IMAGE
+    targets = make_targets()
+    output = _imperfect_output(targets, cfg)
+    base = build_instance(cfg.loss.self_slot, cfg)(output, targets)
+    cfg.loss.self_slot.w_fg = 1.0
+    lifted = build_instance(cfg.loss.self_slot, cfg)(output, targets)
+    assert float(base["fg"]) == 0.0
+    assert torch.allclose(base["total"], lifted["total"] - lifted["fg"])
+    assert float(lifted["fg"]) > 0.0  # 켜면 실제로 계산된다
