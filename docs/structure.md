@@ -378,6 +378,7 @@ class TrainConfig(ModuleConfig):
 
 @dataclass(kw_only=True)
 class ExperimentConfig:  # 이것 자체는 build 대상이 아니다
+    cpu: CpuConfig = field(default_factory=CpuConfig)
     data: DataConfig = field(default_factory=DataConfig)
     model: ModelConfig = field(default_factory=ModelConfig)
     loss: LossConfig = field(default_factory=LossConfig)
@@ -393,7 +394,8 @@ class ExperimentConfig:  # 이것 자체는 build 대상이 아니다
 | 필드                                                                                     | 읽는 곳                          |
 | --------------------------------------------------------------------------------------- | ----------------------------- |
 | `BackboneConfig.lr_mult`                                                                | `optim.py` param group (9.2절) |
-| `DataConfig.batch_size`, `num_workers`                                                  | `DataLoader`                  |
+| `DataConfig.batch_size`, `num_workers`                                                  | `DataLoader` (train/val이 **각각** 워커 풀을 만들어 실제 워커는 2배다) |
+| `CpuConfig.*`                                                                           | `CpuBudget.apply()` — 진입 직후 (아래) |
 | `TrainConfig.epochs`, `accumulate`, `grad_clip`, `precision`, `devices`, `limit_val_batches` | `pl.Trainer` (9.3절)       |
 | `TrainConfig.ckpt_monitor`, `ckpt_mode`, `ckpt_top_k`                                   | `ModelCheckpoint` (9.3절)      |
 | `TrainConfig.find_unused_parameters`                                                    | DDP strategy 선택 (9.3절)        |

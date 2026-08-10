@@ -246,9 +246,27 @@ class TrainConfig(ModuleConfig):
 
 
 @dataclass(kw_only=True)
+class CpuConfig(ModuleConfig):
+    """이 프로세스가 쓸 CPU 예산 — 부하를 예측 가능하게 만드는 단일 출처.
+
+    torch는 기본적으로 프로세스마다 코어를 **전부** 잡는다. 그래서 arm 두셋만 겹쳐도
+    러너블 스레드가 폭증해 부하가 튀고(실측 5.7~18.6), 같은 기계를 쓰는 사람이 불편해진다.
+    부하 숫자를 쫓아다니는 대신 **쓸 코어를 미리 떼어 두는 방식**을 쓴다.
+    """
+
+    path: str = "stella.runtime.cpu"
+    name: str = "CpuBudget"
+    torch_threads: int = 2  # 프로세스당 intra-op 스레드. 0이면 torch 기본(= 전체 코어)
+    interop_threads: int = 1
+    cores: str = ""  # "0-21" 처럼 주면 그 코어에만 붙는다. 비면 reserved_cores로 계산
+    reserved_cores: int = 10  # 사람 몫으로 남길 코어 수 (32코어 중 10 → 학습은 0~21만 쓴다)
+
+
+@dataclass(kw_only=True)
 class ExperimentConfig:
     """이것 자체는 build 대상이 아니다."""
 
+    cpu: CpuConfig = field(default_factory=CpuConfig)
     data: DataConfig = field(default_factory=DataConfig)
     model: ModelConfig = field(default_factory=ModelConfig)
     loss: LossConfig = field(default_factory=LossConfig)
