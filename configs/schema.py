@@ -108,7 +108,9 @@ class HeatmapLossConfig(ModuleConfig):
     path: str = "stella.loss.heatmap"
     name: str = "HeatmapLoss"
     w_heatmap: float = 1.0
-    focal_alpha: float = 0.25  # 가중치가 아니라 focal 형태 파라미터
+    # 가중치가 아니라 focal 형태 파라미터. 0.25 → 0.75는 E08 실측 — U 규격에서 f1 +22.4%
+    # (0.1737 → 0.2126), heat_recall 0.8286 → 0.9545. 양성 쪽을 더 들어 정점 재현율을 산다.
+    focal_alpha: float = 0.75
     focal_gamma: float = 2.0
 
 
