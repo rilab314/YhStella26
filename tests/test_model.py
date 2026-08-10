@@ -6,7 +6,7 @@ from helpers import gt_model_output
 from configs.exp_synthetic import get_config
 from stella.builder import build_instance
 from stella.data.synthetic import SyntheticDataset
-from stella.data.types import collate_fn
+from stella.data.types import CLASS_NAMES, collate_fn
 from stella.model.neck import SFP, FPNLite
 
 GRID = 64
@@ -88,6 +88,33 @@ def test_criterion_returns_all_logged_keys():
     }
     assert expected <= set(losses)
     assert torch.isfinite(losses["total"])
+
+
+def test_class_weight_is_neutral_without_frequency_power():
+    """가중을 끄면 예전의 단순 평균 CE와 같다 — E09 리팩터가 기본 동작을 바꾸지 않았다."""
+    cfg = get_config()
+    cfg.data.image_size = IMAGE
+    loss_module = build_instance(cfg.loss.self_slot, cfg)
+    assert torch.allclose(loss_module.class_weight, torch.ones(cfg.data.num_classes))
+    targets = make_targets()
+    output = _imperfect_output(targets, cfg)
+    selected = output.node_mask
+    plain = torch.nn.functional.cross_entropy(
+        output.class_logit[selected].float(), targets["class_map"][selected]
+    )
+    assert torch.allclose(loss_module(output, targets)["class"], plain)
+
+
+def test_class_freq_power_lifts_rare_classes():
+    """빈도 가중은 희소 클래스를 올리되 전경 평균은 1로 둔다 — 손실 스케일이 안 흔들린다 (E09)."""
+    cfg = get_config()
+    cfg.loss.self_slot.class_freq_power = 0.5
+    weight = build_instance(cfg.loss.self_slot, cfg).class_weight
+    rare = CLASS_NAMES.index("bus_only_lane")
+    common = CLASS_NAMES.index("no_parking_stopping_line")
+    assert weight[rare] > 1.0 > weight[common]
+    assert torch.allclose(weight[1:].mean(), torch.tensor(1.0))
+    assert float(weight[0]) == cfg.loss.self_slot.class_bg_weight
 
 
 def test_perfect_prediction_drives_losses_to_zero():

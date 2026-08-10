@@ -123,6 +123,9 @@ class SelfSlotLossConfig(ModuleConfig):
     end_pos_weight: float = 1.0  # 1.0 = 가중 없음
     # 선택 셀의 ~70%가 배경이라 클래스 CE가 배경에 지배당한다 (가설 백로그 B6). 1.0 = 가중 없음
     class_bg_weight: float = 1.0
+    # 희소 클래스 3종(bus_only_lane·safety_zone·bicycle_lane)이 200장에서 한 번도 예측되지
+    # 않았다 (E07). 전경 가중을 인스턴스 빈도의 -power 승으로 준다. 0.0 = 가중 없음 (E09)
+    class_freq_power: float = 0.0
 
 
 @dataclass(kw_only=True)

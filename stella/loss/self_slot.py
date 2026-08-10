@@ -9,10 +9,16 @@
 import torch
 import torch.nn.functional as F
 
+from stella.data.types import CLASS_INSTANCE_COUNT
 from stella.loss.criterion import LossModule
 
 
 class SelfSlotLoss(LossModule):
+    @classmethod
+    def from_cfg(cls, module_cfg, cfg, **kwargs) -> "SelfSlotLoss":
+        """클래스 수는 손실 config가 아니라 데이터 config가 갖는다 — 거기서 끌어온다."""
+        return super().from_cfg(module_cfg, cfg, num_classes=cfg.data.num_classes, **kwargs)
+
     def __init__(
         self,
         *,
@@ -21,6 +27,8 @@ class SelfSlotLoss(LossModule):
         w_end: float,
         end_pos_weight: float,
         class_bg_weight: float,
+        class_freq_power: float,
+        num_classes: int,
     ):
         super().__init__()
         self.w_class = w_class
@@ -28,6 +36,25 @@ class SelfSlotLoss(LossModule):
         self.w_end = w_end
         self.end_pos_weight = end_pos_weight
         self.class_bg_weight = class_bg_weight
+        self.register_buffer(
+            "class_weight", self._build_class_weight(num_classes, class_freq_power, class_bg_weight)
+        )
+
+    @staticmethod
+    def _build_class_weight(num_classes: int, freq_power: float, bg_weight: float) -> torch.Tensor:
+        """전경은 인스턴스 빈도의 `-power` 승, 배경은 `bg_weight`.
+
+        전경 가중은 **평균 1로 정규화**한다 — 그래야 `power`를 올려도 클래스 손실의 스케일이
+        그대로라 손실 균형(SKILL 8절)이 흔들리지 않고 `power` 하나만 비교된다.
+        빈도는 셀 수가 아니라 인스턴스 수(`CLASS_INSTANCE_COUNT`)라 선 길이만큼 근사가 섞인다.
+        """
+        weight = torch.ones(num_classes)
+        if freq_power > 0.0:
+            counts = torch.tensor(CLASS_INSTANCE_COUNT[1:num_classes], dtype=torch.float32)
+            foreground = (counts.median() / counts) ** freq_power
+            weight[1:] = foreground / foreground.mean()
+        weight[0] = bg_weight
+        return weight
 
     def forward(self, output, targets: dict) -> dict[str, torch.Tensor]:
         positive = (targets["class_map"] > 0) & output.node_mask
@@ -41,17 +68,16 @@ class SelfSlotLoss(LossModule):
         """선택된 전 셀 — class_map이 배경 0이라 거짓 양성 셀의 라벨이 그대로 0이 된다.
 
         선택 셀의 70%가 배경이라 CE가 배경에 지배당한다(REF-F 에폭 1에서 class_acc 0.003 /
-        bg_recall 0.997 관측). `class_bg_weight < 1`로 그 지배를 완화한다 (가설 백로그 B6).
+        bg_recall 0.997 관측). `class_bg_weight < 1`로 그 지배를 완화하고, 전경끼리의
+        불균형은 `class_freq_power`가 맡는다 (가설 백로그 B6, E09).
+        가중 CE의 감소는 `sum(w_i * l_i) / sum(w_i)` — 전부 1이면 단순 평균과 같다.
         """
         selected = output.node_mask
         if not bool(selected.any()):
             return output.class_logit.sum() * 0.0
         label = targets["class_map"][selected]
-        loss = F.cross_entropy(output.class_logit[selected].float(), label, reduction="none")
-        if self.class_bg_weight == 1.0:
-            return loss.mean()
-        weight = torch.where(label > 0, 1.0, self.class_bg_weight)
-        return (loss * weight).sum() / weight.sum().clamp(min=1e-9)
+        logit = output.class_logit[selected].float()
+        return F.cross_entropy(logit, label, weight=self.class_weight.to(logit.dtype))
 
     @staticmethod
     def _coord_loss(output, targets: dict, positive: torch.Tensor) -> torch.Tensor:
