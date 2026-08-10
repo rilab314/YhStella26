@@ -22,6 +22,7 @@ class VertexExtractor:
         radius: int,
         seed_mode: str,
         end_thresh: float,
+        fg_thresh: float,
     ):
         if seed_mode not in SEED_MODES:
             raise ValueError(f"seed_mode 는 {SEED_MODES} 중 하나여야 한다: {seed_mode}")
@@ -30,13 +31,14 @@ class VertexExtractor:
         self.radius = radius
         self.seed_mode = seed_mode
         self.end_thresh = end_thresh
+        self.fg_thresh = fg_thresh
 
     def __call__(self, output) -> dict:
         """학습 dilation 없이 노드 셀을 고르고 정점 속성을 모은다."""
         arrays = {k: _to_numpy(v) for k, v in vars(output).items()}
         heat = _sigmoid(arrays["heatmap_logit"])
         label = arrays["class_logit"].argmax(axis=-1)
-        keep = arrays["node_mask"] & (heat > self.heatmap_thresh) & (label > 0)
+        keep = arrays["node_mask"] & (heat > self.heatmap_thresh) & self._foreground(arrays, label)
         cells = np.argwhere(keep)
         rows, cols = cells[:, 0], cells[:, 1]
         coord = arrays["self_coord"][rows, cols]
@@ -52,6 +54,12 @@ class VertexExtractor:
             "dir": arrays["conn_dir"][rows, cols],
             "neighbors": self.neighbor_table(cells, self.radius),
         }
+
+    def _foreground(self, arrays: dict, label: np.ndarray) -> np.ndarray:
+        """전경 판정. `fg_thresh < 0`이면 기존 `argmax != 0`, 아니면 이진 로짓 (E12)."""
+        if self.fg_thresh < 0.0:
+            return label > 0
+        return _sigmoid(arrays["fg_logit"]) > self.fg_thresh
 
     def neighbor_table(self, cells: np.ndarray, radius: int) -> np.ndarray:
         """각 정점의 체비셰프 반경 안 정점 인덱스 (V, (2r+1)^2). 빈 칸은 -1."""

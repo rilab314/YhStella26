@@ -62,6 +62,7 @@ class ChainDecoder:
         merge_align: float,
         align_mode: str,
         perp_thresh: float,
+        fg_thresh: float,
     ):
         if align_mode not in ALIGN_MODES:
             raise ValueError(f"align_mode 는 {ALIGN_MODES} 중 하나여야 한다: {align_mode}")
@@ -85,6 +86,7 @@ class ChainDecoder:
             radius=radius,
             seed_mode=seed_mode,
             end_thresh=end_thresh,
+            fg_thresh=fg_thresh,
         )
         self.merger = ChainMerger(gap=merge_gap, align_cos=merge_align)
         self.stats = ChainStats()

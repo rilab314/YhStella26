@@ -57,6 +57,7 @@ def test_empty_output_decodes_to_empty_list():
         class_logit=torch.zeros((side, side, classes)),
         self_coord=torch.zeros((side, side, 2)),
         end_logit=torch.zeros((side, side)),
+        fg_logit=torch.zeros((side, side)),
         exist_logit=torch.zeros((side, side, slots)),
         conn_dir=torch.zeros((side, side, slots, 2)),
     )
@@ -202,3 +203,38 @@ def test_simplify_removes_collinear_points():
     assert len(decoded) == 1
     assert len(decoded[0]["points"]) == 2  # 직선이므로 양 끝만 남는다
     assert covered_fraction(points, decoded) > 0.98
+
+
+def test_fg_thresh_path_matches_argmax_path_on_gt():
+    """`decode.fg_thresh >= 0`이면 배경 필터가 **이진 로짓**으로 바뀐다 (E12).
+
+    게이트의 `ceiling_gt`는 기본값(`fg_thresh=-1`)으로만 돌아 이 새 경로를 한 번도 타지 않는다.
+    GT를 주입하면 두 경로가 같은 셀을 고르므로, 결과가 어긋나면 새 경로가 틀린 것이다.
+    """
+    lines = [
+        {"class": 3, "points": np.array([[30.0, 100.0], [220.0, 100.0]], dtype=np.float32)},
+        {"class": 5, "points": np.array([[60.0, 20.0], [60.0, 200.0]], dtype=np.float32)},
+    ]
+    base_cfg = make_cfg()
+    base = decode_gt(base_cfg, build_instance(base_cfg.decode, base_cfg), lines)
+    fg_cfg = make_cfg()
+    fg_cfg.decode.fg_thresh = 0.5  # 이진 확률 경로
+    fg = decode_gt(fg_cfg, build_instance(fg_cfg.decode, fg_cfg), lines)
+    assert len(fg) == len(base) == 2
+    for got, want in zip(
+        sorted(fg, key=lambda d: d["class"]), sorted(base, key=lambda d: d["class"])
+    ):
+        assert got["class"] == want["class"]
+        assert np.allclose(got["points"], want["points"])
+
+
+def test_fg_thresh_rejects_cells_the_binary_head_calls_background():
+    """이진 로짓이 낮으면 정점이 생기지 않아야 한다 — 필터가 실제로 그 값을 본다는 확인."""
+    cfg = make_cfg()
+    cfg.decode.fg_thresh = 0.5
+    decoder = build_instance(cfg.decode, cfg)
+    points = np.array([[30.0, 100.0], [220.0, 100.0]], dtype=np.float32)
+    targets = encode_scene([{"class": 3, "points": points}])
+    output = gt_model_output(targets, cfg.data.num_classes, cfg.model.num_conn_slots)
+    output.fg_logit[:] = -10.0  # 전부 "배경"이라 부른다
+    assert decoder(output[0]) == []

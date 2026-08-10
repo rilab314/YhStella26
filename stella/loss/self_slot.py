@@ -29,6 +29,8 @@ class SelfSlotLoss(LossModule):
         class_bg_weight: float,
         class_freq_power: float,
         num_classes: int,
+        w_fg: float,
+        fg_pos_weight: float,
     ):
         super().__init__()
         self.w_class = w_class
@@ -36,6 +38,8 @@ class SelfSlotLoss(LossModule):
         self.w_end = w_end
         self.end_pos_weight = end_pos_weight
         self.class_bg_weight = class_bg_weight
+        self.w_fg = w_fg
+        self.fg_pos_weight = fg_pos_weight
         self.register_buffer(
             "class_weight", self._build_class_weight(num_classes, class_freq_power, class_bg_weight)
         )
@@ -61,8 +65,38 @@ class SelfSlotLoss(LossModule):
         class_loss = self._class_loss(output, targets)
         coord_loss = self._coord_loss(output, targets, positive)
         end_loss = self._end_loss(output, targets, positive)
-        total = self.w_class * class_loss + self.w_coord * coord_loss + self.w_end * end_loss
-        return {"class": class_loss, "coord": coord_loss, "end": end_loss, "total": total}
+        fg_loss = self._fg_loss(output, targets)
+        total = (
+            self.w_class * class_loss
+            + self.w_coord * coord_loss
+            + self.w_end * end_loss
+            + self.w_fg * fg_loss
+        )
+        return {
+            "class": class_loss,
+            "coord": coord_loss,
+            "end": end_loss,
+            "fg": fg_loss,
+            "total": total,
+        }
+
+    def _fg_loss(self, output, targets: dict) -> torch.Tensor:
+        """전경/배경 이진 감독 (E12).
+
+        디코더가 정점을 만들 때 실제로 묻는 것은 **"전경이냐"** 하나뿐인데(10.2절 배경 필터),
+        12지 CE는 그 판정과 종류 분류를 겸한다. 손실의 대부분은 흔한 클래스끼리의 혼동이
+        먹고, 그 오류는 정점을 살리므로 디코더에 덜 치명적이다. 즉 **치명적인 오류와 덜
+        치명적인 오류가 한 항에서 경쟁**한다. 이 항이 앞의 판정만 따로 감독한다.
+
+        `w_fg = 0`이면 계산 자체를 건너뛴다 — 기존 실행과 값이 그대로여야 비교가 선다.
+        """
+        selected = output.node_mask
+        if self.w_fg == 0.0 or not bool(selected.any()):
+            return output.fg_logit.sum() * 0.0
+        predicted = output.fg_logit[selected].float()
+        target = (targets["class_map"][selected] > 0).float()
+        weight = predicted.new_tensor(self.fg_pos_weight)
+        return F.binary_cross_entropy_with_logits(predicted, target, pos_weight=weight)
 
     def _class_loss(self, output, targets: dict) -> torch.Tensor:
         """선택된 전 셀 — class_map이 배경 0이라 거짓 양성 셀의 라벨이 그대로 0이 된다.

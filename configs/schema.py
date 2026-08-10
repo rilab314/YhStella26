@@ -84,6 +84,10 @@ class ModelConfig(ModuleConfig):
     # 활성 메모리가 w^2 에 비례하고 실제 연결은 디코더 탐색 반경 2셀 안에서 일어난다.
     # 실측(n_max 6000, bs 1): 9 -> 7 에서 peak 12.09 -> 9.72 GiB, step 455 -> 291 ms (7.6절).
     window_size: int = 7  # w
+    # 디코더는 `argmax != 0`(전경이냐)만 쓰는데 12지 CE가 그 판정과 종류 분류를 겸한다.
+    # 손실의 대부분은 정점을 살리는 종류 혼동이 먹고, 치명적인 "배경이라 부름"과 섞여 경쟁한다.
+    # True면 전경 로짓 1채널을 따로 둔다 (E12). False면 파라미터가 아예 생기지 않는다.
+    fg_head: bool = False
     ffn_dim: int = 1024
     dropout: float = 0.0
     grad_checkpoint: bool = True  # 윈도우 층만 재계산 (활성의 대부분이 거기 있다, 7.6절)
@@ -128,6 +132,9 @@ class SelfSlotLossConfig(ModuleConfig):
     # 희소 클래스 3종(bus_only_lane·safety_zone·bicycle_lane)이 200장에서 한 번도 예측되지
     # 않았다 (E07). 전경 가중을 인스턴스 빈도의 -power 승으로 준다. 0.0 = 가중 없음 (E09)
     class_freq_power: float = 0.0
+    # 전경/배경 이진 BCE (E12). `model.fg_head=True`와 함께 쓴다. 0.0 = 항 자체를 계산하지 않는다.
+    w_fg: float = 0.0
+    fg_pos_weight: float = 1.0  # 선택 셀의 ~70%가 배경이라 양성 쪽을 들 수 있게 열어 둔다
 
 
 @dataclass(kw_only=True)
@@ -171,6 +178,9 @@ class DecodeConfig(ModuleConfig):
     opp_thresh: float = 0.7  # 마주봄 하한 — -(c . n) >= 이 값 (10.3절)
     w_opp: float = 1.0  # 후보 비용에서 마주봄 항의 비중
     min_class_prob: float = 0.1  # 확장 게이트 — 후보의 사슬 클래스 softmax 확률 하한 (10.3절)
+    # 정점의 배경 필터. 음수면 기존 방식(`argmax != 0`),
+    # 0 이상이면 전경 로짓 확률의 하한을 쓴다 (E12).
+    fg_thresh: float = -1.0
     purity_thresh: float = 0.6  # 사슬 순도 하한 — argmax 클래스 일치 비율. 이하면 사슬 폐기
     end_extend: float = 1.0  # 끝 셀에서 끝방향 슬롯으로 연장하는 길이(셀) — 10.3절 끝 연장
     min_points: int = 2  # 이보다 짧은 폴리라인은 버린다 (연장점 포함)
