@@ -10,7 +10,8 @@
     python scripts/eval_decode.py --cache <캐시> --set eval.buffer_rho=8   # 엄격 검사
 
 한 축을 눈으로 보는 도구다. 여러 축을 자동으로 훑으려면 `tune_decoder.py`(좌표 하강)를 쓴다.
-학습이 도는 중에는 `--workers 4~5`로 제한한다 (16이면 학습이 1.5배 느려진다).
+코어 예산은 `cfg.cpu`가 정한다(학습과 같은 코어에만 붙는다). 워커는 `--workers`로 따로 준다 —
+학습이 도는 중에는 **2 이하**로 둔다 (4로 올렸다가 부하 상한을 넘긴 실측이 있다).
 """
 
 import argparse
@@ -18,6 +19,7 @@ import json
 from dataclasses import replace
 from pathlib import Path
 
+from stella.builder import build_instance
 from stella.config_io import cast_like
 from stella.decode.sweep import (
     REPORT_KEYS,
@@ -46,7 +48,8 @@ def main() -> None:
     meta = read_meta(cache)
     files = list_files(cache, args.count)
     cfg = build_cfg(args.config, args.fixed, meta)
-    print(f"[decode] {len(files)} samples from {cache} (source={meta['source']})")
+    budget = build_instance(cfg.cpu, cfg).apply()  # 학습과 같은 코어 예산을 쓴다
+    print(f"[decode] {len(files)} samples from {cache} (source={meta['source']}) cpu={budget}")
     rows = []
     for variant in variants(cfg, args.sweep):
         scores = evaluate_decode(cfg, variant, files, shape_of(meta), args.workers)
@@ -61,7 +64,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cache", required=True)
     parser.add_argument("--config", default="configs.base")
     parser.add_argument("--count", type=int, default=0, help="0이면 캐시 전체")
-    parser.add_argument("--workers", type=int, default=8)
+    parser.add_argument("--workers", type=int, default=2, help="디코딩 워커. 학습 중엔 2 이하")
     # append 라 `--set a=1 --set b=2` 처럼 여러 번 줄 수 있다 (nargs면 뒤엣것이 앞을 덮는다).
     parser.add_argument("--set", dest="fixed", action="append", default=[], help="파라미터 고정")
     parser.add_argument("--sweep", default="", help="이름=값,값,... 한 축만")

@@ -32,6 +32,8 @@ def main() -> None:
     args = parse_args()
     cfg = load_config(args.config, args.override)
     check_all(cfg)  # 오타는 여기서 전부 걸린다 — 가중치 다운로드·CUDA 초기화 전에
+    budget = build_instance(cfg.cpu, cfg).apply()  # 코어·스레드 상한을 먼저 건다
+    print(f"[stella] cpu {budget}")
     pl.seed_everything(cfg.train.seed, workers=True)
     out_dir = prepare_output_dir(cfg, args)
     print(f"[stella] output -> {out_dir}")
