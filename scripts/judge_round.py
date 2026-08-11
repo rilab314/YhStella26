@@ -42,6 +42,7 @@ ADOPT_MARGIN = 0.10  # 상대 +10% 이상 채택 (규칙 3)
 REJECT_MARGIN = -0.10  # 상대 −10% 이하 기각
 MOVE_MARGIN = 0.05  # 지목 지표가 "움직였다"의 하한 (규칙 4). 측정 잡음보다 크게 잡았다
 VERDICT_NOTE = {
+    "partial": "미완주",
     "adopt": "채택",
     "hold": "보류 — f1은 올랐으나 지목 지표가 안 움직였다. 재현 필요",
     "neutral": "무효",
@@ -97,9 +98,15 @@ def judge_row(row: dict, control: dict, watch: str) -> dict:
     primary_rel = relative_change(row.get(PRIMARY), control.get(PRIMARY))
     watch_rel = relative_change(row.get(watch), control.get(watch))
     tracked = control.get(watch) is not None  # 그 지표가 로그에 찍히기는 하는가
-    verdict = (
-        "control" if row["name"] == control["name"] else verdict_of(primary_rel, watch_rel, tracked)
-    )
+    if row["name"] == control["name"]:
+        verdict = "control"
+    elif row["epochs"] < control["epochs"]:
+        # **미완주를 완주한 대조군과 비교하면 안 된다.** 학습 곡선의 다른 지점을 견주는 것이라
+        # 일찍 좋다가 나빠지는 실행에 정반대로 속는다. 실측으로 당했다:
+        # dispatch 가 E14(에폭 5·3)를 완주한 대조군(에폭 10)과 비교해 "채택"으로 판정했다.
+        verdict = "partial"
+    else:
+        verdict = verdict_of(primary_rel, watch_rel, tracked)
     return {**row, "primary_rel": primary_rel, "watch_rel": watch_rel, "verdict": verdict}
 
 
@@ -166,6 +173,13 @@ def fmt_percent(value) -> str:
 def summary_line(judged: list[dict]) -> str:
     adopted = [row["name"] for row in judged if row["verdict"] == "adopt"]
     held = [row["name"] for row in judged if row["verdict"] == "hold"]
+    partial = [row["name"] for row in judged if row["verdict"] == "partial"]
+    if partial:  # 아직 도는 실행이 있으면 판정 자체가 이르다 — 조용히 넘어가지 않는다
+        return (
+            f"**미완주 {len(partial)}건이 섞였다** ({', '.join(partial)}) — 대조군보다 에폭이 "
+            f"적어 판정에서 뺐다. 완주 뒤 다시 돌려라."
+            + (f" · 채택 {len(adopted)}건" if adopted else "")
+        )
     if adopted:
         return f"**채택 {len(adopted)}건**: {', '.join(adopted)}" + (
             f" · 보류 {len(held)}건" if held else ""
