@@ -42,6 +42,7 @@ ADOPT_MARGIN = 0.10  # 상대 +10% 이상 채택 (규칙 3)
 REJECT_MARGIN = -0.10  # 상대 −10% 이하 기각
 MOVE_MARGIN = 0.05  # 지목 지표가 "움직였다"의 하한 (규칙 4). 측정 잡음보다 크게 잡았다
 VERDICT_NOTE = {
+    "mismatch": "디코더 불일치",
     "partial": "미완주",
     "adopt": "채택",
     "hold": "보류 — f1은 올랐으나 지목 지표가 안 움직였다. 재현 필요",
@@ -100,6 +101,10 @@ def judge_row(row: dict, control: dict, watch: str) -> dict:
     tracked = control.get(watch) is not None  # 그 지표가 로그에 찍히기는 하는가
     if row["name"] == control["name"]:
         verdict = "control"
+    elif row.get("decode") and control.get("decode") and row["decode"] != control["decode"]:
+        # **디코더 설정이 다르면 f1을 비교할 수 없다.** config 기본값을 바꾸면 그 시점 이후
+        # 실행만 새 설정으로 검증하므로 두 집단이 조용히 섞인다(radius 2→24에서 실제로 당했다).
+        verdict = "mismatch"
     elif row["epochs"] < control["epochs"]:
         # **미완주를 완주한 대조군과 비교하면 안 된다.** 학습 곡선의 다른 지점을 견주는 것이라
         # 일찍 좋다가 나빠지는 실행에 정반대로 속는다. 실측으로 당했다:
@@ -173,7 +178,15 @@ def fmt_percent(value) -> str:
 def summary_line(judged: list[dict]) -> str:
     adopted = [row["name"] for row in judged if row["verdict"] == "adopt"]
     held = [row["name"] for row in judged if row["verdict"] == "hold"]
+    mismatch = [row for row in judged if row["verdict"] == "mismatch"]
     partial = [row["name"] for row in judged if row["verdict"] == "partial"]
+    if mismatch:  # 판정 자체가 성립하지 않는다 — 무엇이 다른지 찍어 준다
+        control_decode = next((r["decode"] for r in judged if r["verdict"] == "control"), {})
+        detail = "; ".join(f"{r['name']}: {r['decode']}" for r in mismatch)
+        return (
+            f"**디코더 설정이 달라 판정할 수 없다 {len(mismatch)}건** — 대조군 {control_decode} vs "
+            f"{detail}. 같은 설정으로 예측을 덤프해 `eval_decode.py` 로 다시 재라."
+        )
     if partial:  # 아직 도는 실행이 있으면 판정 자체가 이르다 — 조용히 넘어가지 않는다
         return (
             f"**미완주 {len(partial)}건이 섞였다** ({', '.join(partial)}) — 대조군보다 에폭이 "

@@ -7,9 +7,11 @@
 """
 
 import csv
+import json
 from pathlib import Path
 
 EPOCH_KEY = "epoch"
+DECODE_KEYS = ("radius", "heatmap_thresh", "fg_thresh", "purity_thresh", "min_class_prob")
 PRESENCE_KEY = "val/inst/f1"  # 이 값이 있어야 "평가가 끝난 에폭"이다
 
 
@@ -35,7 +37,31 @@ def tail_mean(run: Path, tail: int, keys: tuple[str, ...]) -> dict | None:
         return None
     window = epochs[-tail:]
     values = {key: mean_of(merged, window, key) for key in keys}
-    return {"name": run.name, "path": str(run), "epochs": len(epochs), **values}
+    return {
+        "name": run.name,
+        "path": str(run),
+        "epochs": len(epochs),
+        "decode": decode_signature(run),
+        **values,
+    }
+
+
+def decode_signature(run: Path) -> dict:
+    """그 실행이 **검증에 쓴 디코더 설정**. 판정에서 실행끼리 같은지 확인하는 데 쓴다.
+
+    config 기본값을 바꾸면 그 시점을 기준으로 실행이 두 집단으로 갈린다 — 이전 실행은 옛
+    설정으로, 이후 실행은 새 설정으로 검증한다. 실측으로 당했다: `decode.radius` 기본값을
+    2 → 24로 바꾼 뒤 뜬 백본 실험이 옛 대조군(radius 2)보다 f1이 +50% 높게 나왔는데,
+    같은 반경으로 맞춰 재니 **+1.3%(무효)** 였다. 사람의 주의로는 못 막는다.
+    """
+    path = run / "config.json"
+    if not path.exists():
+        return {}
+    try:
+        decode = json.loads(path.read_text(encoding="utf-8")).get("decode", {})
+    except (OSError, ValueError):
+        return {}
+    return {key: decode[key] for key in DECODE_KEYS if key in decode}
 
 
 def merge_by_epoch(path: Path) -> dict[int, dict]:
