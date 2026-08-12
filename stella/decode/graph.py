@@ -21,11 +21,6 @@ from stella.decode.stats import ChainStats
 from stella.decode.vertices import VertexExtractor
 
 PIXEL_CENTER_SHIFT = 0.5
-# 동률 해소용 미세 거리 항. 일직선 위에서는 한 칸 뒤와 두 칸 뒤가 정렬·마주봄 모두
-# 동률이라(둘 다 같은 선의 셀이라 되가리킴 슬롯도 있다) 가까운 쪽을 골라야 정점을
-# 건너뛰지 않는다. 계획이 배제한 것은 "정렬 나쁜 가까운 셀을 끌어들이는" 크기의
-# 거리 항(w_dist = 0.3)이고, 이 값은 반경 2에서 최대 0.004라 동률만 가른다 (10.3절).
-DISTANCE_TIEBREAK = 1e-3
 ALIGN_MODES = ("cosine", "perp")
 
 
@@ -63,6 +58,7 @@ class ChainDecoder:
         align_mode: str,
         perp_thresh: float,
         fg_thresh: float,
+        w_dist: float,
     ):
         if align_mode not in ALIGN_MODES:
             raise ValueError(f"align_mode 는 {ALIGN_MODES} 중 하나여야 한다: {align_mode}")
@@ -80,6 +76,7 @@ class ChainDecoder:
         self.stop_needs_nocand = stop_needs_nocand
         self.align_mode = align_mode
         self.perp_thresh = perp_thresh
+        self.w_dist = w_dist
         self.extractor = VertexExtractor(
             grid_size=grid_size,
             heatmap_thresh=heatmap_thresh,
@@ -221,7 +218,7 @@ class ChainDecoder:
         거리에 비례해 엄격해진다. 기하적으로 이쪽이 "예측한 선 위에 있는가"에 가깝다 (백로그 A6).
         """
         facing = -opposite >= self.opp_thresh
-        shared = self.w_opp * (1.0 + opposite) + DISTANCE_TIEBREAK * distance
+        shared = self.w_opp * (1.0 + opposite) + self.w_dist * distance
         if self.align_mode == "perp":
             perpendicular = distance * np.sqrt(np.maximum(1.0 - align**2, 0.0))
             allowed = facing & (align > 0.0) & (perpendicular <= self.perp_thresh)
