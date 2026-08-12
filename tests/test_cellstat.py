@@ -4,6 +4,8 @@ GT를 그대로 주입하면 모든 진단이 만점이어야 한다 — 그렇�
 지표 계산이 틀린 것이다. 만점 확인이 이 파일의 존재 이유다.
 """
 
+import math
+
 import torch
 from helpers import gt_model_output
 
@@ -59,10 +61,12 @@ def test_gt_injection_scores_perfect():
 
 
 def test_diagnostics_build_from_config():
+    """`align_deg`는 config의 `align_thresh`에서 유도된다 — 값이 아니라 관계를 검사한다."""
     cfg = make_cfg()
     diagnostics = build_instance(cfg.cell_diag, cfg)
     assert isinstance(diagnostics, CellDiagnostics)
-    assert 44.0 < diagnostics.align_deg < 47.0  # acos(0.7) = 45.57도
+    expected = math.degrees(math.acos(cfg.decode.align_thresh))
+    assert abs(diagnostics.align_deg - expected) < 1e-6
 
 
 def test_rotated_prediction_lowers_link_ok():

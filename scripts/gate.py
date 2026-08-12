@@ -87,6 +87,7 @@ def run_check(item: dict, args: argparse.Namespace) -> dict:
     runners = {
         "command": run_command,
         "configs": run_configs,
+        "invariant": run_invariant,
         "install": run_install,
         "decode": run_decode,
     }
@@ -118,6 +119,28 @@ def run_configs(item: dict, args: argparse.Namespace) -> dict:
         "message": " / ".join(broken)[:160] or f"{len(modules)}개 해석",
         "observed": {},
     }
+
+
+def run_invariant(item: dict, args: argparse.Namespace) -> dict:
+    """config 값들 **사이의 관계**를 모든 config 모듈에서 검사한다.
+
+    개별 값이 아니라 관계를 보는 이유는, 한 값을 실측으로 고치면 그 값을 전제로 정해진
+    다른 값이 조용히 틀리기 때문이다 — `radius`를 2에서 24로 키운 뒤 `w_dist`가 그대로라
+    디코더가 정점을 건너뛰던 것이 실제 사례다.
+    """
+    modules = sorted(
+        p.stem for p in CONFIG_DIR.glob("*.py") if p.stem not in ("schema", "__init__")
+    )
+    broken = []
+    for name in modules:
+        cfg = load_config(f"configs.{name}", [])
+        try:
+            if not eval(item["assert"], {"__builtins__": {}}, {"cfg": cfg}):  # noqa: S307
+                broken.append(name)
+        except Exception as error:  # noqa: BLE001 — 식이 틀린 것도 게이트 실패다
+            broken.append(f"{name}: {type(error).__name__} {error}")
+    message = f"{item['assert']} — 위반 {', '.join(broken)}" if broken else item["assert"]
+    return {"ok": not broken, "message": message[:160], "observed": {}}
 
 
 def run_install(item: dict, args: argparse.Namespace) -> dict:

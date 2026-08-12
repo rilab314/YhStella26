@@ -317,8 +317,9 @@ class DecodeConfig(ModuleConfig):  # 사슬 확장 디코더 (10절)
     merge_align: float = 0.8  # 병합 정렬 하한 — 두 조각이 서로를 향하는 정도
     align_mode: str = "cosine"  # "cosine" = 각도 게이트(기본) | "perp" = 직선의 수직 이탈 게이트
     perp_thresh: float = 0.7  # perp 모드의 수직 이탈 상한 (셀 단위)
+    w_dist: float = 0.03  # 후보 비용의 거리 항 계수 — **반경과 함께 정해진다** (10.3절)
     # 임계값들은 학습된 체크포인트로 검증 셋에서 스윕해 확정한다 (`scripts/tune_decoder.py`, 14절).
-    # 구 GraphDecoder의 mutual·w_dist·max_conn_dist·t_thresh는 폐기 — 10절 참고.
+    # 구 GraphDecoder의 mutual·max_conn_dist·t_thresh는 폐기 — 10절 참고.
 
 
 @dataclass(kw_only=True)
