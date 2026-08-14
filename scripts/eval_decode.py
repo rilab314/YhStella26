@@ -37,6 +37,10 @@ DECODE_KEYS = (
     "chain_len",
     "stop_end",
     "stop_nocand",
+    # 이 둘이 짝이다. `stop_nocand`가 클 때 **정점이 모자란 것**과 **있는데 못 엮은 것**을
+    # 가른다 — 처방이 완전히 다르다(검출 vs 디코딩). 비율만 보면 분모를 놓친다.
+    "vertices_per_img",  # 영상당 검출 정점 수
+    "vertex_used",  # 그중 사슬에 쓰인 비율
     "stop_exist",
     "merged_per_img",
 )

@@ -49,6 +49,9 @@ class ChainStats:
         result["chains_per_img"] = _ratio(chains, self.counter["images"])
         result["chain_len"] = _ratio(self.counter["chain_cells"], chains)
         result["purity_reject"] = _ratio(self.counter["purity_reject"], self.counter["images"])
+        # 영상당 검출 정점 수. `vertex_used`(쓰인 비율)만으로는 **정점이 모자란 것**과
+        # **엮기에 실패한 것**을 못 가른다 — 분모가 여기 있어야 한다.
+        result["vertices_per_img"] = _ratio(self.counter["vertices"], self.counter["images"])
         result["vertex_used"] = _ratio(self.counter["vertex_used"], self.counter["vertices"])
         result["merged_per_img"] = _ratio(self.counter["merged"], self.counter["images"])
         return result
