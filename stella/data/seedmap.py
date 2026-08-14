@@ -39,6 +39,7 @@ class SeedMapDataset(GridDatasetBase, Buildable):
         num_classes: int,
         max_degree: int,
         encode_supersample: int,
+        conn_lookahead: int,
         augment: bool,
         aug_rotate_deg: float,
         aug_scale_jitter: float,
@@ -56,6 +57,7 @@ class SeedMapDataset(GridDatasetBase, Buildable):
             num_classes=num_classes,
             max_degree=max_degree,
             supersample=encode_supersample,
+            conn_lookahead=conn_lookahead,
         )
         use_aug = augment and split == "train"
         self.augment = (
@@ -80,10 +82,16 @@ class SeedMapDataset(GridDatasetBase, Buildable):
         return _subsample(stems, limit)
 
     def _cache_directory(self, cache_gt: str, cache_dir: str, split: str) -> Path | None:
+        """인코딩 설정이 기본값이 아니면 **폴더를 나눈다** — 안 그러면 낡은 GT를 조용히 읽는다.
+
+        기본값일 때 이름을 그대로 두어 이미 떠 둔 캐시가 살아 있게 한다.
+        """
         if split not in CACHED_SPLITS[cache_gt] or self.augment is not None:
             return None
         base = Path(cache_dir) if cache_dir else self.root / "gt_cache"
-        path = base / split
+        lookahead = self.encoder.conn_lookahead
+        name = split if lookahead == 1 else f"{split}_look{lookahead}"
+        path = base / name
         path.mkdir(parents=True, exist_ok=True)
         return path
 

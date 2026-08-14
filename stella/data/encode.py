@@ -31,13 +31,17 @@ class ChainEncoder:
         num_classes: int,
         max_degree: int,
         supersample: int = 1,
+        conn_lookahead: int = 1,
     ):
         if max_degree != 2:
             raise ValueError(f"선 단위 사슬은 분기가 항상 2다 (6.4절): max_degree={max_degree}")
+        if conn_lookahead < 1:
+            raise ValueError(f"conn_lookahead 는 1 이상이어야 한다: {conn_lookahead}")
         self.image_size = image_size
         self.grid_stride = grid_stride
         self.num_classes = num_classes
         self.supersample = supersample
+        self.conn_lookahead = conn_lookahead
         self.grid_size = image_size // grid_stride
         self.cell_pixels = grid_stride * supersample
         self.rarity_position = _rarity_position(num_classes)
@@ -186,14 +190,21 @@ class ChainEncoder:
         return end_map, conn_dirs
 
     def _chain_dirs(self, points: np.ndarray, head: np.ndarray, tail: np.ndarray) -> np.ndarray:
-        """(n, 2) 점 열 -> (n, 2, 2) 분기 방향 — 자기 점에서 이웃 점(끝은 실제 끝점)으로.
+        """(n, 2) 점 열 -> (n, 2, 2) 분기 방향 — 자기 점에서 `conn_lookahead`칸 앞뒤로.
 
         n = 1(3칸짜리 선)이면 두 분기가 모두 끝점 방향이 된다 — 일반식이 그대로 처리한다.
+
+        **왜 lookahead가 있나.** 이웃 칸으로의 접선은 스텝마다 흔들린다 — 실측(val 40장 ·
+        사슬 1,475개) 평균 5.9도 · 90%분위 14.0도 · **>20도가 4.4%**. 점이 서브셀 좌표를
+        갖기 때문에 격자 양자화만큼 심하지는 않다. 그래도 디코더는 이 방향을 반경 끝까지
+        외삽하고, 스텝당 4.4%라도 길이 45 사슬에서는 사슬당 평균 2회 끊긴다.
+        4셀이면 평균 1.6도 · >20도 0.5%.
         """
         dirs = np.zeros((points.shape[0], 2, 2), np.float32)
         unit = _unit_rows(np.diff(points, axis=0))
-        dirs[1:, 0] = -unit
-        dirs[:-1, 1] = unit
+        forward, backward = self._branch_targets(points)
+        dirs[:-1, 1] = _unit_rows(points[forward[:-1]] - points[:-1])
+        dirs[1:, 0] = _unit_rows(points[backward[1:]] - points[1:])
         if points.shape[0] >= 2:
             head_fallback, tail_fallback = -unit[0], unit[-1]
         else:
@@ -202,6 +213,13 @@ class ChainEncoder:
         dirs[0, 0] = _unit_one(head - points[0], head_fallback)
         dirs[-1, 1] = _unit_one(tail - points[-1], tail_fallback)
         return dirs
+
+    def _branch_targets(self, points: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """각 점이 앞·뒤로 바라볼 상대 점의 인덱스. 사슬 끝에서는 끝 점으로 잘린다."""
+        count = points.shape[0]
+        step = min(self.conn_lookahead, max(count - 1, 1))
+        index = np.arange(count)
+        return np.minimum(index + step, count - 1), np.maximum(index - step, 0)
 
     def _record_chain_stats(self, chain: np.ndarray, rows: np.ndarray, cols: np.ndarray) -> None:
         """M10 통계 — 사슬 길이, 1셀 사슬, 건너뛴 간선(체비셰프 거리 >= 2)."""

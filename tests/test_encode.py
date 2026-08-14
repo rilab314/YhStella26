@@ -195,3 +195,78 @@ def test_encoder_rejects_wrong_degree():
         ChainEncoder(
             image_size=IMAGE_SIZE, grid_stride=4, num_classes=12, max_degree=3, supersample=1
         )
+
+
+def test_encoder_rejects_zero_lookahead():
+    with pytest.raises(ValueError):
+        ChainEncoder(
+            image_size=IMAGE_SIZE,
+            grid_stride=4,
+            num_classes=12,
+            max_degree=2,
+            conn_lookahead=0,
+        )
+
+
+def diagonal_scene() -> list[dict]:
+    """완만하게 굽은 선. 직선이면 lookahead가 방향을 바꾸지 않아 검사가 성립하지 않는다 —
+    인코더가 셀 중심이 아니라 **서브셀 좌표**를 쓰기 때문이다(`points = 셀 + coord`)."""
+    x = np.arange(16.0, 108.0, 2.0, dtype=np.float32)
+    y = 40.0 + 9.0 * np.sin(x / 14.0)
+    return [{"class": 3, "points": np.stack([x, y], axis=1).astype(np.float32)}]
+
+
+def encode_with_lookahead(instances, lookahead: int) -> dict:
+    encoder = ChainEncoder(
+        image_size=IMAGE_SIZE,
+        grid_stride=GRID_STRIDE,
+        num_classes=12,
+        max_degree=2,
+        supersample=1,
+        conn_lookahead=lookahead,
+    )
+    return encoder.encode(instances)
+
+
+def test_lookahead_one_reproduces_the_original_encoding():
+    """기본값이 옛 동작과 **완전히** 같아야 한다 — 아니면 실행이 두 집단으로 갈린다."""
+    scene = diagonal_scene()
+    _, base = encode_scene(scene)
+    one = encode_with_lookahead(scene, 1)
+    for key, value in base.items():
+        np.testing.assert_array_equal(value, one[key], err_msg=key)
+
+
+def test_lookahead_only_changes_connection_directions():
+    scene = diagonal_scene()
+    one, four = encode_with_lookahead(scene, 1), encode_with_lookahead(scene, 4)
+    for key in one:
+        if key == "conn_dirs":
+            assert not np.array_equal(one[key], four[key])
+        else:
+            np.testing.assert_array_equal(one[key], four[key], err_msg=key)
+
+
+def forward_turn_degrees(target: dict) -> np.ndarray:
+    """이웃한 양성 셀들의 전방 분기 방향이 서로 몇 도나 벌어지는가."""
+    dirs = target["conn_dirs"][..., 1, :][target["class_map"] > 0]
+    dirs = dirs[np.linalg.norm(dirs, axis=-1) > 0.5]
+    dot = np.clip((dirs[:-1] * dirs[1:]).sum(axis=-1), -1.0, 1.0)
+    return np.degrees(np.arccos(dot))
+
+
+def test_lookahead_smooths_the_step_to_step_jitter():
+    """이웃 칸 접선은 스텝마다 흔들린다(실데이터 평균 5.9도). lookahead가 그것을 평활화한다."""
+    scene = diagonal_scene()
+    one, four = encode_with_lookahead(scene, 1), encode_with_lookahead(scene, 4)
+    jitter_one, jitter_four = forward_turn_degrees(one), forward_turn_degrees(four)
+    assert jitter_one.mean() > 0.0  # 흔들림이 있는 장면인지 먼저 확인한다
+    assert jitter_four.mean() < jitter_one.mean()
+    assert jitter_four.max() < jitter_one.max()
+
+
+def test_lookahead_keeps_directions_unit_length():
+    target = encode_with_lookahead(diagonal_scene(), 8)
+    dirs = target["conn_dirs"].reshape(-1, 2, 2)
+    valid = np.linalg.norm(dirs, axis=-1) > 0.5
+    np.testing.assert_allclose(np.linalg.norm(dirs[valid], axis=-1), 1.0, atol=1e-5)

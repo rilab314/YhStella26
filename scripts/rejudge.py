@@ -16,7 +16,18 @@ from pathlib import Path
 
 from configs.base import get_config
 
-METRICS = ("f1", "precision", "recall", "coverage", "chains_per_img", "chain_len", "frag")
+# `correctness`(예측이 **GT 선 하나** 위에 머무는 비율)를 뺀 채로 재채점하면 차선 갈아탐이
+# 표에 안 나온다 — 08-14에 그 지표를 판정에서 빼 둔 탓에 성적이 두 배로 부풀려져 있었다.
+METRICS = (
+    "f1",
+    "precision",
+    "recall",
+    "coverage",
+    "correctness",
+    "chains_per_img",
+    "chain_len",
+    "frag",
+)
 POLL_SECONDS = 3
 NEUTRAL_BAND = 0.10
 
