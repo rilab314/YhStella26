@@ -46,6 +46,9 @@ BARREN_LIMIT = 2  # 연속 이 횟수만큼 채택 0이면 그 축은 소진됐�
 
 def main() -> None:
     args = parse_args()
+    if args.validate:
+        report_queue(args.queue)
+        return
     dispatcher = Dispatcher(args=args)
     reason = dispatcher.serve()
     print(f"\n=== dispatch 종료: {reason} ===")
@@ -61,7 +64,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-load", type=float, default=LOAD_LIMIT)
     parser.add_argument("--keep-going", action="store_true", help="채택이 나와도 멈추지 않는다")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--validate", action="store_true", help="큐 형식만 검사하고 끝낸다")
     return parser.parse_args()
+
+
+def report_queue(path: Path) -> None:
+    """큐를 열어 대기 항목을 찍는다. 형식이 틀리면 RoundQueue가 예외로 알린다."""
+    queue = RoundQueue(path=path)
+    counts: dict[str, int] = {}
+    for item in queue.items:
+        counts[item["status"]] = counts.get(item["status"], 0) + 1
+    pending = queue.next_pending()
+    print(f"[queue] {path} · 항목 {len(queue.items)}개 · {counts}")
+    print(f"[queue] 다음 대기: {pending['id'] if pending else '(없음 — 큐 소진)'}")
 
 
 class Dispatcher:
@@ -165,12 +180,40 @@ class Dispatcher:
 class RoundQueue:
     """`queue.json` 하나가 대기열의 단일 출처다. 상태 전이를 그 파일에 즉시 쓴다."""
 
+    STATUSES = ("pending", "running", "done", "failed", "dry-run")
+
     def __init__(self, *, path: Path) -> None:
         self.path = path
         self.data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {"items": []}
+        self._check_shape()
+
+    def _check_shape(self) -> None:
+        """형식 오류를 여기서 이름 붙여 던진다. 안 그러면 배정 도중 TypeError로 죽고
+        **GPU가 밤새 논다** — 실제로 큐가 bare list라 배정기가 즉시 죽어 있었다."""
+        if not isinstance(self.data, dict) or not isinstance(self.data.get("items"), list):
+            raise ValueError(f"{self.path}: 최상위는 {{'items': [...]}} 여야 한다")
+        for index, item in enumerate(self.data["items"]):
+            self._check_item(index, item)
+
+    def _check_item(self, index: int, item: dict) -> None:
+        """`arms`는 배정 대상에만 요구한다 — 지나간 기록과 D 규격 항목에는 arm이 없다."""
+        where = f"{self.path}[{index}]"
+        for key in ("id", "status"):
+            if key not in item:
+                raise ValueError(f"{where}: 필수 키 '{key}'가 없다")
+        if item["status"].split("(")[0] not in self.STATUSES:
+            raise ValueError(f"{where}: status '{item['status']}' 는 {self.STATUSES} 중 하나다")
+        if item["status"] != "pending":
+            return
+        if not isinstance(item.get("arms"), list) or not item["arms"]:
+            raise ValueError(f"{where}: pending 항목의 arms 는 비어 있지 않은 리스트여야 한다")
+
+    @property
+    def items(self) -> list[dict]:
+        return self.data["items"]
 
     def next_pending(self) -> dict | None:
-        return next((item for item in self.data["items"] if item.get("status") == "pending"), None)
+        return next((item for item in self.items if item.get("status") == "pending"), None)
 
     def mark(self, item: dict, status: str, adopted: list | None = None) -> None:
         item["status"] = status

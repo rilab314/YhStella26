@@ -78,6 +78,35 @@ def test_short_offset_is_still_matched_within_buffer():
     assert 5.5 < float(result["rms"]) < 6.5
 
 
+def test_lane_switch_is_not_a_true_positive():
+    """옆 차선으로 갈아탄 예측은 매칭되면 안 된다.
+
+    C2를 '모든 GT의 합집합'까지의 거리로 재던 시절에는 이것이 TP였다 — 갈아타도 매 순간
+    **어떤** 선 위엔 있기 때문이다. 실측(08-14): 차선 간격 중앙값이 11.8 px 인데 버퍼가
+    12 px 여서 이웃 선이 늘 버퍼 안에 있었고, 매칭 자격을 얻은 예측의 17%가 이 모양이었다.
+    지금은 **GT 선 하나** 위에 머무는 비율로 잰다.
+    """
+    metric = make_metric()
+    truth = [line(0, 400, 100), line(0, 400, 112)]  # 12 px 간격 = 실측 중앙값
+    switched = {
+        "class": 3,
+        "points": np.array([[0, 100], [200, 100], [210, 112], [400, 112]], dtype=np.float32),
+    }
+    metric.update([switched], truth)
+    result = metric.compute()
+    assert float(result["f1"]) == 0.0  # 어느 쪽 선도 주장하지 못한다
+    assert float(result["correctness"]) < 0.6  # 절반만 한 선 위에 있다
+
+
+def test_single_lane_prediction_survives_the_narrow_buffer():
+    """갈아탐을 잡겠다고 좁힌 버퍼가 정상 예측까지 죽이면 안 된다 (위 검사의 짝)."""
+    metric = make_metric()
+    truth = [line(0, 400, 100), line(0, 400, 112)]
+    metric.update([line(0, 400, 101), line(0, 400, 111)], truth)
+    result = metric.compute()
+    assert float(result["f1"]) == 1.0
+
+
 def test_class_mismatch_is_not_matched():
     metric = make_metric()
     metric.update([line(10, 500, 100, label=7)], [line(10, 500, 100, label=3)])
