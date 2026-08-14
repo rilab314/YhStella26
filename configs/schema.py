@@ -211,15 +211,28 @@ class DecodeConfig(ModuleConfig):
     merge_gap: float = 0.0  # >0이면 끝점 간 이 거리(픽셀) 안의 조각을 병합 (A2)
     merge_align: float = 0.8  # 병합 정렬 하한 — 두 조각이 서로를 향하는 정도
     # "cosine" = 각도 게이트(기본) | "perp" = 예측 방향 직선에서의 수직 이탈 게이트 (A6)
+    # **cosine 게이트는 거리에 무력하다** — 같은 "한 차선 옆"이라도 앞 12셀이면 45도라 막히고
+    # 앞 60셀이면 11도라 통과한다. 멀리 볼수록 이웃 차선이 싸게 들어온다. perp 는 이탈을
+    # 셀 단위 절대값으로 재므로 거리에 비례해 엄격해진다. A6 의 기각 판정은 w_dist=0.001
+    # 시절 값이라 무효다 — 거리 항이 죽어 있으면 어떤 게이트를 씌워도 사슬이 튄다.
     align_mode: str = "cosine"
-    perp_thresh: float = 0.7  # perp 모드의 수직 이탈 상한 (셀 단위)
+    perp_thresh: float = 0.7  # perp 모드의 수직 이탈 상한 (셀 단위). 차선 간격 11.8px = 2.95셀
+    # 연속한 두 스텝 사이의 방향 변화 상한(도). 180이면 무동작(기존 동작).
+    # align_thresh 는 후보 방향과 **모델이 예측한 슬롯 방향**만 비교하므로 사슬이 매 스텝
+    # 31.8도씩 꺾여도 아무것도 막지 않았고, 그 꺾임이 누적돼 시각적으로 무너졌다.
+    max_turn_deg: float = 180.0
 
 
 @dataclass(kw_only=True)
 class MetricConfig(ModuleConfig):
     path: str = "stella.eval.ccq"
     name: str = "InstanceCCQ"
-    buffer_rho: float = 12.0  # rho (픽셀). 차선 간격의 절반 이하 (11.1절)
+    # rho (픽셀). **실측으로 정했다.** 11.1절의 규칙은 "차선 간격의 절반 이하"인데
+    # 옛 기본값 12.0 이 그 규칙을 스스로 어기고 있었다 — val 80장·선 2,896개에서 이웃 선까지의
+    # 중앙 거리가 **11.8 px** 다(58%는 12 px 안에 이웃이 있다). 버퍼가 이웃 차선을 삼켜
+    # **옆 차선으로 갈아탄 예측이 만점을 받았다.** 4 px = 간격의 1/3, GT 주입 천장은
+    # 97.1%로 유지된다(12 px에서 97.5%) — 엄격하게 해도 도달 가능한 목표다.
+    buffer_rho: float = 4.0
     cov_thresh: float = 0.5  # theta_cov — 커버리지 하한, 관대
     cor_thresh: float = 0.9  # theta_cor — 정확성 하한, 엄격
     angle_gate: float = 30.0  # 매칭 시 접선 방향 차 상한(도)
@@ -288,8 +301,10 @@ class CpuConfig(ModuleConfig):
     name: str = "CpuBudget"
     torch_threads: int = 2  # 프로세스당 intra-op 스레드. 0이면 torch 기본(= 전체 코어)
     interop_threads: int = 1
-    cores: str = ""  # "0-21" 처럼 주면 그 코어에만 붙는다. 비면 reserved_cores로 계산
-    reserved_cores: int = 10  # 사람 몫으로 남길 코어 수 (32코어 중 10 → 학습은 0~21만 쓴다)
+    cores: str = ""  # "0-14" 처럼 주면 그 코어에만 붙는다. 비면 reserved_cores로 계산
+    # 사람 몫으로 남길 코어 수. 32코어 중 17을 남겨 **이 프로젝트는 0~14 (15코어) 만 쓴다**
+    # (사용자 지시 08-14). 같은 기계에서 사용자 본인 추론 작업이 함께 도는 것을 실측했다.
+    reserved_cores: int = 17
 
 
 @dataclass(kw_only=True)

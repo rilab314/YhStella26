@@ -58,6 +58,7 @@ class ChainDecoder:
         merge_align: float,
         align_mode: str,
         perp_thresh: float,
+        max_turn_deg: float,
         fg_thresh: float,
         w_dist: float,
     ):
@@ -78,6 +79,7 @@ class ChainDecoder:
         self.stop_needs_nocand = stop_needs_nocand
         self.align_mode = align_mode
         self.perp_thresh = perp_thresh
+        self.turn_cos = float(np.cos(np.deg2rad(max_turn_deg)))
         self.w_dist = w_dist
         self.extractor = VertexExtractor(
             grid_size=grid_size,
@@ -151,29 +153,31 @@ class ChainDecoder:
         """
         path: list[int] = []
         vertex, k = start, slot
+        previous = None  # 직전 스텝의 실제 진행 방향 — 꺾임각 상한이 이것을 기준으로 잰다
         while True:
             if k is None or slot_used[vertex, k]:
                 return self._stop(path, "slotused")
             if vertices["exist"][vertex, k] <= self.exist_thresh:
                 return self._stop(path, "exist")
-            found = self._best_candidate(vertices, used, slot_used, vertex, k, label)
+            found = self._best_candidate(vertices, used, slot_used, vertex, k, label, previous)
             if found is None:
                 return self._stop(path, "nocand")
+            previous = _step_direction(vertices, vertex, found[0])
             vertex, k = self._step(vertices, used, slot_used, (vertex, k), found, touched, path)
-            if self._should_stop_at_end(vertices, used, slot_used, vertex, k, label):
+            if self._should_stop_at_end(vertices, used, slot_used, vertex, k, label, previous):
                 return self._stop(path, "end")
 
     def _stop(self, path: list[int], reason: str) -> list[int]:
         self.stats.add_stop(reason)
         return path
 
-    def _should_stop_at_end(self, vertices, used, slot_used, vertex, k, label) -> bool:
+    def _should_stop_at_end(self, vertices, used, slot_used, vertex, k, label, previous) -> bool:
         """끝 확률로 멈춘다. `stop_needs_nocand`면 이어갈 후보까지 없을 때만 멈춘다 (A4)."""
         if vertices["end_prob"][vertex] <= self.end_thresh:
             return False
         if not self.stop_needs_nocand or k is None or slot_used[vertex, k]:
             return True
-        return self._best_candidate(vertices, used, slot_used, vertex, k, label) is None
+        return self._best_candidate(vertices, used, slot_used, vertex, k, label, previous) is None
 
     def _step(self, vertices, used, slot_used, current, found, touched, path):
         """후보를 사슬에 붙이고 (다음 정점, 계속 확장할 슬롯)을 돌려준다."""
@@ -193,8 +197,10 @@ class ChainDecoder:
         dots = vertices["dir"][vertex] @ vertices["dir"][vertex, back]
         return int(np.where(usable, dots, np.inf).argmin())
 
-    def _best_candidate(self, vertices, used, slot_used, vertex, k, label) -> tuple | None:
-        """반경 안 미사용 정점 중 게이트(정렬·마주봄·사슬 클래스 확률)를 통과한 비용 최소."""
+    def _best_candidate(
+        self, vertices, used, slot_used, vertex, k, label, previous
+    ) -> tuple | None:
+        """반경 안 미사용 정점 중 게이트(정렬·마주봄·클래스·꺾임각)를 통과한 비용 최소."""
         nearby = vertices["neighbors"][vertex]
         nearby = nearby[nearby >= 0]
         nearby = nearby[~used[nearby]]
@@ -204,9 +210,11 @@ class ChainDecoder:
         heading = vertices["dir"][vertex, k]
         delta = vertices["point"][nearby] - vertices["point"][vertex]
         distance = np.linalg.norm(delta, axis=-1)
-        align = (delta / np.maximum(distance, 1e-9)[:, None]) @ heading
+        direction = delta / np.maximum(distance, 1e-9)[:, None]
         opposite, back = self._facing_slots(vertices, slot_used, nearby, heading)
-        cost = self._candidate_cost(align, distance, opposite)
+        cost = self._candidate_cost(direction @ heading, distance, opposite)
+        if previous is not None:  # 직전 진행 방향에서 너무 꺾이는 후보를 버린다
+            cost = np.where(direction @ previous >= self.turn_cos, cost, np.inf)
         best = int(cost.argmin())
         if not np.isfinite(cost[best]):
             return None
@@ -277,3 +285,9 @@ class ChainDecoder:
             "points": pixels.astype(np.float32),
             "score": float(vertices["score"][chain].mean()),
         }
+
+
+def _step_direction(vertices: dict, source: int, target: int) -> np.ndarray:
+    """정점 두 개 사이의 단위 진행 방향 (격자 단위)."""
+    delta = vertices["point"][target] - vertices["point"][source]
+    return delta / max(float(np.linalg.norm(delta)), 1e-9)

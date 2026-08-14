@@ -71,12 +71,25 @@ class InstanceCCQ(Metric):
         self._accumulate_instances(pred, gt, correctness, coverage)
 
     def _correctness(self, pred: list[dict], gt: list[dict]) -> np.ndarray:
-        """C2(P) — 예측이 어떤 GT 위에든 올라가 있는 비율. 모든 GT 대상이다."""
-        values = np.zeros(len(pred))
-        for index, item in enumerate(pred):
-            distance = self._distance_to_union(item, gt)
-            values[index] = float((distance <= self.buffer_rho).mean()) if distance.size else 0.0
-        return values
+        """C2(P) — 예측이 **GT 선 하나** 위에 머무는 비율. 가장 잘 맞는 GT 하나로 잰다.
+
+        합집합까지의 거리로 재면 **차선을 갈아탄 사슬도 만점을 받는다** — 차선 간격 중앙값이
+        11.8 px 라 이웃 선이 늘 버퍼 안에 있기 때문이다(val 80장·선 2,896개 실측).
+        실측(cnxl 40장): 합집합 기준 통과 90.3% vs 한 선 기준 73.2% — **통과분의 17%가
+        갈아탄 것**이었다. 같은 디코더라도 GT 주입은 그 차이가 1.0p 라 지표의 인위적
+        산물이 아니다. 선 하나 = 인스턴스 하나가 이 프로젝트의 출력 계약이다.
+        """
+        return np.array([max(self._inside_ratios(item, gt), default=0.0) for item in pred])
+
+    def _inside_ratios(self, item: dict, others: list[dict]):
+        """GT 하나하나에 대해 '버퍼 안에 든 예측 점의 비율'을 낸다."""
+        for other in others:
+            if not geometry.boxes_overlap(item["box"], other["box"], self.buffer_rho):
+                continue
+            distance = geometry.gated_distance(
+                item["points"], item["tangent"], other["points"], self.angle_cos
+            )
+            yield float((distance <= self.buffer_rho).mean()) if distance.size else 0.0
 
     def _coverage(self, pred: list[dict], gt: list[dict]) -> np.ndarray:
         """C1(G, P) — GT가 각 예측에 덮인 비율 (쌍마다)."""
