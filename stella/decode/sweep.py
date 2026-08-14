@@ -24,7 +24,14 @@ REPORT_KEYS = (
     "rms",
     "frag",
     "frag_strict",
+    # 허위 양성을 둘로 가른다. `redundant`는 진짜 선 위에 정확히 얹혔는데 그 선을 남이 이미
+    # 차지했거나 너무 짧아 주장하지 못한 것, `spurious`는 아무 GT 위에도 없는 것이다.
+    # 처방이 완전히 다르다 — 전자는 엮기(디코딩), 후자는 검출이다. 비율만 보면 분모를 놓치므로
+    # 영상당 값으로 낸다 (`chains_per_img`와 같은 단위여야 뺄셈이 된다).
+    "fp_redundant_per_img",
+    "fp_spurious_per_img",
 )
+_SUM_KEYS = ("fp_redundant", "fp_spurious")
 _CONTEXT: dict = {}
 
 
@@ -36,8 +43,9 @@ def evaluate_decode(cfg, decode_cfg, files: list[Path], shape: dict, workers: in
     for prediction, target, counts in _decode_all(payload, files, workers):
         metric.update(prediction, target)
         stats.counter.update(counts)
-    scores = {key: float(value) for key, value in metric.compute().items() if key in REPORT_KEYS}
-    return scores | stats.summary()
+    computed = {key: float(value) for key, value in metric.compute().items()}
+    scores = {key: value for key, value in computed.items() if key in REPORT_KEYS}
+    return scores | _per_image_counts(computed, len(files)) | stats.summary()
 
 
 def _decode_all(payload, files: list[Path], workers: int) -> list:
@@ -59,6 +67,12 @@ def _decode_file(path: Path):
     decoder.stats.reset()
     output, instances = load_prediction(path, _CONTEXT["shape"])
     return decoder(output), instances, dict(decoder.stats.counter)
+
+
+def _per_image_counts(computed: dict, images: int) -> dict:
+    """합계로 나오는 지표를 영상당 값으로 — 다른 열과 단위를 맞춘다."""
+    divisor = float(max(images, 1))
+    return {f"{key}_per_img": computed[key] / divisor for key in _SUM_KEYS}
 
 
 # --- 캐시·config 플러밍 (두 스크립트가 공유한다) ---------------------------------
