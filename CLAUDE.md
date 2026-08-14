@@ -89,7 +89,7 @@ gate_baseline.json  PR 전 게이트의 검사 목록과 하한 — 코드가 �
 | 데이터 확인 | `viz_gt.py`(GT 육안) · `stat_labels.py`(라벨 통계) |
 | 실험 운영 | `run_experiments.py`(arm을 GPU에 배치) · `dispatch.py`(무인 배정) · `judge_round.py`(판정) · `gate.py`(PR 전 관문) |
 | 결과 판독 | `show_run.py`(실행 하나) · `summarize_runs.py`(여러 실행 비교표) |
-| 디코더(D) 트랙 | `dump_predictions.py`(예측→희소 캐시) · `eval_decode.py`(CPU만으로 스윕) · `tune_decoder.py`(좌표 하강) |
+| 디코더(D) 트랙 | `dump_predictions.py`(예측→희소 캐시) · `eval_decode.py`(CPU만으로 스윕) · `tune_decoder.py`(좌표 하강) · `viz_cache.py`(캐시→2×3 진단 시트, 설정 바꿔 다시 그리기) |
 | 진단 | `loss_balance.py`(손실 균형·가중치 제안) · `class_confusion.py`("배경이라 부름" vs "종류 혼동") |
 
 ```bash

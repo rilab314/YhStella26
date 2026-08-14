@@ -1,11 +1,37 @@
 """시각 로그 함수의 shape·색상 규약 검증 (design 9.5절)."""
 
 import numpy as np
+import torch
 
 from stella.data.types import CLASS_COLOR, SLOT_COLOR
+from stella.model.stella import ModelOutput
 from stella.train import viz
 
 IMAGE = np.full((32, 32, 3), 0.5, dtype=np.float32)
+
+
+def _blank_output(side: int = 8, classes: int = 4, slots: int = 2) -> ModelOutput:
+    return ModelOutput(
+        heatmap_logit=torch.full((side, side), -10.0),
+        node_mask=torch.zeros((side, side), dtype=torch.bool),
+        class_logit=torch.zeros((side, side, classes)),
+        self_coord=torch.zeros((side, side, 2)),
+        end_logit=torch.zeros((side, side)),
+        fg_logit=torch.zeros((side, side)),
+        exist_logit=torch.zeros((side, side, slots)),
+        conn_dir=torch.zeros((side, side, slots, 2)),
+    )
+
+
+def test_page_renderer_makes_one_sheet_of_six_pages():
+    """콜백과 캐시 스크립트가 공유하는 진입점 — 프레임 하나가 파일 하나가 된다."""
+    renderer = viz.PageRenderer(
+        grid_stride=4, heat_alpha=0.5, slot_line_len=6.0, exist_thresh=0.5, class_thresh=0.5
+    )
+    pages = renderer.build_pages(IMAGE, _blank_output(), [], [])
+    assert list(pages) == ["heat", "class", "slot", "end", "gt", "inst"]
+    sheet = renderer.render(IMAGE, _blank_output(), [], [])
+    assert sheet.shape == (32 * 2 + viz.TILE_GAP, 32 * 3 + viz.TILE_GAP * 2, 3)
 
 
 def test_heatmap_shape_dtype_and_blend_direction():
@@ -44,6 +70,33 @@ def test_slots_draw_self_point_and_direction_line():
 
 def test_draw_instances_uses_class_color():
     instances = [{"class": 5, "points": np.array([[2.0, 16.0], [30.0, 16.0]], np.float32)}]
-    page = viz.draw_instances(IMAGE, instances)
+    page = viz.draw_instances(IMAGE, instances, endpoint_radius=0)
     # LINE_AA가 색을 약간 섞으므로 근사 비교한다
     assert np.abs(page[16, 16].astype(int) - CLASS_COLOR[5]).max() < 30
+
+
+def test_draw_instances_marks_both_endpoints():
+    """선의 범위를 눈으로 끊어 주는 표시 — 끝점에만 찍히고 중간에는 없다."""
+    instances = [{"class": 5, "points": np.array([[6.0, 16.0], [26.0, 16.0]], np.float32)}]
+    plain = viz.draw_instances(IMAGE, instances, endpoint_radius=0)
+    marked = viz.draw_instances(IMAGE, instances, endpoint_radius=4)
+    for x in (6, 26):  # 끝점 위쪽 3픽셀 — 두께 1 선은 닿지 않는 자리
+        assert not np.array_equal(marked[13, x], plain[13, x])
+    assert np.array_equal(marked[13, 16], plain[13, 16])  # 선 중간은 그대로
+
+
+def test_tile_pages_lays_six_pages_in_two_by_three():
+    pages = {name: np.full((32, 32, 3), value, np.uint8) for value, name in enumerate("abcdef")}
+    sheet = viz.tile_pages(pages)
+    height = 32 * 2 + viz.TILE_GAP
+    width = 32 * 3 + viz.TILE_GAP * 2
+    assert sheet.shape == (height, width, 3)
+    assert tuple(sheet[16, 32]) == viz.TILE_GAP_COLOR  # 첫 행의 첫 구분선
+    assert tuple(sheet[2, 2]) == (0, 0, 0)  # 첫 페이지(value 0), 이름표가 닿지 않는 모서리
+
+
+def test_tile_pages_pads_missing_cell():
+    pages = {name: np.full((16, 16, 3), 7, np.uint8) for name in "abcd"}
+    sheet = viz.tile_pages(pages)
+    assert sheet.shape == (16 * 2 + viz.TILE_GAP, 16 * 3 + viz.TILE_GAP * 2, 3)
+    assert tuple(sheet[-1, -1]) == (0, 0, 0)  # 빈 칸은 검다
