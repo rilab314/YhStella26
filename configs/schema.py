@@ -201,6 +201,9 @@ class DecodeConfig(ModuleConfig):
     purity_thresh: float = 0.6  # 사슬 순도 하한 — argmax 클래스 일치 비율. 이하면 사슬 폐기
     end_extend: float = 1.0  # 끝 셀에서 끝방향 슬롯으로 연장하는 길이(셀) — 10.3절 끝 연장
     min_points: int = 2  # 이보다 짧은 폴리라인은 버린다 (연장점 포함)
+    # 사슬 평균 점수 하한. `min_points`와 같은 목적(허위 조각 제거)인데 **길이를 안 본다** —
+    # GT 선의 13.3%가 6셀 미만이라 길이로 거르면 그만큼을 구조적으로 포기한다.
+    min_chain_score: float = 0.0  # 0이면 무동작
     simplify_tol: float = 0.0  # >0이면 RDP 단순화 (픽셀)
     # --- 알고리즘 변형 (가설 백로그 A). 기본값은 전부 기존 동작이다 ---
     seed_mode: str = "class_peak"  # "class_peak" | "end_peak" (선의 끝에서 시작, A5)

@@ -50,6 +50,7 @@ class ChainDecoder:
         purity_thresh: float,
         end_extend: float,
         min_points: int,
+        min_chain_score: float,
         simplify_tol: float,
         seed_mode: str,
         stop_needs_nocand: bool,
@@ -72,6 +73,7 @@ class ChainDecoder:
         self.purity_thresh = purity_thresh
         self.end_extend = end_extend
         self.min_points = min_points
+        self.min_chain_score = min_chain_score
         self.simplify_tol = simplify_tol
         self.stop_needs_nocand = stop_needs_nocand
         self.align_mode = align_mode
@@ -260,6 +262,12 @@ class ChainDecoder:
         """폴리라인 클래스 = 사슬 클래스(시드의 클래스) — 순도 검사가 다수결 일치를 보증한다."""
         points = np.array([*head_ext, *vertices["point"][chain], *tail_ext])
         if points.shape[0] < self.min_points:
+            return None
+        # 길이 대신 **신뢰도**로 거르는 길. `min_points`를 올리면 허위 조각이 줄지만
+        # 짧은 진짜 선도 같이 버린다(GT의 13.3%가 6셀 미만이다). 점수 하한은 길이와
+        # 무관하게 약한 사슬만 버리므로 짧은 선을 살릴 수 있다.
+        score = float(vertices["score"][chain].mean())
+        if score < self.min_chain_score:
             return None
         pixels = points * self.grid_stride - PIXEL_CENTER_SHIFT
         if self.simplify_tol > 0:
