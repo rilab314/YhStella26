@@ -15,9 +15,16 @@ IMAGE = 256
 STRIDE = 4
 
 
-def make_cfg():
+def make_cfg(*, min_points: int = 2):
+    """디코더 시험용 config.
+
+    `decode.min_points` 기본값은 6이지만(짧은 허위 조각 제거) **여기서는 2로 낮춘다** —
+    이 파일의 검사 대부분은 "사슬을 제대로 잇는가"를 보는 것이고, 길이 필터는 그 뒤에 붙는
+    별개의 후처리다. 필터 자체의 동작은 `test_length_floor_*` 가 따로 검사한다.
+    """
     cfg = get_config()
     cfg.data.image_size = IMAGE
+    cfg.decode.min_points = min_points
     return cfg
 
 
@@ -183,7 +190,7 @@ def test_variants_still_recover_a_straight_line():
 
 
 def test_stop_reasons_are_recorded():
-    """정지 사유 카운터가 실제로 채워지는지 (improve-loop 스킬 · 디코더 진단)."""
+    """정지 사유 카운터가 실제로 채워지는지 (research 스킬 · 디코더 진단)."""
     cfg = make_cfg()
     decoder = build_instance(cfg.decode, cfg)
     points = np.array([[30.0, 100.0], [220.0, 100.0]], dtype=np.float32)
@@ -238,3 +245,25 @@ def test_fg_thresh_rejects_cells_the_binary_head_calls_background():
     output = gt_model_output(targets, cfg.data.num_classes, cfg.model.num_conn_slots)
     output.fg_logit[:] = -10.0  # 전부 "배경"이라 부른다
     assert decoder(output[0]) == []
+
+
+def test_length_floor_drops_short_lines_of_long_classes():
+    """일반 종류(차선)는 짧으면 버린다 — 짧은 허위 조각을 지우는 것이 이 필터의 목적이다."""
+    cfg = make_cfg(min_points=6)
+    decoder = build_instance(cfg.decode, cfg)
+    points = np.array([[100.0, 50.0], [111.0, 50.0]], dtype=np.float32)  # 3칸 -> 3점
+    assert decode_gt(cfg, decoder, [{"class": 3, "points": points}]) == []
+
+
+def test_length_floor_spares_short_classes():
+    """정지선처럼 **원래 짧은 종류**는 같은 길이여도 살린다.
+
+    val 실측 중앙 길이가 정지선 7.5칸이라 일반 하한(6)을 그대로 걸면 38%가 사라진다.
+    그래서 `short_classes` 에만 `min_points_short` 를 따로 쓴다 (사용자 지시 08-18).
+    """
+    cfg = make_cfg(min_points=6)
+    assert 9 in cfg.decode.short_classes  # 9 = stop_line
+    decoder = build_instance(cfg.decode, cfg)
+    points = np.array([[100.0, 50.0], [111.0, 50.0]], dtype=np.float32)
+    decoded = decode_gt(cfg, decoder, [{"class": 9, "points": points}])
+    assert len(decoded) == 1 and len(decoded[0]["points"]) == 3

@@ -67,7 +67,7 @@ stella/                         # 저장소 루트 (패키지명 "stella", edita
 ├── configs/
 │   ├── schema.py               # ★ 모든 config dataclass 정의 (단일 파일)
 │   ├── base.py                 # get_config() -> ExperimentConfig (기본 실험 — SEED-MAP + ConvNeXtV2 + FPNLite)
-│   ├── unit.py                 # 개선 루프 "단위 실험(U)" 규격 — 1 GPU·서브샘플·짧은 에폭 (improve-loop 스킬)
+│   ├── unit.py                 # 개선 루프 "단위 실험(U)" 규격 — 1 GPU·서브샘플·짧은 에폭 (research 스킬)
 │   └── exp_*.py                # 변형 실험: base를 불러와 필드만 수정 (dinov3/r3/synthetic/vit_sfp)
 ├── stella/
 │   ├── __init__.py             # 비워 둔다 (import 목록을 관리하지 않는다)

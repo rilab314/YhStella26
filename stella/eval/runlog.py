@@ -1,4 +1,4 @@
-"""학습 실행 폴더의 `metrics.csv`를 읽어 에폭 평균 지표를 낸다 (improve-loop · 관측·판정 공용).
+"""학습 실행 폴더의 `metrics.csv`를 읽어 에폭 평균 지표를 낸다 (research · 관측·판정 공용).
 
 `scripts/summarize_runs.py`(사람이 보는 표)와 `scripts/judge_round.py`(자동 판정)가 같은
 함수를 쓴다. **읽는 곳이 하나여야 판정이 사람 눈과 스크립트에서 갈라지지 않는다.**

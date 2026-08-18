@@ -186,7 +186,7 @@ class SeedMapDataset(GridDatasetBase, Buildable):
 def _subsample(stems: list[str], limit: int) -> list[str]:
     """부분집합은 **균등 간격**으로 뽑는다 — 파일명이 지역 순이라 앞에서 자르면 편향된다.
 
-    단위 실험(improve-loop 스킬 · U 규격)이 전체 분포를 대표해야 순위가 전체 학습과 어긋나지 않는다.
+    단위 실험(research 스킬 · U 규격)이 전체 분포를 대표해야 순위가 전체 학습과 어긋나지 않는다.
     """
     if limit <= 0 or limit >= len(stems):
         return stems

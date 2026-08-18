@@ -224,7 +224,16 @@ class DecodeConfig(ModuleConfig):
     fg_thresh: float = -1.0
     purity_thresh: float = 0.6  # 사슬 순도 하한 — argmax 클래스 일치 비율. 이하면 사슬 폐기
     end_extend: float = 1.0  # 끝 셀에서 끝방향 슬롯으로 연장하는 길이(셀) — 10.3절 끝 연장
-    min_points: int = 2  # 이보다 짧은 폴리라인은 버린다 (연장점 포함)
+    # 이보다 짧은 폴리라인은 버린다 (연장점 포함). **08-18 사용자 결정: 일단 6, 다음에 실험으로
+    # 검증한다.** 버퍼 4px 시절 측정은 6 -> f1 0.377 · 8 -> 0.382 로 8이 근소하게 높았으나
+    # 버퍼를 3px 로 줄인 뒤 다시 재지 않았다. 짧은 종류는 아래 `min_points_short` 가 보호한다.
+    min_points: int = 6
+    # **짧은 차선 종류에만 적용하는 별도 하한** (사용자 지시 08-18 — 기준을 종류마다 따로 두지
+    # 말고 "짧은 종류" 한 묶음에만 하나 더). val 실측 중앙 길이(칸): stop_line 7.5 ·
+    # safety_zone 10.9 · path_change_restriction_line 14.1 · 그다음이 19.8 로 확 뛴다.
+    # 일반 하한을 6 으로 올리면 정지선의 38% 가 통째로 사라지므로 이 셋만 낮게 둔다.
+    min_points_short: int = 2
+    short_classes: tuple = (9, 10, 6)  # stop_line · safety_zone · path_change_restriction_line
     # 사슬 평균 점수 하한. `min_points`와 같은 목적(허위 조각 제거)인데 **길이를 안 본다** —
     # GT 선의 13.3%가 6셀 미만이라 길이로 거르면 그만큼을 구조적으로 포기한다.
     min_chain_score: float = 0.0  # 0이면 무동작
@@ -262,7 +271,7 @@ class MetricConfig(ModuleConfig):
     # 중앙 거리가 **11.8 px** 다(58%는 12 px 안에 이웃이 있다). 버퍼가 이웃 차선을 삼켜
     # **옆 차선으로 갈아탄 예측이 만점을 받았다.** 4 px = 간격의 1/3, GT 주입 천장은
     # 97.1%로 유지된다(12 px에서 97.5%) — 엄격하게 해도 도달 가능한 목표다.
-    buffer_rho: float = 4.0
+    buffer_rho: float = 3.0
     cov_thresh: float = 0.5  # theta_cov — 커버리지 하한, 관대
     cor_thresh: float = 0.9  # theta_cor — 정확성 하한, 엄격
     angle_gate: float = 30.0  # 매칭 시 접선 방향 차 상한(도)
@@ -275,7 +284,7 @@ class MetricConfig(ModuleConfig):
 
 @dataclass(kw_only=True)
 class CellDiagConfig(ModuleConfig):
-    """셀 단위 진단 (improve-loop 스킬 · 셀 단위 진단). 임계값은 `decode`에서 가져다 쓴다."""
+    """셀 단위 진단 (research 스킬 · 셀 단위 진단). 임계값은 `decode`에서 가져다 쓴다."""
 
     path: str = "stella.eval.cellstat"
     name: str = "CellDiagnostics"

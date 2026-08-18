@@ -38,8 +38,11 @@ SHORT_LABEL = {
     "val/cell/class_fg": "clsFg",
     DEFAULT_WATCH: "vtxRec",
 }
-ADOPT_MARGIN = 0.10  # 상대 +10% 이상 채택 (규칙 3)
-REJECT_MARGIN = -0.10  # 상대 −10% 이하 기각
+# **08-18 사용자 결정: 2% 이상 개선되면 인정한다** (옛 값 10%).
+# 근거: 같은 설정에 seed 만 바꿔 돌린 두 실행의 차이가 **0.1%** 였다(E24 `noise` arm,
+# 10에폭 완주·마지막 3에폭 평균). 10% 는 그 100배라 진짜 효과를 무효로 버리고 있었다.
+ADOPT_MARGIN = 0.02  # 상대 +2% 이상 채택
+REJECT_MARGIN = -0.02  # 상대 −2% 이하 기각
 MOVE_MARGIN = 0.05  # 지목 지표가 "움직였다"의 하한 (규칙 4). 측정 잡음보다 크게 잡았다
 VERDICT_NOTE = {
     "mismatch": "디코더 불일치",
