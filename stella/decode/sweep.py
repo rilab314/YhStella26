@@ -1,4 +1,4 @@
-"""캐시된 예측으로 디코더를 평가하는 공통 코어 (improve-loop 스킬 · D 트랙).
+"""캐시된 예측으로 디코더를 평가하는 공통 코어 (research 스킬 · D 트랙).
 
 `scripts/eval_decode.py`(단발·한 축 스윕)와 `scripts/tune_decoder.py`(좌표 하강)가
 같은 함수를 쓴다. 워커 초기화 함수를 패키지 안에 두는 편이 pickle에도 안전하다.

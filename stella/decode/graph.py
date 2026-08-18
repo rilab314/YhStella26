@@ -50,6 +50,8 @@ class ChainDecoder:
         purity_thresh: float,
         end_extend: float,
         min_points: int,
+        min_points_short: int,
+        short_classes: tuple,
         min_chain_score: float,
         simplify_tol: float,
         seed_mode: str,
@@ -74,6 +76,8 @@ class ChainDecoder:
         self.purity_thresh = purity_thresh
         self.end_extend = end_extend
         self.min_points = min_points
+        self.min_points_short = min_points_short
+        self.short_classes = frozenset(short_classes)
         self.min_chain_score = min_chain_score
         self.simplify_tol = simplify_tol
         self.stop_needs_nocand = stop_needs_nocand
@@ -269,7 +273,7 @@ class ChainDecoder:
     def _to_instance(self, vertices, chain, head_ext, tail_ext, label) -> dict | None:
         """폴리라인 클래스 = 사슬 클래스(시드의 클래스) — 순도 검사가 다수결 일치를 보증한다."""
         points = np.array([*head_ext, *vertices["point"][chain], *tail_ext])
-        if points.shape[0] < self.min_points:
+        if points.shape[0] < self._length_floor(label):
             return None
         # 길이 대신 **신뢰도**로 거르는 길. `min_points`를 올리면 허위 조각이 줄지만
         # 짧은 진짜 선도 같이 버린다(GT의 13.3%가 6셀 미만이다). 점수 하한은 길이와
@@ -285,6 +289,15 @@ class ChainDecoder:
             "points": pixels.astype(np.float32),
             "score": float(vertices["score"][chain].mean()),
         }
+
+    def _length_floor(self, label: int) -> int:
+        """이 종류에 적용할 최소 점 개수. 짧은 차선 종류는 따로 낮게 둔다.
+
+        정지선 중앙 길이가 7.5칸이라 일반 하한(6)을 그대로 걸면 **38%가 통째로 사라진다**
+        (val 실측). 종류마다 값을 두면 손잡이가 11개로 늘어나므로 "짧은 종류" 한 묶음에만
+        하나를 더 둔다 (사용자 지시 08-18).
+        """
+        return self.min_points_short if label in self.short_classes else self.min_points
 
 
 def _step_direction(vertices: dict, source: int, target: int) -> np.ndarray:
