@@ -96,8 +96,13 @@ def test_criterion_returns_all_logged_keys():
 
 
 def test_class_weight_is_neutral_without_frequency_power():
-    """가중을 끄면 예전의 단순 평균 CE와 같다 — E09 리팩터가 기본 동작을 바꾸지 않았다."""
+    """가중을 끄면(`power=0`) 단순 평균 CE와 같다 — 가중 경로가 기본 동작을 바꾸지 않는다.
+
+    기본값은 `power=0.5`(08-19 채택)이므로 여기서는 **명시적으로 꺼서** 잰다. 기본값에
+    기대면 기본값이 바뀔 때마다 이 계약이 조용히 다른 것을 재게 된다.
+    """
     cfg = get_config()
+    cfg.loss.self_slot.class_freq_power = 0.0
     cfg.data.image_size = IMAGE
     loss_module = build_instance(cfg.loss.self_slot, cfg)
     assert torch.allclose(loss_module.class_weight, torch.ones(cfg.data.num_classes))
@@ -110,16 +115,33 @@ def test_class_weight_is_neutral_without_frequency_power():
     assert torch.allclose(loss_module(output, targets)["class"], plain)
 
 
-def test_class_freq_power_lifts_rare_classes():
-    """빈도 가중은 희소 클래스를 올리되 전경 평균은 1로 둔다 — 손실 스케일이 안 흔들린다 (E09)."""
+def test_class_freq_mean_redistributes():
+    """`mean` 정규화는 **재분배**다 — 희소를 올린 만큼 흔한 클래스를 1 아래로 누른다.
+
+    E09 가 이 축을 기각한 원인이 바로 이것이다(`lane_line` 가중 0.42 -> class_fg −42%).
+    동작 자체는 유지하되, 그것이 재분배라는 사실을 계약으로 못박는다.
+    """
     cfg = get_config()
     cfg.loss.self_slot.class_freq_power = 0.5
+    cfg.loss.self_slot.class_freq_norm = "mean"
     weight = build_instance(cfg.loss.self_slot, cfg).class_weight
     rare = CLASS_NAMES.index("bus_only_lane")
     common = CLASS_NAMES.index("no_parking_stopping_line")
     assert weight[rare] > 1.0 > weight[common]
     assert torch.allclose(weight[1:].mean(), torch.tensor(1.0))
     assert float(weight[0]) == cfg.loss.self_slot.class_bg_weight
+
+
+def test_class_freq_floor_lifts_rare_without_suppressing_common():
+    """기본값(`floor`)은 희소만 올리고 흔한 클래스는 1.0 그대로 둔다 (08-19 채택)."""
+    cfg = get_config()
+    weight = build_instance(cfg.loss.self_slot, cfg).class_weight
+    rare = CLASS_NAMES.index("bus_only_lane")
+    common = CLASS_NAMES.index("no_parking_stopping_line")
+    assert cfg.loss.self_slot.class_freq_norm == "floor"
+    assert weight[rare] > 1.0
+    assert float(weight[common]) == 1.0
+    assert float(weight[1:].min()) >= 1.0
 
 
 def test_perfect_prediction_drives_losses_to_zero():
