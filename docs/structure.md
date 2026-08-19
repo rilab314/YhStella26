@@ -299,25 +299,29 @@ class DecodeConfig(ModuleConfig):  # 사슬 확장 디코더 (10절)
     path: str = "stella.decode.graph"
     name: str = "ChainDecoder"
     heatmap_thresh: float = 0.3  # τ_h — 노드 후보 (추론 경로, 7.4절)
-    exist_thresh: float = 0.5  # τ_e — 연결 슬롯 존재
+    exist_thresh: float = 0.3  # τ_e — 연결 슬롯 존재
     end_thresh: float = 0.5  # τ_end — 끝 셀 판정 (σ(end_logit)), 사슬 정지 조건
-    radius: int = 24  # 탐색 반경(셀). 실측으로 정했다 — f1 +65% (10.3절)
-    align_thresh: float = 0.7  # 내 슬롯 방향과 실제 상대 방향의 코사인 하한 (c·u_ab)
+    radius: int = 5  # 탐색 반경(셀). 차선 간격 11.8 px 의 절반 이하로 잡는다 (10.3절)
+    align_thresh: float = 0.95  # 내 슬롯 방향과 실제 상대 방향의 코사인 하한 (c·u_ab)
     opp_thresh: float = 0.7  # 마주봄 하한 — -(c·n) ≥ 이 값 (10.3절)
     w_opp: float = 1.0  # 후보 비용에서 마주봄 항의 비중
-    min_class_prob: float = 0.1  # 확장 게이트 — 후보의 사슬 클래스 softmax 확률 하한 (10.3절)
+    min_class_prob: float = 0.2  # 확장 게이트 — 후보의 사슬 클래스 softmax 확률 하한 (10.3절)
     purity_thresh: float = 0.6  # 사슬 순도 하한 — argmax 클래스 일치 비율. 이하면 사슬 폐기 (10.3절)
     end_extend: float = 1.0  # 끝 셀에서 끝방향 슬롯으로 연장하는 길이(셀) — 10.3절 끝 연장
-    min_points: int = 2  # 이보다 짧은 폴리라인은 버린다 (연장점 포함)
+    min_points: int = 8  # 이보다 짧은 폴리라인은 버린다 (연장점 포함)
+    min_points_short: int = 2  # 짧은 종류에만 적용하는 별도 하한 (10.3절)
+    short_classes: tuple = (9, 10, 6)  # stop_line · safety_zone · path_change_restriction_line
+    min_chain_score: float = 0.0  # 사슬 평균 점수 하한. 0이면 무동작 — 실측에서 이득이 없었다
     simplify_tol: float = 0.0  # >0이면 RDP 단순화 (픽셀)
     # --- 알고리즘 변형 (가설 백로그). 기본값은 전부 M12까지의 기존 동작이다 (10.6절) ---
     seed_mode: str = "class_peak"  # "class_peak"(기본) | "end_peak" — 선의 끝에서 먼저 시작
     stop_needs_nocand: bool = False  # True면 끝 확률 + 후보 없음을 모두 만족해야 정지
-    merge_gap: float = 0.0  # >0이면 끝점 간 이 거리(픽셀) 안의 조각을 병합 (10.4절 ChainMerger)
+    merge_gap: float = 24.0  # 끝점 간 이 거리(픽셀) 안의 조각을 병합 (10.4절 ChainMerger)
     merge_align: float = 0.8  # 병합 정렬 하한 — 두 조각이 서로를 향하는 정도
     align_mode: str = "cosine"  # "cosine" = 각도 게이트(기본) | "perp" = 직선의 수직 이탈 게이트
     perp_thresh: float = 0.7  # perp 모드의 수직 이탈 상한 (셀 단위)
-    w_dist: float = 0.03  # 후보 비용의 거리 항 계수 — **반경과 함께 정해진다** (10.3절)
+    w_dist: float = 0.072  # 후보 비용의 거리 항 계수 — **반경과 함께 정해진다** (10.3절)
+    max_turn_deg: float = 45.0  # 연속한 두 스텝 사이의 방향 변화 상한(도)
     # 임계값들은 학습된 체크포인트로 검증 셋에서 스윕해 확정한다 (`scripts/tune_decoder.py`, 14절).
     # 구 GraphDecoder의 mutual·max_conn_dist·t_thresh는 폐기 — 10절 참고.
 
