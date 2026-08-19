@@ -33,8 +33,20 @@ def cast_like(current, raw: str):
     if isinstance(current, float):
         return float(raw)
     if isinstance(current, tuple):
-        return tuple(raw.split(","))
+        return _cast_tuple(current, raw)
     return raw
+
+
+def _cast_tuple(current: tuple, raw: str) -> tuple:
+    """원소 타입도 **현재 값**이 정한다. 괄호·공백은 벗긴다.
+
+    문자열로 남기면 그 손잡이가 **조용히 꺼진다** — `decode.short_classes=(9,10,6)` 를
+    덮어썼더니 원소가 `'9'` 가 되어 `label in short_classes`(int)가 영원히 거짓이 됐고,
+    짧은 차선 보호가 통째로 사라진 채 "효과 없음"으로 판정할 뻔했다 (08-19 실측).
+    """
+    items = [part.strip() for part in raw.strip("()[] ").split(",") if part.strip()]
+    element = current[0] if current else ""
+    return tuple(cast_like(element, item) for item in items)
 
 
 def apply_saved_config(cfg, saved: dict) -> None:
