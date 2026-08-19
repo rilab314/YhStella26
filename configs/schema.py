@@ -145,12 +145,19 @@ class SelfSlotLossConfig(ModuleConfig):
     class_bg_weight: float = 1.0
     # 희소 클래스 3종(bus_only_lane·safety_zone·bicycle_lane)이 200장에서 한 번도 예측되지
     # 않았다 (E07). 전경 가중을 인스턴스 빈도의 -power 승으로 준다. 0.0 = 가중 없음 (E09)
-    class_freq_power: float = 0.0
+    # **08-19 채택: 0.5.** 반경을 5로 줄이면서 약해진 희소 종류를 학습 쪽에서 되찾는다.
+    # 같은 U 규격 대조군 대비 **종류별 평균 f1 +3.4%** (0.2420 -> 0.2502, 판정 밴드 ±2%),
+    # 안전지대 f1 0.0081 -> 0.0872 · 버스전용차로 0.0263 -> 0.0752. 대가는 없다
+    # (precision −1.4% · correctness +0.9% · coverage +0.5%, 전부 잡음 범위).
+    class_freq_power: float = 0.5
     # 전경 가중의 정규화 방식. "mean" = 평균 1 (E09 의 재분배 — 흔한 클래스를 1 아래로 누른다)
     # "floor" = 1 아래로 내리지 않음 (희소만 올린다). **E09 기각의 원인은 축이 아니라 정규화였다** —
     # `power=0.5` 가 `lane_line` 가중을 0.42 로 눌러 전경 인식이 무너졌다(class_fg -42%).
     # 08-19 사용자 결정: 반경 축소로 약해진 희소 종류는 이 손잡이로 보완한다.
-    class_freq_norm: str = "mean"
+    # **08-19 채택: "floor".** E09 가 이 축을 기각한 원인은 축이 아니라 "mean"(재분배)이었다 —
+    # 희소를 올린 만큼 흔한 클래스를 눌러 `lane_line` 가중이 0.42 가 됐고 전경 인식이
+    # 42% 무너졌다. "floor" 로 바꾸니 `class_fg` 가 0.483 -> 0.471 로 멀쩡하다.
+    class_freq_norm: str = "floor"
     # 전경/배경 이진 BCE (E12). `model.fg_head=True`와 함께 쓴다. 0.0 = 항 자체를 계산하지 않는다.
     w_fg: float = 0.0
     fg_pos_weight: float = 1.0  # 선택 셀의 ~70%가 배경이라 양성 쪽을 들 수 있게 열어 둔다
