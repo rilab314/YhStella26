@@ -28,6 +28,7 @@ class SelfSlotLoss(LossModule):
         end_pos_weight: float,
         class_bg_weight: float,
         class_freq_power: float,
+        class_freq_norm: str,
         num_classes: int,
         w_fg: float,
         fg_pos_weight: float,
@@ -41,22 +42,37 @@ class SelfSlotLoss(LossModule):
         self.w_fg = w_fg
         self.fg_pos_weight = fg_pos_weight
         self.register_buffer(
-            "class_weight", self._build_class_weight(num_classes, class_freq_power, class_bg_weight)
+            "class_weight",
+            self._build_class_weight(
+                num_classes, class_freq_power, class_bg_weight, class_freq_norm
+            ),
         )
 
     @staticmethod
-    def _build_class_weight(num_classes: int, freq_power: float, bg_weight: float) -> torch.Tensor:
+    def _build_class_weight(
+        num_classes: int, freq_power: float, bg_weight: float, norm: str
+    ) -> torch.Tensor:
         """전경은 인스턴스 빈도의 `-power` 승, 배경은 `bg_weight`.
 
-        전경 가중은 **평균 1로 정규화**한다 — 그래야 `power`를 올려도 클래스 손실의 스케일이
-        그대로라 손실 균형(SKILL 8절)이 흔들리지 않고 `power` 하나만 비교된다.
         빈도는 셀 수가 아니라 인스턴스 수(`CLASS_INSTANCE_COUNT`)라 선 길이만큼 근사가 섞인다.
+
+        정규화 방식이 결과를 가른다.
+
+        `mean`  평균 1로 맞춘다 — 스케일이 고정돼 `power` 하나만 비교되지만 **재분배**라
+                희소를 올린 만큼 흔한 클래스를 1 아래로 누른다. E09 에서 `power=0.5` 가
+                `lane_line` 을 0.42 까지 눌렀고, 셀의 대다수가 그 흔한 클래스라 전경 인식
+                자체가 무너졌다(`class_fg` -42%). **축이 아니라 정규화가 범인이었다.**
+        `floor` 1 아래로는 내리지 않는다 — 희소만 올리고 흔한 클래스는 건드리지 않는다.
+                E09 의 실패 기전을 정확히 제거한다. 대신 클래스 손실의 크기가 커지므로
+                손실 균형(SKILL 8절 A)을 다시 봐야 한다.
         """
         weight = torch.ones(num_classes)
         if freq_power > 0.0:
             counts = torch.tensor(CLASS_INSTANCE_COUNT[1:num_classes], dtype=torch.float32)
             foreground = (counts.median() / counts) ** freq_power
-            weight[1:] = foreground / foreground.mean()
+            weight[1:] = (
+                foreground.clamp(min=1.0) if norm == "floor" else foreground / foreground.mean()
+            )
         weight[0] = bg_weight
         return weight
 

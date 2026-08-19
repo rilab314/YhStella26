@@ -79,3 +79,41 @@ def test_full_build_smoke():
     module = build_instance(cfg.train, cfg, **parts)
     assert len(dataset) > 0
     assert module.model is parts["model"]
+
+
+def test_tuple_override_keeps_element_type():
+    """튜플 손잡이를 덮어써도 원소 타입이 유지된다 — 문자열이 되면 손잡이가 조용히 꺼진다.
+
+    `decode.short_classes` 를 덮어썼더니 원소가 `'9'` 가 되어 `label in short_classes`(int)가
+    영원히 거짓이 됐고, 짧은 차선 보호가 사라진 채 "효과 없음"으로 판정할 뻔했다 (08-19).
+    """
+    from stella.config_io import cast_like
+
+    assert cast_like((9, 10, 6), "(9,10,6,11,4)") == (9, 10, 6, 11, 4)
+    assert cast_like((9, 10, 6), "9, 10, 4") == (9, 10, 4)
+    assert cast_like((1.0, 2.0), "[1.5, 2.5]") == (1.5, 2.5)
+
+
+def test_short_class_protection_is_reachable():
+    """디코더가 실제로 그 명단을 int 로 비교하는지 — 계약이 깨지면 보호가 무음으로 사라진다."""
+    cfg = importlib.import_module("configs.exp_synthetic").get_config()
+    decoder = build_instance(cfg.decode, cfg)
+    assert all(isinstance(label, int) for label in decoder.short_classes)
+    assert decoder._length_floor(next(iter(decoder.short_classes))) == cfg.decode.min_points_short
+
+
+def test_class_freq_floor_never_suppresses_common_classes():
+    """`floor` 정규화는 희소 클래스만 올린다 — 흔한 클래스를 1 아래로 누르지 않는다.
+
+    E09 는 `mean` 정규화(재분배)로 `lane_line` 가중을 0.42 까지 눌렀고, 셀의 대다수가 그
+    흔한 클래스라 전경 인식 자체가 무너졌다(class_fg -42%). 기각의 원인은 축이 아니라
+    정규화였다 — 이 계약이 그 사고를 막는다.
+    """
+    from stella.loss.self_slot import SelfSlotLoss
+
+    mean = SelfSlotLoss._build_class_weight(12, 0.5, 1.0, "mean")
+    floor = SelfSlotLoss._build_class_weight(12, 0.5, 1.0, "floor")
+    assert mean[1:].min() < 1.0  # 기존 방식은 실제로 누른다
+    assert floor[1:].min() >= 1.0
+    assert floor[1:].max() > 1.0  # 그러면서 희소는 올라간다
+    assert float(SelfSlotLoss._build_class_weight(12, 0.0, 1.0, "floor")[1:].max()) == 1.0

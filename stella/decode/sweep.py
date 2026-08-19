@@ -32,6 +32,9 @@ REPORT_KEYS = (
     "fp_spurious_per_img",
 )
 _SUM_KEYS = ("fp_redundant", "fp_spurious")
+# 종류별 지표(`recall/stop_line` 등)는 표에는 안 넣고 `--out` JSON 에만 남긴다 —
+# 짧은 종류가 길이 하한에 잘려 사라지는지는 전체 f1 이 아니라 이 값으로만 보인다.
+_PER_CLASS_PREFIX = ("f1/", "precision/", "recall/")
 _CONTEXT: dict = {}
 
 
@@ -44,7 +47,7 @@ def evaluate_decode(cfg, decode_cfg, files: list[Path], shape: dict, workers: in
         metric.update(prediction, target)
         stats.counter.update(counts)
     computed = {key: float(value) for key, value in metric.compute().items()}
-    scores = {key: value for key, value in computed.items() if key in REPORT_KEYS}
+    scores = {key: value for key, value in computed.items() if _reported(key)}
     return scores | _per_image_counts(computed, len(files)) | stats.summary()
 
 
@@ -67,6 +70,10 @@ def _decode_file(path: Path):
     decoder.stats.reset()
     output, instances = load_prediction(path, _CONTEXT["shape"])
     return decoder(output), instances, dict(decoder.stats.counter)
+
+
+def _reported(key: str) -> bool:
+    return key in REPORT_KEYS or key.startswith(_PER_CLASS_PREFIX)
 
 
 def _per_image_counts(computed: dict, images: int) -> dict:
