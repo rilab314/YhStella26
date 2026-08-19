@@ -155,7 +155,11 @@ def test_perfect_prediction_drives_losses_to_zero():
     assert float(losses["self_slot/coord"]) < 1e-6
     assert float(losses["self_slot/class"]) < 1e-2
     assert float(losses["self_slot/end"]) < 1e-3
-    assert float(losses["conn/dir"]) < 1e-4
+    # 문턱이 손실 모양에 따라 다르다. `cosine`(1−cos θ)은 0 근처에서 **제곱**으로 작아지고
+    # `angle`(acos/π)은 **선형**이라, 같은 잔차라도 값이 5배쯤 크게 읽힌다 — 그것이 이 손실을
+    # 채택한 이유(0 근처에서 기울기가 살아 있다)이므로 문턱을 모양에 맞춘다.
+    # 0.0005 는 방향 오차로 환산하면 0.08도다 (loss × 180).
+    assert float(losses["conn/dir"]) < 1e-3
     assert float(losses["conn/exist"]) < 1e-3
     assert float(losses["conn/match_ambiguity"]) < 0.05  # 반평행 분기 2개는 배정이 명확하다
 
