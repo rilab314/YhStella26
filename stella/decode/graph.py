@@ -16,6 +16,7 @@ from dataclasses import fields as dataclass_fields
 
 import numpy as np
 
+from stella.decode.dedup import DuplicateResolver
 from stella.decode.postprocess import ChainMerger, simplify_polyline
 from stella.decode.stats import ChainStats
 from stella.decode.vertices import VertexExtractor
@@ -63,6 +64,14 @@ class ChainDecoder:
         max_turn_deg: float,
         fg_thresh: float,
         w_dist: float,
+        dedup_high: float,
+        dedup_low: float,
+        dedup_min_free: float,
+        dedup_bridge: float,
+        dedup_min_diverge: float,
+        dedup_join_gap: float,
+        dedup_step: float,
+        dedup_keep_ratio: float,
     ):
         if align_mode not in ALIGN_MODES:
             raise ValueError(f"align_mode 는 {ALIGN_MODES} 중 하나여야 한다: {align_mode}")
@@ -94,6 +103,16 @@ class ChainDecoder:
             fg_thresh=fg_thresh,
         )
         self.merger = ChainMerger(gap=merge_gap, align_cos=merge_align)
+        self.resolver = DuplicateResolver(
+            overlap_high=dedup_high,
+            overlap_low=dedup_low,
+            min_free_len=dedup_min_free,
+            bridge_gap=dedup_bridge,
+            min_diverge_len=dedup_min_diverge,
+            join_gap=dedup_join_gap,
+            step=dedup_step,
+            keep_ratio=dedup_keep_ratio,
+        )
         self.stats = ChainStats()
 
     def __call__(self, output) -> list[dict]:
@@ -105,7 +124,9 @@ class ChainDecoder:
         instances = [self._to_instance(vertices, *chain) for chain in chains]
         merged, removed = self.merger([item for item in instances if item is not None])
         self.stats.add_merge(removed)
-        return merged
+        resolved, counts = self.resolver(merged)  # 중복 정리 — 지우거나 이미 겹친 선끼리 잇는다
+        self.stats.counter.update(counts)
+        return resolved
 
     # --- ② 사슬 확장 (10.3절) ----------------------------------------------------
 

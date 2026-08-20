@@ -182,3 +182,107 @@ def test_old_cache_without_fg_still_loads(tmp_path):
     loaded, _ = load_prediction(tmp_path / "old.npz", shape)
     assert torch.count_nonzero(loaded.fg_logit) == 0  # 없으면 0으로 남는다
     assert len(build_instance(cfg.decode, cfg)(loaded)) == 1  # 기본 경로는 멀쩡하다
+
+
+def test_dedup_removes_contained_line_and_never_adds():
+    """포함된 짧은 선은 사라지고, 인스턴스 수는 **줄기만 한다** — 이 단계의 계약이다."""
+    import numpy as np
+
+    from stella.decode.dedup import DuplicateResolver
+
+    resolver = DuplicateResolver(
+        overlap_high=6.0,
+        overlap_low=3.0,
+        min_free_len=8.0,
+        bridge_gap=0.0,
+        min_diverge_len=0.0,
+        join_gap=6.0,
+        step=2.0,
+        keep_ratio=0.35,
+    )
+    long_line = np.stack([np.arange(0, 200, 4.0), np.zeros(50)], axis=1)
+    inside = np.stack([np.arange(40, 120, 4.0), np.full(20, 1.5)], axis=1)  # 1.5px 옆 = 중복
+    out, stats = resolver(
+        [
+            {"class": 3, "points": long_line, "score": 1.0},
+            {"class": 3, "points": inside, "score": 1.0},
+        ]
+    )
+    assert len(out) == 1
+    assert stats["dedup_dropped"] == 1
+
+
+def test_dedup_never_bridges_a_gap():
+    """**떨어진 두 선은 잇지 않는다.** 겹치지 않으면 둘 다 그대로 남는다."""
+    import numpy as np
+
+    from stella.decode.dedup import DuplicateResolver
+
+    resolver = DuplicateResolver(
+        overlap_high=6.0,
+        overlap_low=3.0,
+        min_free_len=4.0,
+        bridge_gap=0.0,
+        min_diverge_len=0.0,
+        join_gap=6.0,
+        step=2.0,
+        keep_ratio=0.35,
+    )
+    first = np.stack([np.arange(0, 80, 4.0), np.zeros(20)], axis=1)
+    far = np.stack([np.arange(200, 280, 4.0), np.zeros(20)], axis=1)  # 120px 떨어짐
+    out, stats = resolver(
+        [
+            {"class": 3, "points": first, "score": 1.0},
+            {"class": 3, "points": far, "score": 1.0},
+        ]
+    )
+    assert len(out) == 2
+    assert stats["dedup_joined"] == 0
+
+
+def test_dedup_threshold_stays_below_true_neighbour_spacing():
+    """중복 문턱은 **진짜 이웃 선 간격보다 좁아야** 한다 — 넓으면 진짜 선을 지운다.
+
+    실측(08-20, GT 200장): 같은 클래스 이웃까지의 중앙 거리가 6px 이내인 진짜 선이 3.4%,
+    4px 이내 1.6%, 3px 이내 0.8% 다. 6px 로 잡았더니 GT 주입 천장이 0.946 -> 0.908 로
+    깎였다 — 이중선처럼 원래 붙어 있는 선을 지운 것이다. 제거 대상 중복은 간격 중앙 1.8px.
+    """
+    from configs.base import get_config
+
+    decode = get_config().decode
+    assert 0.0 < decode.dedup_high <= 4.0
+    assert decode.dedup_low < decode.dedup_high
+    # 붙이기 반경이 한 셀(4px) 남짓을 넘으면 **떨어진 선을 끌어오게** 된다 — 계약 위반이다.
+    assert decode.dedup_join_gap <= 8.0
+
+
+def test_dedup_keeps_partially_free_line_whole():
+    """자유 구간이 충분하면 **자르지 않고 원본 그대로** 둔다 — 자르기는 진짜 선을 깎았다.
+
+    실측(08-20): 자르는 판은 f1 +5.5% 지만 recall −3.9% · GT 주입 천장 0.946 -> 0.908 이다.
+    정답에는 중복이 없으므로 그 4%는 진짜 선을 지운 것이다.
+    """
+    import numpy as np
+
+    from stella.decode.dedup import DuplicateResolver
+
+    resolver = DuplicateResolver(
+        overlap_high=6.0,
+        overlap_low=3.0,
+        min_free_len=8.0,
+        bridge_gap=0.0,
+        min_diverge_len=0.0,
+        join_gap=6.0,
+        step=2.0,
+        keep_ratio=0.35,
+    )
+    base = np.stack([np.arange(0, 200, 4.0), np.zeros(50)], axis=1)
+    half = np.stack([np.arange(100, 300, 4.0), np.full(50, 1.5)], axis=1)  # 절반만 겹친다
+    out, _ = resolver(
+        [
+            {"class": 3, "points": base, "score": 1.0},
+            {"class": 3, "points": half, "score": 1.0},
+        ]
+    )
+    assert len(out) == 2
+    assert any(len(item["points"]) == len(half) for item in out)  # 원본이 그대로 남았다
