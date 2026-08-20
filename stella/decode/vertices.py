@@ -23,6 +23,7 @@ class VertexExtractor:
         seed_mode: str,
         end_thresh: float,
         fg_thresh: float,
+        local_max: bool,
     ):
         if seed_mode not in SEED_MODES:
             raise ValueError(f"seed_mode 는 {SEED_MODES} 중 하나여야 한다: {seed_mode}")
@@ -32,6 +33,7 @@ class VertexExtractor:
         self.seed_mode = seed_mode
         self.end_thresh = end_thresh
         self.fg_thresh = fg_thresh
+        self.local_max = local_max
 
     def __call__(self, output) -> dict:
         """학습 dilation 없이 노드 셀을 고르고 정점 속성을 모은다."""
@@ -39,6 +41,8 @@ class VertexExtractor:
         heat = _sigmoid(arrays["heatmap_logit"])
         label = arrays["class_logit"].argmax(axis=-1)
         keep = arrays["node_mask"] & (heat > self.heatmap_thresh) & self._foreground(arrays, label)
+        if self.local_max:
+            keep = _ridge_only(keep, heat * _best_class_prob(arrays), arrays["conn_dir"])
         cells = np.argwhere(keep)
         rows, cols = cells[:, 0], cells[:, 1]
         coord = arrays["self_coord"][rows, cols]
@@ -120,3 +124,29 @@ def _sigmoid(x: np.ndarray) -> np.ndarray:
 def _softmax(x: np.ndarray) -> np.ndarray:
     shifted = np.exp(x - x.max(axis=-1, keepdims=True))
     return shifted / shifted.sum(axis=-1, keepdims=True)
+
+
+def _best_class_prob(arrays: dict) -> np.ndarray:
+    """셀마다 가장 높은 클래스 확률 — 점수의 두 인수 중 하나다."""
+    return _softmax(arrays["class_logit"]).max(axis=-1)
+
+
+def _ridge_only(keep: np.ndarray, score: np.ndarray, conn_dir: np.ndarray) -> np.ndarray:
+    """**선의 법선 방향으로만** 비최대 억제 — 넓은 전경 띠를 한 줄 능선으로 줄인다.
+
+    중복 선의 원인은 모델이 정답보다 넓은 띠를 전경으로 부르고 그 띠에서 정점이 **두 줄**
+    잡히는 것이다(겹친 쌍 간격 중앙 1.8 px = 한 셀 이내). 진행 방향으로 억제하면 선이
+    끊기므로, **예측된 연결 방향에 수직인 쪽만** 본다.
+    """
+    direction = conn_dir[..., 0, :]
+    norm = np.linalg.norm(direction, axis=-1, keepdims=True)
+    unit = np.divide(direction, norm, out=np.zeros_like(direction), where=norm > 1e-9)
+    offset = np.stack([-unit[..., 1], unit[..., 0]], axis=-1)  # 법선 (x, y)
+    rows, cols = np.indices(keep.shape)
+    survive = keep.copy()
+    for sign in (1, -1):
+        near_r = np.clip(rows + np.rint(sign * offset[..., 1]).astype(int), 0, keep.shape[0] - 1)
+        near_c = np.clip(cols + np.rint(sign * offset[..., 0]).astype(int), 0, keep.shape[1] - 1)
+        neighbour = np.where(keep[near_r, near_c], score[near_r, near_c], -1.0)
+        survive &= score >= neighbour
+    return survive
