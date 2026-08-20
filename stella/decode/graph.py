@@ -63,6 +63,7 @@ class ChainDecoder:
         perp_thresh: float,
         max_turn_deg: float,
         fg_thresh: float,
+        vertex_local_max: bool,
         w_dist: float,
         dedup_high: float,
         dedup_low: float,
@@ -101,6 +102,7 @@ class ChainDecoder:
             seed_mode=seed_mode,
             end_thresh=end_thresh,
             fg_thresh=fg_thresh,
+            local_max=vertex_local_max,
         )
         self.merger = ChainMerger(gap=merge_gap, align_cos=merge_align)
         self.resolver = DuplicateResolver(

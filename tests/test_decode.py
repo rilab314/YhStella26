@@ -267,3 +267,25 @@ def test_length_floor_spares_short_classes():
     points = np.array([[100.0, 50.0], [111.0, 50.0]], dtype=np.float32)
     decoded = decode_gt(cfg, decoder, [{"class": 9, "points": points}])
     assert len(decoded) == 1 and len(decoded[0]["points"]) == 3
+
+
+def test_vertex_local_max_is_perpendicular_only():
+    """정점 억제는 **법선 방향으로만** 한다 — 진행 방향으로 누르면 선이 끊긴다.
+
+    가로로 곧은 띠(두 줄)를 주면 아래 줄만 남고, 줄의 길이(진행 방향)는 그대로여야 한다.
+    """
+    import numpy as np
+
+    from stella.decode.vertices import _ridge_only
+
+    keep = np.zeros((6, 8), dtype=bool)
+    keep[2, 1:7] = True  # 같은 선 위의 두 줄 — 한 칸 차이로 나란하다
+    keep[3, 1:7] = True
+    score = np.zeros((6, 8), dtype=np.float32)
+    score[2, 1:7] = 0.9
+    score[3, 1:7] = 0.5
+    conn = np.zeros((6, 8, 2, 2), dtype=np.float32)
+    conn[..., 0, 0] = 1.0  # 진행 방향 = +x, 법선 = y
+    survive = _ridge_only(keep, score, conn)
+    assert survive[2, 1:7].all()  # 센 줄은 통째로 살아남는다 (진행 방향 억제 없음)
+    assert not survive[3, 1:7].any()  # 약한 줄은 사라진다
