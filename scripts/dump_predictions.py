@@ -25,6 +25,7 @@ from stella.builder import build_instance
 from stella.config_io import apply_override, apply_saved_config, load_config
 from stella.data.types import GridDatasetBase, collate_fn
 from stella.decode.cache import save_prediction
+from stella.eval import runlog
 from stella.model.inject import gt_model_output
 
 MODEL_PREFIX = "model."
@@ -160,13 +161,17 @@ def _rename_legacy(weights: dict, expected: set) -> dict:
 
 
 def _latest_ckpt(run: str) -> str:
+    """실행 폴더에서 쓸 체크포인트 — **검증 점수가 가장 좋은 에폭**을 고른다.
+
+    예전에는 `last.ckpt` 를 먼저 집었는데 그 파일은 최종 에폭이 아니다(`runlog` 참고).
+    점수를 못 읽으면 그때만 예전 방식(가장 최근에 쓰인 파일)으로 물러선다.
+    """
     if not run:
         return ""
-    directory = Path(run) / "checkpoints"
-    last = directory / "last.ckpt"
-    if last.exists():
-        return str(last)
-    files = sorted(directory.glob("*.ckpt"), key=lambda p: p.stat().st_mtime)
+    best = runlog.best_checkpoint(Path(run))
+    if best is not None:
+        return str(best)
+    files = sorted((Path(run) / "checkpoints").glob("*.ckpt"), key=lambda p: p.stat().st_mtime)
     return str(files[-1]) if files else ""
 
 
