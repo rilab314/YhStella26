@@ -29,6 +29,7 @@ class SelfSlotLoss(LossModule):
         class_bg_weight: float,
         class_freq_power: float,
         class_freq_norm: str,
+        length_power: float,
         num_classes: int,
         w_fg: float,
         fg_pos_weight: float,
@@ -41,6 +42,7 @@ class SelfSlotLoss(LossModule):
         self.class_bg_weight = class_bg_weight
         self.w_fg = w_fg
         self.fg_pos_weight = fg_pos_weight
+        self.length_power = length_power
         self.register_buffer(
             "class_weight",
             self._build_class_weight(
@@ -127,7 +129,29 @@ class SelfSlotLoss(LossModule):
             return output.class_logit.sum() * 0.0
         label = targets["class_map"][selected]
         logit = output.class_logit[selected].float()
-        return F.cross_entropy(logit, label, weight=self.class_weight.to(logit.dtype))
+        weight = self.class_weight.to(logit.dtype)
+        if self.length_power <= 0.0:
+            return F.cross_entropy(logit, label, weight=weight)
+        per_cell = F.cross_entropy(logit, label, weight=weight, reduction="none")
+        scale = weight[label] * self._length_weight(targets["length_map"][selected])
+        return (per_cell * scale).sum() / scale.sum().clamp(min=1e-9)
+
+    def _length_weight(self, length: torch.Tensor) -> torch.Tensor:
+        """셀 가중을 그 셀이 속한 **선의 길이에 반비례**하게 — 선 하나 = 한 표에 가깝게.
+
+        손실은 셀 단위인데 지표는 선 단위다. 실측(08-20): 20칸 미만 선이 정답 선의 46%인데
+        셀로는 13.6% 뿐이고, 그 구간의 정점 검출률은 0.339 로 70칸 이상(0.595)의 57%다.
+
+        **전경 평균 1로 정규화한다** — 총 전경 신호는 그대로 두고 긴 선에서 짧은 선으로
+        옮기기만 한다. 배경(길이 0)은 1로 둔다. 극단을 막으려 [0.25, 4]로 자른다.
+        """
+        weight = torch.ones_like(length)
+        positive = length > 0
+        if not bool(positive.any()):
+            return weight
+        raw = (length[positive].median() / length[positive]) ** self.length_power
+        weight[positive] = (raw / raw.mean()).clamp(0.25, 4.0)
+        return weight
 
     @staticmethod
     def _coord_loss(output, targets: dict, positive: torch.Tensor) -> torch.Tensor:

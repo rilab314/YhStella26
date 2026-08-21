@@ -242,3 +242,27 @@ def test_fg_loss_is_skipped_when_weight_is_zero():
     assert float(base["fg"]) == 0.0
     assert torch.allclose(base["total"], lifted["total"] - lifted["fg"])
     assert float(lifted["fg"]) > 0.0  # 켜면 실제로 계산된다
+
+
+def test_length_weight_favours_short_lines_and_keeps_scale():
+    """길이 역가중은 **재분배**다 — 짧은 선을 올리고 긴 선을 내리되 전경 평균은 1로 둔다.
+
+    손실은 셀 단위인데 지표는 선 단위다. 총 전경 신호를 키우면 배경과의 균형이 흔들리므로
+    평균 1 정규화가 계약이다. 배경(길이 0)은 건드리지 않는다.
+    """
+    import torch as _torch
+
+    from stella.loss.self_slot import SelfSlotLoss
+
+    cfg = get_config()
+    cfg.loss.self_slot.length_power = 1.0
+    module = build_instance(cfg.loss.self_slot, cfg)
+    length = _torch.tensor([0.0, 5.0, 20.0, 100.0])
+    weight = module._length_weight(length)
+    assert float(weight[0]) == 1.0  # 배경은 그대로
+    assert weight[1] > weight[2] > weight[3]  # 짧을수록 무겁다
+    assert (
+        abs(float(weight[1:].mean()) - 1.0) < 0.35
+    )  # 평균 1 근처 (자르기 때문에 정확히 1은 아니다)
+    assert float(weight[1:].max()) <= 4.0 and float(weight[1:].min()) >= 0.25
+    assert isinstance(module, SelfSlotLoss)

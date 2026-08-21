@@ -101,6 +101,7 @@ class GridDatasetBase(Dataset):
     | `coord_map` | float32 | (L, L, 2)    | 소유 선 픽셀의 무게중심, 원점 = 셀 좌상단          |
     | `end_map`   | float32 | (L, L)       | 이 셀이 사슬의 끝 셀인지 — 직접 감독 대상 (8.2절)    |
     | `conn_dirs` | float32 | (L, L, D, 2) | 연결 방향 2개 — 자기 점 -> 사슬 이웃 점 단위벡터    |
+    | `length_map`| float32 | (L, L)       | 셀이 속한 선의 길이(소유 셀 수). 배경 0 (8.2절)     |
     | `instances` | list    | —            | 평가용 원본 폴리라인. 학습 미사용                 |
     | `meta`      | dict    | —            | filename 등                           |
 
@@ -122,7 +123,7 @@ def make_sample(
     """계약에 맞는 한 샘플을 만든다. image는 (H, W, 3) float32 [0, 1]."""
     chw = np.ascontiguousarray(image.transpose(2, 0, 1), dtype=np.float32)
     sample: dict[str, Any] = {"image": torch.from_numpy(chw)}
-    for key in ("class_map", "coord_map", "end_map", "conn_dirs"):
+    for key in ("class_map", "coord_map", "end_map", "conn_dirs", "length_map"):
         sample[key] = torch.from_numpy(np.ascontiguousarray(target[key]))
     sample["instances"] = instances
     sample["meta"] = meta

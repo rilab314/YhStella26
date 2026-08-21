@@ -22,5 +22,5 @@ def get_config() -> ExperimentConfig:
     # bs=1이라 이 값이 곧 검증 장수. **val 1,282장의 절반 이상을 쓴다** (사용자 지시 08-18).
     # 320장은 표본이 작아 판정이 흔들렸다 — 판정 밴드를 2%로 좁힌 이상 표본도 키워야 한다.
     cfg.train.limit_val_batches = 700.0
-    cfg.log.max_batches = 4
+    cfg.log.max_batches = 20  # 4장은 눈으로 보기에 너무 적다 (사용자 지시 08-20)
     return cfg

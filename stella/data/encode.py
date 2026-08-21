@@ -52,6 +52,7 @@ class ChainEncoder:
         traces = [t for t in map(self._trace_line, instances) if t is not None]
         owner, coord = self._resolve_ownership(traces)
         class_map = self._class_map(traces, owner)
+        length_map = self._length_map(traces, owner)
         end_map, conn_dirs = self._topology_stage(traces, owner, coord)
         side = self.grid_size
         self.stats["lines"] += len(instances)
@@ -61,6 +62,7 @@ class ChainEncoder:
             "coord_map": np.clip(coord, 0.0, 0.999999).reshape(side, side, 2),
             "end_map": end_map.reshape(side, side),
             "conn_dirs": conn_dirs.reshape(side, side, 2, 2),
+            "length_map": length_map.reshape(side, side),
         }
 
     # --- (A) 선별 래스터 -> 셀 통계·셀 열, 끝칸·잉여 셀 제거 --------------------------
@@ -167,6 +169,17 @@ class ChainEncoder:
     def _class_map(self, traces: list[dict], owner: np.ndarray) -> np.ndarray:
         labels = np.array([t["label"] for t in traces] + [0], dtype=np.int64)
         return np.where(owner >= 0, labels[owner], 0)
+
+    def _length_map(self, traces: list[dict], owner: np.ndarray) -> np.ndarray:
+        """셀이 속한 **선의 길이**(소유 셀 수). 배경은 0.
+
+        손실은 셀 단위인데 지표는 선 단위다 — 100칸 선은 100표, 7칸 선은 7표를 갖는다.
+        실측(08-20): 20칸 미만 선이 정답 선의 46%인데 셀로는 13.6% 뿐이고, 그 구간의
+        정점 검출률이 0.339 로 70칸 이상(0.595)의 57% 에 그친다. 손실 쪽에서 그 불균형을
+        보려면 셀마다 자기 선의 길이를 알아야 하므로 여기서 실어 보낸다.
+        """
+        counts = np.array([len(t["cells"]) for t in traces] + [0], dtype=np.float32)
+        return np.where(owner >= 0, counts[owner], 0.0)
 
     # --- (B) 선별 위상 -> conn_dirs, end_map ----------------------------------------
 

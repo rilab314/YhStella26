@@ -25,7 +25,7 @@ from stella.data.types import CATEGORY_ID_TO_LABEL, GridDatasetBase, make_sample
 
 SPLITS = ("train", "val", "test")
 CACHED_SPLITS = {"val_test": ("val", "test"), "all": ("train", "val", "test"), "none": ()}
-TARGET_KEYS = ("class_map", "coord_map", "end_map", "conn_dirs")
+TARGET_KEYS = ("class_map", "coord_map", "end_map", "conn_dirs", "length_map")
 
 
 class SeedMapDataset(GridDatasetBase, Buildable):
