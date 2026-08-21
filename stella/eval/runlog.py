@@ -74,6 +74,31 @@ def merge_by_epoch(path: Path) -> dict[int, dict]:
     return merged
 
 
+def best_checkpoint(run: Path, key: str = PRESENCE_KEY, mode: str = "max") -> Path | None:
+    """검증 점수가 가장 좋은 **에폭의** 체크포인트. 없으면 None.
+
+    `last.ckpt` 를 쓰지 않는다 — Lightning 2.6.5 는 **상위 k 저장이 실제로 일어난 에폭에만**
+    그 파일을 갱신한다(`callbacks/model_checkpoint.py` 515-519행). 그래서 그 파일이 담는 것은
+    마지막 에폭이 아니라 "마지막으로 상위 k 에 든 에폭"이다 — F02(40에폭 학습)에서 29에폭에
+    멈춰 있었고, 이름만 보고 최종 가중치라 믿으면 조용히 틀린 모델을 채점한다.
+
+    `metrics.csv` 의 점수와 실제로 남아 있는 `epochNNN.ckpt` 를 **에폭 번호로** 맞춰 고른다.
+    """
+    saved = {_epoch_number(p): p for p in sorted((run / "checkpoints").glob("epoch*.ckpt"))}
+    if not saved or not (run / "metrics.csv").exists():
+        return None
+    merged = merge_by_epoch(run / "metrics.csv")
+    scored = [(float(merged[e][key]), e) for e in saved if key in merged.get(e, {})]
+    if not scored:
+        return None
+    return saved[(max if mode == "max" else min)(scored)[1]]
+
+
+def _epoch_number(path: Path) -> int:
+    """`epoch029.ckpt` -> 29. 파일명 규약은 `train.py` 의 `filename="epoch{epoch:03d}"`."""
+    return int(path.stem.removeprefix("epoch"))
+
+
 def mean_of(merged: dict, epochs: list[int], key: str) -> float | None:
     values = [float(merged[e][key]) for e in epochs if key in merged[e]]
     return sum(values) / len(values) if values else None

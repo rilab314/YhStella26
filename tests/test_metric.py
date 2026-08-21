@@ -4,6 +4,7 @@ import numpy as np
 
 from configs.exp_synthetic import get_config
 from stella.builder import build_instance
+from stella.eval import runlog
 
 
 def make_metric(**overrides):
@@ -123,3 +124,26 @@ def test_per_class_keys_only_for_present_classes():
     assert "f1/lane_line" in result and "f1/stop_line" in result
     assert "f1/bicycle_lane" not in result
     assert float(result["f1_macro"]) == 1.0
+
+
+def test_best_checkpoint_ignores_last_ckpt(tmp_path):
+    """`last.ckpt` 는 최종 에폭이 아니다 — 점수가 가장 좋은 에폭 파일을 골라야 한다.
+
+    Lightning 2.6.5 는 상위 k 저장이 일어난 에폭에만 `last.ckpt` 를 갱신한다. F02(40에폭)에서
+    그 파일이 29에폭에 멈춰 있었다. 이름을 믿고 집으면 조용히 다른 모델을 채점하게 된다.
+    """
+    run = tmp_path / "run"
+    (run / "checkpoints").mkdir(parents=True)
+    rows = ["epoch,val/inst/f1"] + [f"{e},{0.30 + 0.01 * e}" for e in range(4)]
+    (run / "metrics.csv").write_text("\n".join(rows), encoding="utf-8")
+    for name in ("epoch001.ckpt", "epoch002.ckpt", "last.ckpt"):
+        (run / "checkpoints" / name).write_bytes(b"")
+    assert runlog.best_checkpoint(run).name == "epoch002.ckpt"
+
+
+def test_best_checkpoint_without_scores_returns_none(tmp_path):
+    """점수를 못 읽으면 None — 부르는 쪽이 예전 방식으로 물러설 수 있어야 한다."""
+    run = tmp_path / "run"
+    (run / "checkpoints").mkdir(parents=True)
+    (run / "checkpoints" / "epoch000.ckpt").write_bytes(b"")
+    assert runlog.best_checkpoint(run) is None
