@@ -5,6 +5,7 @@
 
 import dataclasses
 import importlib
+import types
 from pathlib import Path
 
 import pytest
@@ -117,3 +118,21 @@ def test_class_freq_floor_never_suppresses_common_classes():
     assert floor[1:].min() >= 1.0
     assert floor[1:].max() > 1.0  # 그러면서 희소는 올라간다
     assert float(SelfSlotLoss._build_class_weight(12, 0.0, 1.0, "floor")[1:].max()) == 1.0
+
+
+def test_gt_cache_key_separates_grid_stride(tmp_path):
+    """격자 간격이 다르면 GT 캐시 폴더가 갈려야 한다 — 기본값(4)일 때는 이름이 그대로다.
+
+    GT 맵의 크기가 stride 로 정해지는데 폴더 이름이 같으면 stride 8 실행이 stride 4 캐시를
+    조용히 읽는다. 그러면 "stride 8 이 나쁘다"는 **틀린 결론**이 나온다.
+    """
+    from stella.data.seedmap import SeedMapDataset
+
+    def suffix(stride: int, lookahead: int) -> str:
+        dataset = object.__new__(SeedMapDataset)
+        dataset.encoder = types.SimpleNamespace(grid_stride=stride, conn_lookahead=lookahead)
+        return dataset._cache_suffix()
+
+    assert suffix(4, 1) == ""
+    assert suffix(8, 1) == "_s8"
+    assert suffix(8, 2) == "_look2_s8"
