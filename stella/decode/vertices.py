@@ -23,6 +23,7 @@ class VertexExtractor:
         seed_mode: str,
         end_thresh: float,
         fg_thresh: float,
+        bg_prob_max: float,
         local_max: bool,
     ):
         if seed_mode not in SEED_MODES:
@@ -33,6 +34,7 @@ class VertexExtractor:
         self.seed_mode = seed_mode
         self.end_thresh = end_thresh
         self.fg_thresh = fg_thresh
+        self.bg_prob_max = bg_prob_max
         self.local_max = local_max
 
     def __call__(self, output) -> dict:
@@ -60,7 +62,17 @@ class VertexExtractor:
         }
 
     def _foreground(self, arrays: dict, label: np.ndarray) -> np.ndarray:
-        """전경 판정. `fg_thresh < 0`이면 기존 `argmax != 0`, 아니면 이진 로짓 (E12)."""
+        """전경 판정. `bg_prob_max > 0`이면 배경 확률 문턱, `fg_thresh >= 0`이면 이진 로짓(E12),
+        둘 다 꺼져 있으면 기존 `argmax != 0`.
+
+        **여기가 짧은 선이 새는 곳이다** (08-22 실측, val 120장). 정답 칸이 히트맵 문턱까지는
+        0.889 가 통과하는데 이 관문을 지나면 **0.291** 만 남는다. 70칸 이상 선은 0.967 -> 0.500
+        이라, 짧은 선이 이 관문에서만 유독 더 깎인다. `argmax != 0` 은 **배경 확률이 최대 클래스
+        확률보다 조금이라도 크면 버리는** 가장 빡빡한 규칙이라, 애매한 칸이 전부 배경이 된다.
+        배경 확률 문턱은 그 규칙을 연속적으로 풀어 정밀도와 맞바꿀 수 있게 한다.
+        """
+        if self.bg_prob_max > 0.0:
+            return _softmax(arrays["class_logit"])[..., 0] < self.bg_prob_max
         if self.fg_thresh < 0.0:
             return label > 0
         return _sigmoid(arrays["fg_logit"]) > self.fg_thresh

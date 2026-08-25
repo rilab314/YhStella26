@@ -23,6 +23,7 @@ from stella.data.augment import VectorAugment
 from stella.data.encode import ChainEncoder
 from stella.data.types import CATEGORY_ID_TO_LABEL, GridDatasetBase, make_sample
 
+DEFAULT_GRID_STRIDE = 4  # 이 값일 때만 캐시 폴더 이름에 접미사가 붙지 않는다
 SPLITS = ("train", "val", "test")
 CACHED_SPLITS = {"val_test": ("val", "test"), "all": ("train", "val", "test"), "none": ()}
 TARGET_KEYS = ("class_map", "coord_map", "end_map", "conn_dirs", "length_map")
@@ -85,15 +86,25 @@ class SeedMapDataset(GridDatasetBase, Buildable):
         """인코딩 설정이 기본값이 아니면 **폴더를 나눈다** — 안 그러면 낡은 GT를 조용히 읽는다.
 
         기본값일 때 이름을 그대로 두어 이미 떠 둔 캐시가 살아 있게 한다.
+        **격자 간격(`grid_stride`)도 키에 들어간다** — GT 맵의 크기 자체가 달라지는데
+        이름이 같으면 stride 8 실행이 stride 4로 인코딩된 캐시를 조용히 읽는다
+        (08-24, 논문의 stride ablation 을 띄우기 직전에 발견).
         """
         if split not in CACHED_SPLITS[cache_gt] or self.augment is not None:
             return None
         base = Path(cache_dir) if cache_dir else self.root / "gt_cache"
-        lookahead = self.encoder.conn_lookahead
-        name = split if lookahead == 1 else f"{split}_look{lookahead}"
-        path = base / name
+        path = base / (split + self._cache_suffix())
         path.mkdir(parents=True, exist_ok=True)
         return path
+
+    def _cache_suffix(self) -> str:
+        """기본값(lookahead 1 · stride 4)이면 빈 문자열 — 기존 캐시가 그대로 살아 있어야 한다."""
+        parts = []
+        if self.encoder.conn_lookahead != 1:
+            parts.append(f"look{self.encoder.conn_lookahead}")
+        if self.encoder.grid_stride != DEFAULT_GRID_STRIDE:
+            parts.append(f"s{self.encoder.grid_stride}")
+        return "".join(f"_{p}" for p in parts)
 
     def __len__(self) -> int:
         return len(self.stems)
