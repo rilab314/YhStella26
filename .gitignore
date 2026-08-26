@@ -13,5 +13,6 @@ dist
 .ruff_cache
 experiment
 
-docs/paper_outline.html
+docs/html/
+docs/paper_outline_html.zip
 docs/figures/

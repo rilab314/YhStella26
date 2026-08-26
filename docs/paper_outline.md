@@ -1,7 +1,8 @@
 # STELLA 논문 개요 (한글 설계안)
 
 > **작성일** 2026-08-14 · **최종 갱신** 2026-08-26 · **대상** STELLA(위성영상 차선표시 검출) 논문 1차 원고
-> **위치** 이 파일 `docs/paper_outline.md` · 같은 내용의 열람용 HTML `docs/paper_outline.html` ·
+> **위치** 이 파일 `docs/paper_outline.md` · 같은 내용의 열람용 HTML `docs/html/paper_outline.html`
+> (내려받아 보기 좋게 압축한 `docs/paper_outline_html.zip`도 항상 최신으로 유지 — html 수정 시마다 재압축) ·
 > 데이터 그림 `docs/figures/*.png`(전부 실측 재현 가능 — §3 각 항목에 원본 스크립트 위치)
 > **참조** `docs/*.md`(구현 설계) · `../materials/papers/*`(직접 내려받아 읽은 대조 논문 12편)
 
