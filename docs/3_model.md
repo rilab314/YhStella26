@@ -1,7 +1,7 @@
 # 모델과 손실 (7~8절)
 
 백본·neck·히트맵·어텐션 스택·출력 헤드, 그리고 그 출력을 감독하는 손실 세 모듈.
-전체 색인과 문서 작성 원칙은 [design.md](design.md)에 있다.
+전체 색인과 문서 작성 원칙은 [0_design.md](0_design.md)에 있다.
 
 ---
 
@@ -37,11 +37,17 @@ image (B,3,768,768), [0,1]
 | `class_logit`   | `float32 (192, 192, C)`    | logit    | self 슬롯의 클래스 예측 (0 = 배경 포함)                                   |
 | `self_coord`    | `float32 (192, 192, 2)`    | $[0, 1]$ | self 슬롯의 셀 내 좌표. sigmoid. 원점 = **셀 좌상단**                      |
 | `end_logit`     | `float32 (192, 192)`       | logit    | self 슬롯의 "**이 셀이 사슬의 끝**"일 확률 — `end_map` 직접 감독                |
+| `fg_logit`      | `float32 (192, 192)`       | logit    | "이 셀이 전경이냐"만 보는 이진 로짓. `model.fg_head`가 꺼져 있으면(기본) 전부 0이다        |
 | `exist_logit`   | `float32 (192, 192, R)`    | logit    | 슬롯별 연결 존재 확률                                                  |
 | `conn_dir`      | `float32 (192, 192, R, 2)` | 단위벡터     | 슬롯별 연결 방향. `F.normalize`. 원점 = **자기 노드 점**(6.1절), 목표 = 상대 노드 점 |
 
 슬롯별 `t_logit`(연결 대상이 종점/다른 클래스 접합)은 두지 않는다 — 끝 판정은 셀 단위
 `end_logit`이 맡고, 다른 클래스 접합 간선은 이 인코딩에 없다(6.4절). *(사용자 확정 — 결정 32.)*
+
+**`fg_logit`은 기본값에서 꺼져 있다.** 디코더의 배경 필터는 12지 클래스 로짓의 `argmax`만 쓰는데
+(10.2절), 그 로짓은 "배경이냐"와 "무슨 종류냐"를 겸한다 — 손실의 대부분을 종류 혼동이 먹으면서
+정작 치명적인 "배경이라 부름"과 경쟁한다는 가설로 전경 전용 채널을 열어 두었다.
+`model.fg_head = False`면 파라미터가 아예 생기지 않고 출력은 0으로 채워진다.
 
 **GT와 모델 출력은 같은 형태다 (설계 방침 1).** heatmap↔`class_map > 0`,
 `class_logit`↔`class_map`, `self_coord`↔`coord_map`, `end_logit`↔`end_map`,
@@ -54,7 +60,9 @@ image (B,3,768,768), [0,1]
 바꿔 "완벽한 예측"을 만든다. 실제 학습·추론 경로에서는 쓰이지 않고, **파이프라인의 다른 부분을
 독립적으로 검증**하는 테스트·측정 전용 유틸리티다 — 디코더가 GT를 그대로 복원하는지(M12,
 10절), 손실이 매칭된 완벽한 입력에서 0으로 수렴하는지(M11, 8절), 그리고 개선 루프에서 "모델이
-완벽해지면 지표가 얼마까지 오를 수 있는가"(천장, GT 주입 인스턴스 F1 0.976)를 잰다.
+완벽해지면 지표가 얼마까지 오를 수 있는가"(천장)를 잰다. **현행 디코더·평가 설정에서 천장은
+0.941이다** — 이 값은 설정을 바꿀 때마다 다시 재야 하고, 개선안이 천장을 깎지 않는지 보는 것이
+게이트의 핵심 검사다.
 
 ### 7.2. Backbone — `model/backbone.py`
 
@@ -65,7 +73,7 @@ image (B,3,768,768), [0,1]
 Backbone(nn.Module, Buildable)          # 계약: forward(x) -> list[Tensor], out_channels, strides
 ├── HuggingFaceBackbone                 # transformers 공통: AutoModel/AutoImageProcessor 로드,
 │   │                                   #   processor에서 mean/std 추출, 게이트 토큰 처리
-│   └── Dinov3Backbone                  #   ViT 패치 토큰 → 1레벨 맵 (게이트 승인 대기, 14절)
+│   └── Dinov3Backbone                  #   ViT 패치 토큰 → 1레벨 맵 (가중치 로컬 확보, 14절)
 └── TimmBackbone                        # timm 공통: create_model(pretrained=True),
     │                                   #   default_cfg에서 mean/std 추출
     ├── ConvNeXtBackbone                #   4레벨 (stride 4/8/16/32) — 현재 기본값
@@ -81,7 +89,7 @@ Backbone(nn.Module, Buildable)          # 계약: forward(x) -> list[Tensor], ou
 스케일은 `pretrained` 문자열이 정한다. 채널 수·레이어 수는 로드한 모델에서 읽어 `out_channels`에 채운다.
 
 ```python
-# configs/exp_dinov3.py — 게이트 승인 전에는 check_all은 통과하지만 생성 시 GatedRepoError가 난다
+# configs/exp_dinov3.py — 가중치는 로컬 캐시에 있고 조립·전방 통과가 확인됐다 (14절)
 cfg.model.backbone.name = "Dinov3Backbone"
 cfg.model.backbone.pretrained = "facebook/dinov3-vitl16-pretrain-sat493m"
 cfg.model.neck.name = "SFP"  # ViT는 1레벨만 내므로 SFP와 짝짓는다
@@ -99,7 +107,7 @@ cfg.model.neck.name = "SFP"  # ViT는 1레벨만 내므로 SFP와 짝짓는다
 
 | 우선순위       | 클래스 / 모델                                                                                 | 출력                          | 비고                                                 |
 | ---------- | ---------------------------------------------------------------------------------------- | --------------------------- | -------------------------------------------------- |
-| 1 (목표, 대기) | `Dinov3Backbone` — **DINOv3 ViT-L/16 위성 사전학습** `facebook/dinov3-vitl16-pretrain-sat493m` | 패치 토큰 → `(B, 1024, 48, 48)` | 위성 영상 4.9억 장 사전학습 dense 특화. **HF 게이트 미승인 — 아직 못 씀**(14절). `configs/exp_dinov3.py`로 전환 준비는 끝났다 |
+| 1 (목표, 미학습) | `Dinov3Backbone` — **DINOv3 ViT-L/16 위성 사전학습** `facebook/dinov3-vitl16-pretrain-sat493m` | 패치 토큰 → `(B, 1024, 48, 48)` | 위성 영상 4.9억 장 사전학습 dense 특화. **가중치는 로컬에 있고 조립·전방 통과 확인됨** — 남은 것은 이 백본으로 한 번 학습해 재는 일뿐이다(14절) |
 | **2 (현재 기본)** | `ConvNeXtBackbone` — `convnextv2_base.fcmae_ft_in22k_in1k_384`                        | 4레벨 (stride 4/8/16/32)      | `configs/base.py` 기본값. 게이트 없음. DINOv3 승인 전 대역 백본 |
 | 3          | `SwinBackbone` — SwinV2-L 등                                                              | 4레벨, `img_size` 고정 입력 필요    | 게이트 없음. FPNLite 경로 대조군                              |
 | 4          | `TimmVitBackbone` — `vit_base_patch16_224.augreg_in21k` 등                                | 패치 토큰 → 1레벨                  | 게이트 없는 ViT. `configs/exp_vit_sfp.py` — SFP 경로 검증용  |
@@ -228,10 +236,11 @@ $$
 - **윈도우 층은 $N \times N$ 마스크가 아니라 이웃 gather 방식이다.**
   셀당 노드가 최대 하나이므로 $w \times w$ 격자 오프셋을 그대로 gather 하면 결과가 같으면서
   어텐션 행렬이 $(N, K, w^2)$로 줄어든다.
-- **`window_size = 7` (실측 근거).** 활성 메모리가 $w^2$에 비례하는데
-  ($k$·$v$·RoPE 사본이 노드당 $w^2 \times 256$짜리 텐서로 층마다 생긴다) 실제 연결은
-  디코더 탐색 반경 2셀 안에서 일어난다 — $\pm 4$셀(w=9)을 볼 근거가 없다.
+- **`window_size = 7` (실측 근거).** 활성 메모리가 $w^2$에 비례한다
+  ($k$·$v$·RoPE 사본이 노드당 $w^2 \times 256$짜리 텐서로 층마다 생긴다).
   실측(n_max 6000, bs 1): **peak 12.09 → 9.72 GiB, step 455 → 291 ms.**
+  실제로 이어지는 거리도 창 안이다 — 디코딩된 한 스텝의 길이는 99%가 16.5 px(약 4셀)이고
+  디코더 탐색 반경 자체가 5셀이다(10.3절). $\pm 4$셀(w=9)이 더 낫다는 근거는 아직 없다.
 - **윈도우 층만 gradient checkpointing** (`grad_checkpoint`, 기본 on). 활성의 대부분이 위
   gather에 있고 재계산 비용은 gather + 어텐션뿐이라 싸다. 전역 층은 kv가 $(N, 256)$ 하나라
   제외한다. 기울기 불변은 테스트로 고정(`test_grad_checkpoint_leaves_gradients_unchanged`).
@@ -300,10 +309,13 @@ $$
 | $w_{coord}$ | self 슬롯 좌표 SmoothL1  | 〃                    |
 | $w_{end}$   | 끝 셀 BCE (8.2)        | 〃                    |
 | $w_{e}$     | 연결 존재 BCE (8.4)      | `ConnLossConfig`     |
-| $w_{dir}$   | 연결 방향 (1 − 내적)       | 〃                    |
+| $w_{dir}$   | 연결 방향 오차 (기본 acos/π) | 〃                    |
 
 `focal_alpha`·`focal_gamma`와 `match_w_dir`·`match_w_exist`는 **가중치가 아니다.** 앞의 둘은 focal 항의 형태를,
 뒤의 둘은 **매칭 비용**(8.3절, 어느 슬롯이 어느 분기를 맡을지)을 정한다. 총합의 크기에 곱해지지 않는다.
+
+일곱 번째 항 $w_{fg}\mathcal{L}_{fg}$(전경/배경 이진 BCE, `SelfSlotLossConfig.w_fg`)는 **기본값이
+0이라 계산되지 않는다** — `model.fg_head`를 켤 때만 살아나는 선택 항이다(7.1절).
 
 **공통 인터페이스.** 각 모듈은 `forward(output: ModelOutput, targets: dict) -> dict[str, Tensor]`로
 **항목별 원시 손실 dict**를 낸다. `"total"` 키에 자기 항목들의 가중합을 담는다.
@@ -317,25 +329,30 @@ class HeatmapLoss(nn.Module, Buildable):
 
 
 class SelfSlotLoss(nn.Module, Buildable):
-    # end_pos_weight·class_bg_weight·class_freq_power는 개선 루프 가설 백로그(4.1절).
-    # 기본값(1.0 / 1.0 / 0.0)은 전부 "가중 없음"이다.
+    # 클래스 CE의 가중 벡터를 만드는 손잡이가 넷이다 (8.2절):
+    #   class_bg_weight(기본 1.0 = 무동작) · class_freq_power(0.5) · class_freq_norm("floor")
+    #   · length_power(0.3 — 셀 가중을 선 길이에 반비례하게)
+    # w_fg·fg_pos_weight는 model.fg_head와 짝이다 — w_fg = 0이면 항 자체를 계산하지 않는다.
     # num_classes는 손실 config가 아니라 data config에 있어 from_cfg가 끌어온다.
     def __init__(
         self, *, w_class: float, w_coord: float, w_end: float,
         end_pos_weight: float, class_bg_weight: float,
-        class_freq_power: float, num_classes: int,
+        class_freq_power: float, class_freq_norm: str, length_power: float,
+        w_fg: float, fg_pos_weight: float, num_classes: int,
     ): ...
     def forward(self, output, targets) -> dict[str, Tensor]:
         return {
             "class": l_cls,
             "coord": l_coord,
             "end": l_end,
-            "total": self.w_class * l_cls + self.w_coord * l_coord + self.w_end * l_end,
+            "fg": l_fg,  # w_fg = 0이면 0
+            "total": self.w_class * l_cls + self.w_coord * l_coord
+            + self.w_end * l_end + self.w_fg * l_fg,
         }
 
 
 class ConnLoss(nn.Module, Buildable):
-    # exist_pos_weight·dir_loss도 가설 백로그 — 기본값(1.0·"cosine")은 아래 수식 그대로
+    # exist_pos_weight·dir_loss도 손잡이다 — dir_loss 기본값은 "angle"(8.4절)
     def __init__(
         self,
         *,
@@ -449,14 +466,23 @@ $$
   대신 두 번째 걸름망을 만든다.
 - **클래스 CE는 클래스별 가중 벡터 $\mathbf{w} \in \mathbb{R}^{C}$ 를 받는다.** 감소는
   $\sum_i w_{y_i} \ell_i / \sum_i w_{y_i}$ 이므로 **가중이 전부 1이면 단순 평균과 같다.**
-  손잡이 둘이 이 벡터를 만든다 (둘 다 개선 루프 가설 백로그).
-  - **`class_bg_weight`(기본 1.0)** — 배경 성분 $w_0$. 선택된 셀의 ~70%가 배경이라 CE가 배경에
-    지배될 수 있다는 가설을 시험한다.
-  - **`class_freq_power`(기본 0.0)** — 전경 성분. 인스턴스 빈도(`CLASS_INSTANCE_COUNT`)의
-    `-power` 승으로 희소 클래스를 올리고, **전경 성분의 평균이 1이 되도록 정규화**한다.
-    정규화가 있어야 `power`를 키워도 클래스 손실의 스케일이 변하지 않아 손실 균형이 유지된다.
-    희소 클래스 3종(`bus_only_lane`·`safety_zone`·`bicycle_lane`)이 검증 200장에서 한 번도
-    예측되지 않은 관측이 근거다. 빈도가 셀 수가 아니라 인스턴스 수라 선 길이만큼 근사가 섞인다.
+  손잡이 셋이 이 벡터(와 셀별 가중)를 만든다.
+  - **`class_bg_weight`(기본 1.0 = 무동작)** — 배경 성분 $w_0$. 선택된 셀의 ~70%가 배경이라 CE가
+    배경에 지배될 수 있다는 가설을 시험한다.
+  - **`class_freq_power`(기본 0.5)** — 전경 성분. 인스턴스 빈도(`CLASS_INSTANCE_COUNT`)의
+    `-power` 승으로 희소 클래스를 올린다. 희소 클래스 3종(`bus_only_lane`·`safety_zone`·
+    `bicycle_lane`)이 검증 200장에서 한 번도 예측되지 않은 관측이 근거다. 빈도가 셀 수가 아니라
+    인스턴스 수라 선 길이만큼 근사가 섞인다.
+  - **`class_freq_norm`(기본 `"floor"`)** — 위 가중을 어떻게 정규화하느냐. **이 선택이 축의
+    성패를 갈랐다.** `"mean"`(전경 성분의 평균을 1로 맞추는 재분배)은 희소를 올린 만큼 흔한
+    클래스를 눌러 `lane_line` 가중이 0.42가 되고 전경 인식이 42% 무너졌다. `"floor"`는 **1 아래로
+    내리지 않고 희소만 올린다** — 같은 축이 그제서야 이득을 냈다(종류별 평균 f1 +3.4%).
+- **`length_power`(기본 0.3) — 셀 가중을 그 셀이 속한 선의 길이에 반비례하게.** 손실은 셀
+  단위인데 지표는 선 단위라, 100칸짜리 선은 100표를 갖고 7칸짜리 선은 7표를 갖는다. 실측에서
+  20칸 미만 선이 정답 선의 46%인데 셀로는 13.6%뿐이었고 정점 검출률도 70칸 이상 선의 57%였다.
+  재분배이므로 **과하면 긴 선을 버린다** — 0.3에서 짧은 선 정답률 +20.5%, 0.5부터 긴 선이
+  깎이고 1.0에서는 붕괴한다. 같은 처방을 히트맵에 주는 손잡이(`HeatmapLossConfig.length_power`)도
+  있으나 **기본값 0(끔)이다** — 히트맵은 이미 정답 칸의 96%를 고르고 있어 살릴 여지가 없었다.
 
 **좌표 손실** — $\mathcal{P}$ 전체
 
@@ -536,16 +562,20 @@ $$
 \mathrm{BCE}\!\left(\sigma(\hat{e}_k),\; \mathbf{1}[k \text{ matched}]\right)
 $$
 
-**방향 손실** — 매칭된 쌍에만. 크기·좌표 감독 없이 **방향 차이만** 학습한다. `dir_loss`(기본
-`"cosine"`)가 형태를 고른다. 기본값의 값 범위는 $[0, 2]$:
+**방향 손실** — 매칭된 쌍에만. 크기·좌표 감독 없이 **방향 차이만** 학습한다. `dir_loss`가 곡선
+형태를 고르고, **기본값은 `"angle"`**이다 — 각도를 $\pi$로 나눈 값의 평균이라 범위가 $[0, 1]$이다:
 
 $$
-\mathcal{L}_{dir} = \frac{1}{N_{match}} \sum_{\text{matched}\,(k,m)} \left(1 - \hat{\mathbf{d}}_k \cdot \mathbf{d}^{gt}_m\right)
+\mathcal{L}_{dir} = \frac{1}{N_{match}} \sum_{\text{matched}\,(k,m)}
+\frac{1}{\pi}\arccos\!\left(\hat{\mathbf{d}}_k \cdot \mathbf{d}^{gt}_m\right)
 $$
 
-`dir_loss = "angle"`(가설 백로그)이면 $\frac{1}{\pi}\arccos(\hat{\mathbf{d}}_k \cdot \mathbf{d}^{gt}_m)$의
-평균으로 바뀐다 — 코사인 항은 오차가 작을수록 기울기가 0에 가까워지는데(1 근처에서 평평), 각도
-항은 작은 오차에서도 기울기가 살아 있다는 가설을 시험한다.
+`dir_loss = "cosine"`이면 $1 - \hat{\mathbf{d}}_k \cdot \mathbf{d}^{gt}_m$(범위 $[0, 2]$)로 바뀐다.
+**코사인을 기본에서 뺀 이유는 기울기다** — 코사인 항의 기울기는 오차 $\theta$에서 $\sin\theta$라
+정답에 가까워질수록 죽는다(6°에서 0.105). 각도 항은 그 구간에서 $1/\pi$로 **상수**라 계속 배운다.
+실측에서 방향 오차 평균이 6.61° → 6.24°로 줄고 f1이 2.0% 올랐다.
+**같은 균형 문제를 "가중치를 키워" 풀려는 시도는 정반대로 해로웠다** — `w_dir = 20`은 방향 항이
+커지자 정점 검출을 굶겨 f1을 21.4% 깎았다. 곡선을 고치는 쪽이 다른 항을 굶기지 않는다.
 
 끝 셀의 끝방향 분기도 똑같이 존재 1 + 방향으로 감독된다 — "선이 이쪽으로 끝났다"를 슬롯이
 말하게 하고, 셀이 끝이라는 사실은 $\mathcal{L}_{end}$(8.2)가 따로 말한다.

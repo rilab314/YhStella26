@@ -12,3 +12,7 @@ dist
 .pytest_cache
 .ruff_cache
 experiment
+
+docs/paper_outline.md
+docs/paper_outline.html
+docs/figures/

@@ -9,7 +9,8 @@
 연결 슬롯이 "이 셀에서 선이 어느 방향으로 이어지는가"를 예측한다. 디코더가 그 방향들을
 **사슬로 확장**해 폴리라인을 만든다 (선 하나 = 사슬 하나 — 인코딩과 디코딩이 같은 모양이다).
 설계 근거는 `docs/`에 있다 — `docs/design.md`가 색인과 문서 작성 원칙을 담고, 본문은
-`structure`·`data`·`model`·`pipeline`·`decisions`로 나뉘며 변경 내역은 `docs/history.md`에만 쌓는다.
+`structure`·`data`·`model`·`pipeline`·`decisions`·`paper_assets`로 나뉘며
+변경 내역은 `docs/history.md`에만 쌓는다.
 
 **파이프라인 구현은 끝났고 지금은 개선(실험) 단계다.** 아래 "개선 실험" 절을 먼저 본다.
 
@@ -42,6 +43,8 @@ stella/
   eval/             ccq(인스턴스 F1)·geometry·cellstat(셀 단위 진단)·runlog(metrics.csv 판독)
   train/            module·optim·viz·callbacks·train(진입점)
 scripts/            아래 "실행" 참고 — 데이터 확인 · 학습 운영 · 디코더(D) 트랙 · 진단
+  figures/          논문 그림 — figure_01~14 + figure_base (docs/paper_assets.md 15절)
+  tables/           논문 표   — table_01~09 + table_base
 tests/              pytest — 인코더 불변식·매칭·RoPE·디코더·후처리·지표·셀진단·CPU예산·config 해석
 experiment/         STATE.md(냉시동 진입점) · plan_MMDD.md · result_MMDD.md · queue.json · data/
 gate_baseline.json  PR 전 게이트의 검사 목록과 하한 — 코드가 아니라 데이터다
@@ -74,10 +77,13 @@ gate_baseline.json  PR 전 게이트의 검사 목록과 하한 — 코드가 �
     --override train.epochs=25 data.batch_size=1
 ```
 
-- 데이터셋: `/media/humpback/435806fd-.../Ongoing/2026_stella/SEED_MAP_v1.1_splits`
+- 데이터셋: `/media/humpback/435806fd-.../Ongoing/2026_stella/SEED_MAP_v1.2_splits`
   — **`{train,val,test}/{image,label}` 구조**다. `label/*.json`을 glob 해서 인덱스를 만들므로
-  `dataset.json` 파싱이 없다. train 8,979 / val 1,282 / test 2,567장.
-  (원본 평평한 `SEED_MAP_v1.1`은 그 옆에 남아 있지만 코드가 읽지 않는다.)
+  `dataset.json` 파싱이 없다. **train 8,979 / val 1,218 / test 2,457장 (v1.2).**
+  v1.1 대비 학습은 그대로고 val −64 · test −110 — 학습 타일과 화면이 겹치던 것을 뺐다.
+  라벨 내용은 같다(로더 출력 동일 검증 완료) → **GT 캐시를 다시 뜨지 않는다.**
+  평평한 원본은 `.../2026_LaneStitch_revision/SEED_MAP_v1.2`이고 코드가 읽지 않는다.
+  재정리는 `scripts/build_split_dataset.py`가 한다.
 - GT 캐시 `.../2026_stella/gt_cache/{split}/` · 예측 캐시 `.../pred_cache/`.
 - 학습 결과: `.../2026_stella/log/{YYMMDD_HHMMSS}_{config}_{tag}/`
   — `config.json`, 소스 전체 복사본 `src/`, `git_sha.txt`, `checkpoints/`, `metrics.csv`, `viz/`.
@@ -91,6 +97,8 @@ gate_baseline.json  PR 전 게이트의 검사 목록과 하한 — 코드가 �
 | 결과 판독 | `show_run.py`(실행 하나) · `summarize_runs.py`(여러 실행 비교표) |
 | 디코더(D) 트랙 | `dump_predictions.py`(예측→희소 캐시) · `eval_decode.py`(CPU만으로 스윕) · `tune_decoder.py`(좌표 하강) · `viz_cache.py`(캐시→2×3 진단 시트, 설정 바꿔 다시 그리기) |
 | 진단 | `loss_balance.py`(손실 균형·가중치 제안) · `class_confusion.py`("배경이라 부름" vs "종류 혼동") |
+| 데이터 준비 | `build_split_dataset.py`(평평한 SEED-MAP 원본 → `{train,val,test}` 폴더 사본) |
+| 논문 산출물 | `figures/figure_NN.py` · `tables/table_NN.py` — **설계(주석)만 있고 미구현** |
 
 ```bash
 .venv/bin/python scripts/viz_gt.py --config configs.base --split val --count 4 --out /tmp/gt
