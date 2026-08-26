@@ -1,7 +1,7 @@
 # 구조와 조립 규칙 (1~5절)
 
 저장소의 뼈대다 — 설계 원칙, 기술 스택, 폴더 구조, config 체계, 객체 조립 방식.
-전체 색인과 문서 작성 원칙은 [design.md](design.md)에 있다.
+전체 색인과 문서 작성 원칙은 [0_design.md](0_design.md)에 있다.
 
 ---
 
@@ -57,8 +57,8 @@
 
 ## 3. 폴더/파일 구조
 
-계획 당시의 트리에서 실제로 갈라진 부분이 있다 — 특히 `decode/`가 `graph.py` 하나에서 5개로,
-`eval/`이 `ccq.py` 하나에서 3개로 늘었다. 아래는 **현재 구조**다.
+계획 당시의 트리에서 실제로 갈라진 부분이 있다 — 특히 `decode/`가 `graph.py` 하나에서 7개로,
+`eval/`이 `ccq.py` 하나에서 4개로 늘었다. 아래는 **현재 구조**다.
 
 ```
 stella/                         # 저장소 루트 (패키지명 "stella", editable 설치)
@@ -68,11 +68,14 @@ stella/                         # 저장소 루트 (패키지명 "stella", edita
 │   ├── schema.py               # ★ 모든 config dataclass 정의 (단일 파일)
 │   ├── base.py                 # get_config() -> ExperimentConfig (기본 실험 — SEED-MAP + ConvNeXtV2 + FPNLite)
 │   ├── unit.py                 # 개선 루프 "단위 실험(U)" 규격 — 1 GPU·서브샘플·짧은 에폭 (research 스킬)
+│   ├── unit_dinov3.py          # U 규격 + DINOv3 백본 (백본 축 비교용)
 │   └── exp_*.py                # 변형 실험: base를 불러와 필드만 수정 (dinov3/r3/synthetic/vit_sfp)
 ├── stella/
 │   ├── __init__.py             # 비워 둔다 (import 목록을 관리하지 않는다)
 │   ├── builder.py              # resolve / build_instance / check_all — 클래스 선택 단일 관문 (5절)
 │   ├── config_io.py            # config 로드·override·저장된 config 재적용 — Lightning 비의존 (4.3절)
+│   ├── runtime/
+│   │   └── cpu.py              # CpuBudget — 스레드 수·코어 친화도를 실제로 거는 유일한 지점 (4.1절)
 │   ├── data/
 │   │   ├── types.py            # GridDatasetBase(출력 계약 docstring 포함) + collate_fn + CLASS_COLOR
 │   │   ├── encode.py           # 폴리라인 → 격자 GT 인코더 (6.4절)
@@ -98,12 +101,14 @@ stella/                         # 저장소 루트 (패키지명 "stella", edita
 │   │   ├── vertices.py         # ① 정점 추출 + 시드 순서 (10.2절)
 │   │   ├── graph.py            # ChainDecoder 본체 — ② 사슬 확장 오케스트레이션 (10.3절)
 │   │   ├── postprocess.py      # ③ 후처리 — 조각 병합(ChainMerger)·RDP 단순화 (10.4절)
+│   │   ├── dedup.py            # ③ 후처리 — DuplicateResolver, 겹쳐 그려진 중복 선 정리 (10.4.1절)
 │   │   ├── stats.py            # ChainStats — 디코더 정지 사유·순도 탈락·병합 수 카운터 (10.6절)
 │   │   ├── cache.py            # 모델 예측을 fp16 희소 npz로 저장/복원 — GPU 없이 디코더 스윕 (10.6절)
 │   │   └── sweep.py            # evaluate_decode — 캐시된 예측 + 디코더 설정 → 지표. 튜닝 스크립트가 공유
 │   ├── eval/
 │   │   ├── ccq.py              # InstanceCCQ — 커버리지 중심 인스턴스 F1 (11.1~11.2절)
 │   │   ├── cellstat.py         # CellDiagnostics — 셀 단위 진단 지표 22종 (11.5절)
+│   │   ├── runlog.py           # metrics.csv 판독 — 표·판정·최고 에폭 선택의 단일 출처
 │   │   └── geometry.py         # 점-폴리라인 거리·버퍼·리샘플 등 기하 유틸
 │   └── train/
 │       ├── module.py           # StellaTrainModule (LightningModule, 얇게)
@@ -122,13 +127,21 @@ stella/                         # 저장소 루트 (패키지명 "stella", edita
 │   │   ├── table_base.py       #   PaperTable — csv + markdown
 │   │   └── table_01.py ~ table_09.py   (논문 Table I~IX)
 │   ├── dump_predictions.py     # 체크포인트 추론(또는 GT 주입)을 예측 캐시(npz)로 저장
+│   ├── dump_many.py            #   〃 여러 실행을 GPU에 나눠 한꺼번에
 │   ├── eval_decode.py          # 캐시된 예측으로 CPU만으로 디코딩+평가 (단일 설정/축 스윕)
+│   ├── rejudge.py              # 여러 캐시를 **같은 디코더 설정으로** 다시 채점해 한 표에 세운다
+│   ├── viz_cache.py            # 예측 캐시 → 2×3 진단 시트 (설정을 바꿔 다시 그린다, 9.5절)
 │   ├── tune_decoder.py         # DecodeConfig 여러 축을 좌표 하강으로 튜닝
 │   ├── run_experiments.py      # 여러 실험 arm을 GPU별로 동시 스케줄링 (개선 루프 무인 실행)
+│   ├── dispatch.py             # 대기열(`experiment/queue.json`)의 다음 라운드를 무인 배정
+│   ├── judge_round.py          # 라운드 판정 — research 스킬의 판정 규칙을 코드로 옮긴 것
+│   ├── gate.py                 # PR 전 단일 관문 (`gate_baseline.json`의 검사·하한)
 │   ├── summarize_runs.py       # 여러 실행 폴더의 metrics.csv를 표로 비교
+│   ├── show_run.py             # 단일 실행 폴더의 metrics.csv를 표로 출력
 │   ├── loss_balance.py         # 손실 항목 스케일 균형 점검 + 가중치 조정 제안
 │   ├── class_confusion.py      # 예측 캐시 vs GT class_map — 클래스 혼동행렬 분석
-│   └── show_run.py             # 단일 실행 폴더의 metrics.csv를 표로 출력
+│   ├── lane_switch.py          # 갈아탐 진단 — 선 밖의 점을 "옆 선" vs "아무 데도 없음"으로 가른다
+│   └── turn_angles.py          # 디코딩 결과의 꺾임각 분포 — `decode.max_turn_deg` 실측 근거
 └── tests/
     ├── helpers.py              # 테스트 공용 헬퍼(합성 배치·GT 주입 재수출 등)
     ├── test_build.py           # ① 전 config의 path/name 해석 (빠름) ② 전체 조립 스모크 (느림, 5절)
@@ -141,6 +154,7 @@ stella/                         # 저장소 루트 (패키지명 "stella", edita
     ├── test_postprocess.py     # 조각 병합(ChainMerger)·RDP 단순화 검증 (10.4절)
     ├── test_metric.py          # 인스턴스 CCQ: 완전복원=F1 1, 조각 예측의 TP/redundant FP 판정 (11절)
     ├── test_cellstat.py        # CellDiagnostics 22종 지표 검증 (11.5절)
+    ├── test_cpu.py             # CpuBudget — 스레드 수·코어 친화도 계산 검증 (4.1절)
     ├── test_viz.py             # 시각 로그 함수의 shape·색상 규약 (9.5절)
     └── test_model.py           # shape 테스트 + 1-이미지 과적합 테스트
 ```
@@ -196,6 +210,8 @@ class DataConfig(ModuleConfig):
     num_workers: int = 8
     max_degree: int = 2  # D: 셀당 GT 분기 수. 선 단위 사슬이라 **항상 정확히 2** (6.4절)
     encode_supersample: int = 1  # GT 래스터화 배율. 1 = 픽셀 해상도 (6.4절 A단계)
+    # 연결 방향 GT를 몇 칸 앞 점으로 만들지. **1 이외의 값을 쓰지 않는다** — 천장이 무너진다 (6.4절)
+    conn_lookahead: int = 1
     cache_gt: str = "val_test"  # GT 캐시: "none" | "val_test"(기본) | "all" (6.4.1절)
     cache_dir: str = "/media/humpback/.../Ongoing/2026_stella/gt_cache"  # 데이터셋 폴더 옆에 따로 둔다
     augment: bool = True  # 학습 split에만 적용 (6.7.6절)
@@ -241,6 +257,7 @@ class ModelConfig(ModuleConfig):
     num_conn_slots: int = 2  # R = 2 확정 (K = 3) — GT 분기 수와 일치 (결정 1)
     layers: tuple[str, ...] = ("global", "window", "window", "window", "window", "window")
     window_size: int = 7  # w. 9 → 7 (실측: peak 12.09 → 9.72 GiB, step 455 → 291 ms, 7.6절)
+    fg_head: bool = False  # 전경/배경 이진 로짓을 따로 둘지 (7.1·7.7절). 끄면 파라미터가 안 생긴다
     ffn_dim: int = 1024
     dropout: float = 0.0
     grad_checkpoint: bool = True  # 윈도우 층만 재계산 — 활성의 대부분이 거기 있다 (7.6절)
@@ -263,6 +280,7 @@ class HeatmapLossConfig(ModuleConfig):
     w_heatmap: float = 1.0  # 총합에 그대로 곱해지는 유일한 가중치
     focal_alpha: float = 0.75  # 가중치가 아니라 focal 형태 파라미터. 0.75는 실측(f1 +22.4%)
     focal_gamma: float = 2.0
+    length_power: float = 0.0  # 히트맵에는 길이 역가중이 듣지 않았다 — ablation용으로만 남긴다
 
 
 @dataclass(kw_only=True)
@@ -275,8 +293,12 @@ class SelfSlotLossConfig(ModuleConfig):
     # 끝 셀 양성이 전체 양성의 ~2.5%라 로짓이 음수로 눌린다 (가설 백로그, 14절).
     end_pos_weight: float = 1.0  # 1.0 = 가중 없음
     class_bg_weight: float = 1.0  # 선택 셀의 ~70%가 배경이라 클래스 CE가 배경에 지배당한다 (가설 백로그)
-    # 희소 클래스 3종이 검증 200장에서 0회 예측됐다. 전경을 빈도^(-power)로 가중한다 (가설 백로그).
-    class_freq_power: float = 0.0  # 0.0 = 가중 없음
+    # 희소 클래스 3종이 검증 200장에서 0회 예측됐다. 전경을 빈도^(-power)로 가중한다 (8.2절).
+    class_freq_power: float = 0.5  # 0.0 = 가중 없음
+    class_freq_norm: str = "floor"  # "floor" = 흔한 클래스를 1 아래로 누르지 않는다 | "mean" = 재분배
+    length_power: float = 0.3  # 셀 가중을 그 셀이 속한 **선의 길이에 반비례**하게 (0.0 = 무동작, 8.2절)
+    w_fg: float = 0.0  # 전경/배경 이진 BCE. `model.fg_head=True`와 함께 쓴다. 0.0 = 항을 계산 안 함
+    fg_pos_weight: float = 1.0
 
 
 @dataclass(kw_only=True)
@@ -284,11 +306,11 @@ class ConnLossConfig(ModuleConfig):
     path: str = "stella.loss.conn"
     name: str = "ConnLoss"
     w_exist: float = 1.0
-    w_dir: float = 1.0  # 연결 방향 손실 (1 - 내적)
+    w_dir: float = 1.0  # 연결 방향 손실
     match_w_dir: float = 1.0  # λ_dir — 손실 가중치가 아니라 **매칭 비용** 계수 (8.3절)
     match_w_exist: float = 1.0  # λ_e   — 〃
     exist_pos_weight: float = 1.0  # 거짓 양성 셀이 압도적일 때 양성 쪽을 든다 (가설 백로그)
-    dir_loss: str = "cosine"  # "cosine" = 1 - cos(기본) | "angle" = acos/π — 작은 오차에서 기울기가 산다
+    dir_loss: str = "angle"  # "angle" = acos/π(기본, 작은 오차에서 기울기가 산다) | "cosine" = 1 - cos
 
 
 @dataclass(kw_only=True)
@@ -313,6 +335,10 @@ class DecodeConfig(ModuleConfig):  # 사슬 확장 디코더 (10절)
     opp_thresh: float = 0.7  # 마주봄 하한 — -(c·n) ≥ 이 값 (10.3절)
     w_opp: float = 1.0  # 후보 비용에서 마주봄 항의 비중
     min_class_prob: float = 0.2  # 확장 게이트 — 후보의 사슬 클래스 softmax 확률 하한 (10.3절)
+    # 정점을 **선의 법선 방향으로만** 비최대 억제해 넓은 전경 띠를 한 줄 능선으로 줄인다 (10.2절).
+    vertex_local_max: bool = True
+    bg_prob_max: float = 0.0  # >0이면 전경 판정을 배경 확률 문턱으로 (0 = 기존 argmax != 0, 10.2절)
+    fg_thresh: float = -1.0  # >=0이면 `fg_head`의 이진 로짓으로 전경 판정 (10.2절)
     purity_thresh: float = 0.6  # 사슬 순도 하한 — argmax 클래스 일치 비율. 이하면 사슬 폐기 (10.3절)
     end_extend: float = 1.0  # 끝 셀에서 끝방향 슬롯으로 연장하는 길이(셀) — 10.3절 끝 연장
     min_points: int = 8  # 이보다 짧은 폴리라인은 버린다 (연장점 포함)
@@ -329,6 +355,15 @@ class DecodeConfig(ModuleConfig):  # 사슬 확장 디코더 (10절)
     perp_thresh: float = 0.7  # perp 모드의 수직 이탈 상한 (셀 단위)
     w_dist: float = 0.072  # 후보 비용의 거리 항 계수 — **반경과 함께 정해진다** (10.3절)
     max_turn_deg: float = 45.0  # 연속한 두 스텝 사이의 방향 변화 상한(도)
+    # --- 중복 정리 후처리 (10.4.1절). `dedup_high <= 0`이면 무동작 ---
+    dedup_high: float = 3.0  # 가로 거리가 이보다 크면 '겹치지 않음'(px)
+    dedup_low: float = 1.5  # 이력 문턱의 아래쪽 — 이보다 가까우면 확실히 겹침
+    dedup_min_free: float = 8.0  # 자유 구간이 이보다 짧으면 버린다(px)
+    dedup_bridge: float = 0.0  # 자유 구간 사이 이보다 짧은 겹침 끊김은 메운다(px)
+    dedup_min_diverge: float = 8.0  # 강한 이탈이 이 길이 이상 지속돼야 자유로 인정(px)
+    dedup_join_gap: float = 6.0  # 자유 구간을 붙일 끝점 탐색 반경(px)
+    dedup_step: float = 2.0  # 재표본 간격(px)
+    dedup_keep_ratio: float = 0.35  # 자유 구간이 이 비율 이상이면 중복이 아니라고 보고 원본을 둔다
     # 임계값들은 학습된 체크포인트로 검증 셋에서 스윕해 확정한다 (`scripts/tune_decoder.py`, 14절).
     # 구 GraphDecoder의 mutual·max_conn_dist·t_thresh는 폐기 — 10절 참고.
 
@@ -337,7 +372,7 @@ class DecodeConfig(ModuleConfig):  # 사슬 확장 디코더 (10절)
 class MetricConfig(ModuleConfig):  # 인스턴스 평가 지표 (11절)
     path: str = "stella.eval.ccq"
     name: str = "InstanceCCQ"
-    buffer_rho: float = 12.0  # ρ (픽셀). 실측 차선 간 거리 중앙값과 정확히 같다 — 11.1절 한계 참고
+    buffer_rho: float = 3.0  # ρ (픽셀). 차선 간 거리 중앙값 11.8 px의 1/4 — 11.1절 재설정 참고
     cov_thresh: float = 0.5  # θ_cov — 커버리지(완전성) 하한, 관대
     cor_thresh: float = 0.9  # θ_cor — 정확성 하한, 엄격 (모든 GT 대상)
     angle_gate: float = 30.0  # 매칭 시 접선 방향 차 상한(도) — 수직 교차 배제
@@ -386,6 +421,23 @@ class TrainConfig(ModuleConfig):
     ckpt_top_k: int = 3
     find_unused_parameters: bool = False  # 최소 1노드 보장(7.4절) 덕에 미사용 파라미터가 없다
     output_root: str = "/media/humpback/.../Ongoing/2026_stella/log"  # 〃
+
+
+@dataclass(kw_only=True)
+class CpuConfig(ModuleConfig):
+    """이 프로세스가 쓸 CPU 예산 — 부하를 예측 가능하게 만드는 단일 출처.
+
+    torch는 프로세스마다 코어를 **전부** 잡아서, arm 두셋만 겹쳐도 부하가 튀고 같은 기계를
+    쓰는 사람이 불편해진다. 부하를 쫓아다니는 대신 **쓸 코어를 미리 떼어 둔다.**
+    코어 친화도는 자식 프로세스(데이터로더 워커 포함)가 물려받는다.
+    """
+
+    path: str = "stella.runtime.cpu"
+    name: str = "CpuBudget"
+    torch_threads: int = 2  # 프로세스당 intra-op 스레드. 0이면 torch 기본(= 전체 코어)
+    interop_threads: int = 1
+    cores: str = ""  # "0-14"처럼 주면 그 코어에만 붙는다. 비면 reserved_cores로 계산
+    reserved_cores: int = 17  # 사람 몫으로 남길 코어 수 (32코어 중 17 — 사용자 지시)
 
 
 @dataclass(kw_only=True)
