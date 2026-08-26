@@ -74,6 +74,7 @@ class ChainDecoder:
         dedup_join_gap: float,
         dedup_step: float,
         dedup_keep_ratio: float,
+        dedup_mode: str,
     ):
         if align_mode not in ALIGN_MODES:
             raise ValueError(f"align_mode 는 {ALIGN_MODES} 중 하나여야 한다: {align_mode}")
@@ -116,6 +117,7 @@ class ChainDecoder:
             join_gap=dedup_join_gap,
             step=dedup_step,
             keep_ratio=dedup_keep_ratio,
+            mode=dedup_mode,
         )
         self.stats = ChainStats()
 
