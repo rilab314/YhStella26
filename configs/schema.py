@@ -349,7 +349,14 @@ class DecodeConfig(ModuleConfig):
     # 자유 구간이 원래 길이의 이 비율 이상이면 **중복이 아니라고 보고 원본을 그대로 둔다**.
     # 1.0 에 가까울수록 보수적(거의 포함된 선만 지운다). 0 이면 항상 잘라 낸다 —
     # 자르는 판은 f1 +5.5% 지만 recall −3.9% · 천장 0.946 -> 0.908 이라 **진짜 선을 지운다**.
+    # **`dedup_mode="ends"` 에서는 쓰이지 않는다** — 조각남을 규칙이 막으므로 게이트가 필요 없다.
+    # ablation(`dedup_mode=ratio`)에서만 산다.
     dedup_keep_ratio: float = 0.35
+    # 자르는 방식. "ratio" = 자유 구간을 조각으로 남기고 위 비율 게이트로 조각남을 막는다.
+    # "ends" = 겹친 **머리·꼬리만** 자르고 가운데는 건드리지 않는다 — 선 하나가 조각으로
+    # 갈라질 수 없으므로(1 -> 1 또는 0) 비율 게이트 없이도 재현율·천장이 안 깎인다.
+    # 비율 게이트는 LaneStitch 원본에 없던 전역 규칙이고, "ends" 는 같은 안전성을 국소로 낸다.
+    dedup_mode: str = "ends"
 
 
 @dataclass(kw_only=True)
@@ -370,6 +377,12 @@ class MetricConfig(ModuleConfig):
     # frag는 "조금이라도 겹치는" 예측을 다 세어 정확성이 높을수록 부풀려진다(E00에서 확인).
     # frag_strict는 그 GT를 이 비율 이상 덮는 조각만 센다 — 조각남의 정직한 측정치다.
     frag_min_cov: float = 0.1
+    # 성능에서 빼는 종류. **기본값이 빈 튜플이 아닌 이유**: `_cast_tuple` 이 원소 타입을
+    # 현재 값에서 읽으므로 `()` 로 두면 덮어쓴 값이 문자열로 남아 손잡이가 조용히 꺼진다.
+    # 0 = background 는 인스턴스가 없어 어차피 세지 않으므로 무동작이다.
+    # 8 = guiding_line 은 **선이 아니라 영역**이라 원래 선으로 찾을 대상이 아니다(사용자 08-26).
+    # 논문 성능을 그렇게 낼 때 `--set eval.exclude_classes=(0,8)` 로 켠다.
+    exclude_classes: tuple = (0,)
 
 
 @dataclass(kw_only=True)

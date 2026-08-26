@@ -18,6 +18,17 @@
 
 거리 판정(이력 문턱·짧은 끊김 잇기)은 직전 연구 LaneStitch 의 벡터화 후처리에서 가져왔고,
 **간격을 메우는 단계를 뺐다.**
+
+**자르는 방식이 둘이다** (`dedup_mode`).
+
+    "ends"  — 겹친 **머리와 꼬리만** 잘라 낸다. 가운데는 건드리지 않으므로 선 하나가 조각으로
+              갈라질 수 없다: 인스턴스는 1개가 1개 또는 0개가 된다. 겹침이 가운데에 있는 것은
+              같은 차선 위 이중 그리기가 아니라 **교차**이므로 자르면 안 되는 것이다.
+    "ratio" — 자유 구간을 모두 조각으로 남기되, 자유 길이가 원본의 `keep_ratio` 이상이면
+              통째로 보존한다. 조각남을 그 **전역 비율 게이트**로 막는다.
+
+`ratio` 의 비율 게이트는 LaneStitch 원본에 없던 STELLA 추가분이고, `ends` 는 같은 안전성을
+**국소 규칙**으로 낸다 — 자르는 위치를 양 끝으로 제한하는 것만으로 조각남이 원천봉쇄된다.
 """
 
 import numpy as np
@@ -25,6 +36,8 @@ import numpy as np
 from stella.eval import geometry
 
 EPS = 1e-9
+ENDS_MODE = "ends"  # 머리·꼬리만 자른다 (조각남이 원천봉쇄된다)
+_EMPTY_STATS = {"dedup_dropped": 0, "dedup_joined": 0, "dedup_trimmed": 0}
 # 이어 붙인 결과의 최대 꺾임각이 원래 조각들보다 이만큼 넘게 나빠지면 갈래를 잘못 고른 것이다.
 BRANCH_SLACK_DEG = 20.0
 
@@ -43,6 +56,7 @@ class DuplicateResolver:
             join_gap=module_cfg.join_gap,
             step=module_cfg.step,
             keep_ratio=module_cfg.keep_ratio,
+            mode=module_cfg.mode,
             **kwargs,
         )
 
@@ -57,6 +71,7 @@ class DuplicateResolver:
         join_gap: float,
         step: float,
         keep_ratio: float,
+        mode: str,
     ):
         self.overlap_high = overlap_high
         self.overlap_low = overlap_low
@@ -66,12 +81,13 @@ class DuplicateResolver:
         self.join_gap = join_gap
         self.step = step
         self.keep_ratio = keep_ratio
+        self.mode = mode
 
     def __call__(self, instances: list[dict]) -> tuple[list[dict], dict]:
         """정리된 인스턴스와 진단 카운터를 낸다. 클래스별로 따로 처리한다."""
         if self.overlap_high <= 0.0 or len(instances) < 2:
-            return instances, {"dedup_dropped": 0, "dedup_joined": 0}
-        out, stats = [], {"dedup_dropped": 0, "dedup_joined": 0}
+            return instances, dict(_EMPTY_STATS)
+        out, stats = [], dict(_EMPTY_STATS)
         for label in sorted({int(item["class"]) for item in instances}):
             group = [item for item in instances if int(item["class"]) == label]
             out.extend(self._resolve_group(group, stats))
@@ -80,20 +96,43 @@ class DuplicateResolver:
     def _resolve_group(self, group: list[dict], stats: dict) -> list[dict]:
         """길이 내림차순으로 훑으며 이미 확정된 선과 겹치는 구간을 뺀다."""
         order = sorted(group, key=lambda it: _arc_length(it["points"]), reverse=True)
+        trim = self._trim_ends if self.mode == ENDS_MODE else self._trim_pieces
         kept: list[dict] = []
         for item in order:
-            pieces = self._free_pieces(item["points"], [k["points"] for k in kept])
-            if not pieces:
-                stats["dedup_dropped"] += 1
-                continue
-            if not kept:
-                kept.extend(dict(item, points=piece) for piece in pieces)
-                continue
-            if self._survives_whole(item, pieces):
-                kept.append(item)  # 상당 부분이 자유롭다 -> **자르지 않고 원본 그대로** 남긴다
-                continue
-            self._absorb(kept, item, pieces, stats)
+            trim(kept, item, stats)
         return kept
+
+    def _trim_ends(self, kept: list[dict], item: dict, stats: dict) -> None:
+        """겹친 **머리와 꼬리만** 잘라 낸다 — 가운데를 자르지 않아 조각으로 갈라지지 않는다.
+
+        가운데의 겹침은 같은 차선 위 이중 그리기가 아니라 **교차**다. 그것까지 자르면 진짜 선
+        하나가 둘로 갈라져 재현율이 떨어진다(08-20 실측: 재현율 −3.9% · GT 주입 천장 0.908).
+        자르는 위치를 양 끝으로 묶어 두면 그 사고가 규칙상 일어날 수 없다.
+        """
+        if not kept:
+            kept.append(item)  # 기준선 — 비교할 상대가 없다
+            return
+        pts, free = self._free_mask(item["points"], [k["points"] for k in kept])
+        span = _outer_span(pts, free)
+        if span is None or _arc_length(span) < self.min_free_len:
+            stats["dedup_dropped"] += 1
+            return
+        stats["dedup_trimmed"] += int(span.shape[0] < pts.shape[0])
+        kept.append(dict(item, points=span))
+
+    def _trim_pieces(self, kept: list[dict], item: dict, stats: dict) -> None:
+        """자유 구간을 모두 조각으로 남긴다. 조각남은 **전역 비율 게이트**로 막는다."""
+        pieces = self._free_pieces(item["points"], [k["points"] for k in kept])
+        if not pieces:
+            stats["dedup_dropped"] += 1
+            return
+        if not kept:
+            kept.extend(dict(item, points=piece) for piece in pieces)
+            return
+        if self._survives_whole(item, pieces):
+            kept.append(item)  # 상당 부분이 자유롭다 -> **자르지 않고 원본 그대로** 남긴다
+            return
+        self._absorb(kept, item, pieces, stats)
 
     def _survives_whole(self, item: dict, pieces: list[np.ndarray]) -> bool:
         """자유 구간이 원래 길이의 `keep_ratio` 이상이면 **중복이 아니다** — 원본을 그대로 둔다.
@@ -125,18 +164,24 @@ class DuplicateResolver:
 
     def _free_pieces(self, points, refs: list[np.ndarray]) -> list[np.ndarray]:
         """기준선들에서 가로 거리가 먼 구간만 남긴다. 남는 것이 없으면 '포함'이다."""
-        pts = _resample(np.asarray(points, dtype=np.float64), self.step)
+        pts, free = self._free_mask(points, refs)
         if pts.shape[0] < 2:
             return []
         if not refs:
             return [pts]
+        pieces = [pts[s:e] for s, e in _runs(free) if e - s >= 2]
+        return [p for p in pieces if _arc_length(p) >= self.min_free_len]
+
+    def _free_mask(self, points, refs: list[np.ndarray]) -> tuple[np.ndarray, np.ndarray]:
+        """재표본한 점열과 "기준선에서 떨어져 있다" 마스크. 두 자르기 방식이 공유한다."""
+        pts = _resample(np.asarray(points, dtype=np.float64), self.step)
+        if pts.shape[0] < 2 or not refs:
+            return pts, np.ones(pts.shape[0], dtype=bool)
         distance = np.full(pts.shape[0], np.inf)
         for ref in refs:
             distance = np.minimum(distance, _point_to_polyline(pts, ref))
         free = self._hysteresis(distance, pts)
-        free = _bridge(pts, free, self.bridge_gap)
-        pieces = [pts[s:e] for s, e in _runs(free) if e - s >= 2]
-        return [p for p in pieces if _arc_length(p) >= self.min_free_len]
+        return pts, _bridge(pts, free, self.bridge_gap)
 
     def _hysteresis(self, distance: np.ndarray, pts: np.ndarray) -> np.ndarray:
         """두 문턱 — 약한 이탈은 **강한 이탈이 일정 길이 이상 지속될 때만** 자유로 인정한다.
@@ -149,6 +194,14 @@ class DuplicateResolver:
             if _sustained(strong[start:end], pts[start:end], self.min_diverge_len):
                 free[start:end] = True
         return free
+
+
+def _outer_span(pts: np.ndarray, free: np.ndarray) -> np.ndarray | None:
+    """첫 자유 지점부터 마지막 자유 지점까지를 **한 덩어리로** 낸다. 자유가 없으면 None."""
+    index = np.flatnonzero(free)
+    if index.size < 2:
+        return None
+    return pts[index[0] : index[-1] + 1]
 
 
 def _sustained(strong: np.ndarray, pts: np.ndarray, min_len: float) -> bool:

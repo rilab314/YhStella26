@@ -147,3 +147,22 @@ def test_best_checkpoint_without_scores_returns_none(tmp_path):
     (run / "checkpoints").mkdir(parents=True)
     (run / "checkpoints" / "epoch000.ckpt").write_bytes(b"")
     assert runlog.best_checkpoint(run) is None
+
+
+def test_excluded_class_leaves_every_score():
+    """제외한 종류는 **전체 점수·종류별 평균·종류별 행에서 모두** 빠진다.
+
+    `guiding_line` 은 선이 아니라 영역이라 원래 선으로 찾을 대상이 아니다(사용자 08-26).
+    종류별 점수를 평균에서 빼는 것만으로는 부족하다 — 전체 점수는 종류를 합쳐 세므로
+    **정답 쪽과 예측 쪽을 둘 다** 빼야 한다.
+    """
+    truth = [line(10, 500, 100, label=3), line(10, 500, 300, label=8)]
+    kept = make_metric()
+    kept.update([dict(truth[0])], truth)  # 8번을 통째로 놓쳤다
+    dropped = make_metric(exclude_classes=(0, 8))
+    dropped.update([dict(truth[0])], truth)
+    assert float(kept.compute()["recall"]) == 0.5  # 둘 중 하나만 맞혔다
+    result = dropped.compute()
+    assert float(result["recall"]) == 1.0  # 8번을 빼면 남은 하나를 다 맞혔다
+    assert float(result["f1"]) == 1.0
+    assert not any(key.endswith("/guiding_line") for key in result)

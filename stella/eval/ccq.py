@@ -32,6 +32,7 @@ class InstanceCCQ(Metric):
             sample_step=module_cfg.sample_step,
             max_instances=module_cfg.max_instances,
             frag_min_cov=module_cfg.frag_min_cov,
+            exclude_classes=module_cfg.exclude_classes,
         )
 
     def __init__(
@@ -45,6 +46,7 @@ class InstanceCCQ(Metric):
         sample_step: float,
         max_instances: int,
         frag_min_cov: float,
+        exclude_classes: tuple,
     ):
         super().__init__()
         self.num_classes = num_classes
@@ -55,6 +57,7 @@ class InstanceCCQ(Metric):
         self.sample_step = sample_step
         self.max_instances = max_instances
         self.frag_min_cov = frag_min_cov
+        self.exclude_classes = tuple(int(label) for label in exclude_classes)
         for name in ("tp", "fp", "fn", "fp_redundant", "fp_spurious"):
             self.add_state(name, torch.zeros(num_classes), dist_reduce_fx="sum")
         for name in ("gt_covered", "gt_total", "pred_covered", "pred_total"):
@@ -160,7 +163,7 @@ class InstanceCCQ(Metric):
         self.frag_count += 1
 
     def compute(self) -> dict[str, torch.Tensor]:
-        tp, fp, fn = self.tp, self.fp, self.fn
+        tp, fp, fn = (self._counted(state) for state in (self.tp, self.fp, self.fn))
         precision = tp / (tp + fp).clamp(min=1e-9)
         recall = tp / (tp + fn).clamp(min=1e-9)
         f1 = 2 * precision * recall / (precision + recall).clamp(min=1e-9)
@@ -170,6 +173,19 @@ class InstanceCCQ(Metric):
         result |= self._aggregate_scores()
         result |= _per_class(f1, precision, recall, present)
         return result
+
+    def _counted(self, state: torch.Tensor) -> torch.Tensor:
+        """제외 종류의 칸을 0 으로 만든 사본. 전체 점수·종류별 평균·종류별 행에서 함께 빠진다.
+
+        `guiding_line` 처럼 **애초에 선이 아닌 것**(면으로 칠해진 영역)을 성능에서 빼기 위한
+        손잡이다. 종류별 점수를 평균에서 빼는 것만으로는 안 된다 — 전체 점수는 종류를 합쳐
+        세므로 **정답 쪽과 예측 쪽을 둘 다** 빼야 같은 판이 된다.
+        """
+        if not self.exclude_classes:
+            return state
+        kept = state.clone()
+        kept[list(self.exclude_classes)] = 0.0
+        return kept
 
     def _aggregate_scores(self) -> dict[str, torch.Tensor]:
         return {
