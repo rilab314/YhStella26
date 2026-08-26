@@ -37,8 +37,9 @@ Python 3.11 / torch 2.6 (cu124) / PyTorch Lightning. 저장소는 editable 설�
 
 ## 데이터
 
-SEED-MAP v1.1 (768×768, GSD 0.1278 m/px). `SEED_MAP_v1.1_splits/{train,val,test}/{image,label}`
-재정리 사본을 읽고, `label/{id}.json`이 `LINE_STRING` 폴리라인을 담는다.
+SEED-MAP v1.2 (768×768, GSD 0.2550 m/px). `SEED_MAP_v1.2_splits/{train,val,test}/{image,label}`
+재정리 사본(`scripts/build_split_dataset.py`)을 읽고, `label/{id}.json`이 `LINE_STRING`
+폴리라인을 담는다. train 8,979 / val 1,218 / test 2,457장.
 학습 클래스는 `category_id` 11종 + 배경.
 
 라벨은 **폴리라인 그대로** 두고 `__getitem__`에서 격자 GT로 온라인 인코딩한다.

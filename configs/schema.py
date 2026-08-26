@@ -22,10 +22,15 @@ class ModuleConfig:
 class DataConfig(ModuleConfig):
     path: str = "stella.data.seedmap"
     name: str = "SeedMapDataset"
-    # 원본 SEED_MAP_v1.1을 {train,val,test}/{image,label} 구조로 재정리한 사본 (6.7.2절, M13)
+    # 원본 SEED_MAP_v1.2를 {train,val,test}/{image,label} 구조로 재정리한 사본 (6.7.2절).
+    # **v1.1 -> v1.2 (08-26)**: train 8,979장 그대로, val 1,282 -> 1,218, test 2,567 -> 2,457.
+    # 학습 타일과 화면이 겹치던 검증·시험 타일 174장을 뺐다 — 타일이 196 m 정사각형인데
+    # 80~100 m 간격이라 이웃끼리 절반 넘게 겹쳐 split 경계에서 픽셀이 새고 있었다.
+    # 라벨은 형식·내용이 같다(v1.2가 지운 "타일 밖 선"은 로더가 이미 잘라 버리던 것이다).
+    # **과거 실행의 성적을 다시 재지 않는다** (사용자 판단) — 규격이 갈리는 것에 주의한다.
     root: str = (
         "/media/humpback/435806fd-079f-4ba1-ad80-109c8f6e2ec0/Ongoing/2026_stella"
-        "/SEED_MAP_v1.1_splits"
+        "/SEED_MAP_v1.2_splits"
     )
     image_size: int = 768  # SEED-MAP 원본 크기와 동일 — 리사이즈 없음
     grid_stride: int = 4  # 격자 배율 s. L = image_size // grid_stride = 192

@@ -1,4 +1,4 @@
-"""SEED-MAP v1.1 실데이터 로더 (design 6.7절, M13).
+"""SEED-MAP v1.2 실데이터 로더 (design 6.7절, M13).
 
 `{root}/{train,val,test}/{image,label}` 재정리 사본(6.7.2절)을 읽는다 —
 `label/*.json`을 glob 해서 인덱스를 만들므로 `dataset.json` 파싱이 없다.
