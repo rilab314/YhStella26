@@ -48,7 +48,7 @@
 **착수 전.** 캐시만 있으면 만들 수 있다. baseline 이 필요 없다.
 """
 
-# from stella.paper.figure_base import SampleFigure
+# from figure_base import SampleFigure
 #
 #
 # class ChainDecodingFigure(SampleFigure):

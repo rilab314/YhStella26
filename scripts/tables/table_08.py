@@ -68,7 +68,7 @@ HD map 을 사람이 보정하는 관점에서 **이 둘의 비용이 완전히 
 **상단 착수 가능 · 하단은 최종 실행 대기.** `A1` 라운드(백본·윈도우·격자 6종)가 상단을 채운다.
 """
 
-# from stella.paper.table_base import PaperTable
+# from table_base import PaperTable
 #
 #
 # class ArchitectureAndClassTable(PaperTable):

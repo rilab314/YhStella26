@@ -54,7 +54,7 @@ Related Work 를 문단으로만 쓰면 독자가 "그래서 뭐가 다른가"�
 **착수 전.** 실험이 필요 없다 — 지금 바로 만들 수 있다.
 """
 
-# from stella.paper.table_base import PaperTable
+# from table_base import PaperTable
 #
 #
 # class RepresentationMatrixTable(PaperTable):

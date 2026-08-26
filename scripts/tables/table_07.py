@@ -65,7 +65,7 @@ stride 4 로 인코딩된 캐시를 조용히 읽는다. 로더가 캐시 이름
 **착수 전.** 실행 12개가 필요하다. `A1` 라운드(백본·윈도우·격자 6종)가 그중 격자 축을 다룬다.
 """
 
-# from stella.paper.table_base import PaperTable
+# from table_base import PaperTable
 #
 #
 # class RepresentationAblationTable(PaperTable):

@@ -36,7 +36,7 @@
 **착수 전.** 캐시만 있으면 바로 만들 수 있다 — baseline 대조군이 필요 없는 유일한 정성 그림이다.
 """
 
-# from stella.paper.figure_base import SampleFigure
+# from figure_base import SampleFigure
 #
 #
 # class ResultShowcaseFigure(SampleFigure):

@@ -49,7 +49,7 @@ shape·dtype 을 손으로 적으면 config 를 바꿨을 때 표가 조용히 �
 **착수 전.** 실험이 필요 없다 — config 하나만 있으면 지금 만들 수 있다.
 """
 
-# from stella.paper.table_base import PaperTable
+# from table_base import PaperTable
 #
 #
 # class OutputContractTable(PaperTable):

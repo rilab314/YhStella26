@@ -47,7 +47,7 @@
 **(c) 실측 완료 · 재현 스크립트 미구현.** (a)(b) 개념도는 원고 그림 작업에서 만든다.
 """
 
-# from stella.paper.figure_base import PlotFigure
+# from figure_base import PlotFigure
 #
 #
 # class LaneSpacingHistogram(PlotFigure):

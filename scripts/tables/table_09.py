@@ -76,7 +76,7 @@
 v1.2 test 로 다시 재서 채운다. 후처리 손잡이가 이미 있으므로 **가장 빨리 채울 수 있는 표**다.
 """
 
-# from stella.paper.table_base import PaperTable
+# from table_base import PaperTable
 #
 #
 # class PostprocessAblationTable(PaperTable):

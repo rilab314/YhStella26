@@ -46,7 +46,7 @@ Fig. 9는 "차이가 무엇인지"를 보이는 그림이고, Fig. 11이 "평소
 Table V·VII 도 같은 실행을 쓴다.
 """
 
-# from stella.paper.figure_base import SampleFigure
+# from figure_base import SampleFigure
 #
 #
 # class BaselineComparisonFigure(SampleFigure):

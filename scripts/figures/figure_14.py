@@ -59,7 +59,7 @@ argmax 경계 0.5 에 수직선을 긋는다.
 계속 쓰이므로** 재현 스크립트의 가치가 가장 크다.
 """
 
-# from stella.paper.figure_base import PlotFigure
+# from figure_base import PlotFigure
 #
 #
 # class ShortLineBottleneckFigure(PlotFigure):

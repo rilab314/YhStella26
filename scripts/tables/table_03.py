@@ -55,7 +55,7 @@ Algorithm 1·2 가 짧아지고, 값의 단일 출처가 이 표 하나로 생�
 **착수 전.** 실험이 필요 없다. 다만 **실험이 끝나 파라미터가 확정된 뒤에 다시 돌려야** 한다.
 """
 
-# from stella.paper.table_base import PaperTable
+# from table_base import PaperTable
 #
 #
 # class ParameterSpecTable(PaperTable):

@@ -2,7 +2,7 @@
 
 논문에 실릴 **그림 14개와 표 9개를 어떻게 만드는가**의 설계다. 그림·표의 *내용*(무엇을 그리고
 무엇을 싣는가)은 `paper_outline.md` 3·4절에 있고, 이 문서는 그것을 **어떤 구조로 생산하는가**를
-정한다. 구현은 `stella/paper/`(공유 베이스)와 `scripts/paper/`(진입점)에 있다.
+정한다. 구현은 `scripts/figures/`·`scripts/tables/`에 있다.
 
 ---
 
@@ -27,20 +27,22 @@
 ## 15.2. 폴더 구조와 출력 규약
 
 ```
-stella/paper/         ← 공유되는 것 (import 되어야 하므로 패키지 안에 둔다)
-├── paths.py          출력 경로 단일 출처 · 폴더 단위 덮어쓰기
-├── figure_base.py    SampleFigure(샘플 선별형) · PlotFigure(집계형)
-└── table_base.py     PaperTable(csv + markdown)
+scripts/figures/
+├── figure_base.py    SampleFigure(샘플 선별형) · PlotFigure(집계형) + 출력 경로 규약
+└── figure_01.py ~ figure_14.py
 
-scripts/paper/        ← 진입점 (산출물 하나 = 파일 하나)
-├── figures/          figure_01.py ~ figure_14.py
-└── tables/           table_01.py ~ table_09.py     (논문 Table I~IX)
+scripts/tables/
+├── table_base.py     PaperTable(csv + markdown) + 출력 경로 규약
+└── table_01.py ~ table_09.py     (논문 Table I~IX)
 ```
 
-**베이스가 `stella/` 안에 있는 이유.** 저장소는 editable 설치이고 `sys.path` 조작을 하지
-않는다 — `scripts/`는 패키지가 아니라 import 할 수 없다. 여러 진입점이 공유하는 코드는
-반드시 `stella` 안에 있어야 한다. `stella/eval/runlog.py`를 `summarize_runs.py`와
-`judge_round.py`가 함께 쓰는 것과 같은 구조다.
+**베이스는 같은 폴더에 둔다.** `python scripts/figures/figure_01.py` 로 실행하면 파이썬이
+그 스크립트의 폴더를 알아서 경로에 올리므로 `import figure_base` 가 그대로 된다 —
+`sys.path` 를 건드리지 않는다(CLAUDE.md).
+
+그 대가는 하나다. **`PAPER_ROOT` 문자열이 두 베이스에 각각 있다** — `scripts/` 는 패키지가
+아니라 두 폴더가 서로를 import 할 수 없기 때문이다. 상수 하나뿐이라 이 중복이 폴더를
+하나 더 만드는 것보다 싸다고 봤다. **경로를 바꾸면 두 곳을 함께 고친다.**
 
 **출력은 저장소가 아니라 데이터 작업 폴더에 쌓는다.**
 

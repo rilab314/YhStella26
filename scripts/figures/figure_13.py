@@ -48,7 +48,7 @@ VIII절의 핵심 주장 — **"이 처방은 재분배이지 전체 상향이 �
 재현 스크립트가 없다 — 그 구멍을 메운다.
 """
 
-# from stella.paper.figure_base import PlotFigure
+# from figure_base import PlotFigure
 #
 #
 # class LengthReweightFigure(PlotFigure):

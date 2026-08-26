@@ -56,7 +56,7 @@
 **착수 전.** 실험이 필요 없다 — v1.2 데이터셋으로 지금 바로 만들 수 있다.
 """
 
-# from stella.paper.table_base import PaperTable
+# from table_base import PaperTable
 #
 #
 # class DatasetClassTable(PaperTable):

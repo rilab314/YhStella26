@@ -49,7 +49,7 @@ F1(맞았는가)과 커버리지(GT 를 얼마나 덮었는가) 두 축으로 �
 다만 최종 채택 설정으로 뜬 캐시여야 하므로 실험이 마무리된 뒤에 뜬다.
 """
 
-# from stella.paper.figure_base import SampleFigure
+# from figure_base import SampleFigure
 #
 #
 # class QuadrantQualitativeFigure(SampleFigure):

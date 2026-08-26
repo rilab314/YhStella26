@@ -41,7 +41,7 @@
 **착수 전.** 학습·데이터가 필요 없다 — 지금 바로 만들 수 있다.
 """
 
-# from stella.paper.figure_base import PlotFigure
+# from figure_base import PlotFigure
 #
 #
 # class JunctionEncodingFigure(PlotFigure):

@@ -43,8 +43,8 @@ stella/
   eval/             ccq(인스턴스 F1)·geometry·cellstat(셀 단위 진단)·runlog(metrics.csv 판독)
   train/            module·optim·viz·callbacks·train(진입점)
 scripts/            아래 "실행" 참고 — 데이터 확인 · 학습 운영 · 디코더(D) 트랙 · 진단
-  paper/            논문 그림·표 진입점 — figures/figure_01~14 · tables/table_01~09
-                    공유 베이스는 stella/paper/ (docs/paper_assets.md 15절)
+  figures/          논문 그림 — figure_01~14 + figure_base (docs/paper_assets.md 15절)
+  tables/           논문 표   — table_01~09 + table_base
 tests/              pytest — 인코더 불변식·매칭·RoPE·디코더·후처리·지표·셀진단·CPU예산·config 해석
 experiment/         STATE.md(냉시동 진입점) · plan_MMDD.md · result_MMDD.md · queue.json · data/
 gate_baseline.json  PR 전 게이트의 검사 목록과 하한 — 코드가 아니라 데이터다
@@ -98,7 +98,7 @@ gate_baseline.json  PR 전 게이트의 검사 목록과 하한 — 코드가 �
 | 디코더(D) 트랙 | `dump_predictions.py`(예측→희소 캐시) · `eval_decode.py`(CPU만으로 스윕) · `tune_decoder.py`(좌표 하강) · `viz_cache.py`(캐시→2×3 진단 시트, 설정 바꿔 다시 그리기) |
 | 진단 | `loss_balance.py`(손실 균형·가중치 제안) · `class_confusion.py`("배경이라 부름" vs "종류 혼동") |
 | 데이터 준비 | `build_split_dataset.py`(평평한 SEED-MAP 원본 → `{train,val,test}` 폴더 사본) |
-| 논문 산출물 | `paper/figures/figure_NN.py` · `paper/tables/table_NN.py` — **설계(주석)만 있고 미구현** |
+| 논문 산출물 | `figures/figure_NN.py` · `tables/table_NN.py` — **설계(주석)만 있고 미구현** |
 
 ```bash
 .venv/bin/python scripts/viz_gt.py --config configs.base --split val --count 4 --out /tmp/gt

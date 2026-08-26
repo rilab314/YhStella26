@@ -55,7 +55,7 @@
 지금 바로 만들 수 있는 표다 — **가장 먼저 채울 수 있는 결과 표**다.
 """
 
-# from stella.paper.table_base import PaperTable
+# from table_base import PaperTable
 #
 #
 # class OracleDecompositionTable(PaperTable):

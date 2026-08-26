@@ -12,6 +12,29 @@
 
 ---
 
+# 0. 출력 경로와 덮어쓰기 규약
+
+    PAPER_ROOT  = .../Ongoing/2026_stella/paper       ← 데이터 작업 폴더. 저장소가 아니다
+    FIGURE_ROOT = PAPER_ROOT / "figure"
+
+    def figure_dir(name) -> Path:
+        '''FIGURE_ROOT/name 을 **지우고 다시 만들어** 돌려준다.'''
+
+**폴더 단위로 지우고 다시 만든다** (사용자 지시). `figure_01` 을 다시 그리면
+`figure/figure_01/` 을 통째로 `rmtree` 하고 새로 `mkdir` 한다. 파일 하나씩 덮어쓰면
+사고가 난다 — 지난 실행에서 3위였다가 이번에 조건을 통과하지 못한 그림이 그대로 남아
+"이번 결과"에 섞인다. 지우는 단위는 **그림 하나**이므로 다른 그림 폴더는 건드리지 않는다.
+
+그림은 실행마다 수백 MB 가 새로 만들어진다 — git 이력에 넣을 것이 아니다.
+**논문에 실제로 고른 몇 장만** `docs/figures/` 로 옮겨 커밋한다.
+
+> `PAPER_ROOT` 는 `tables/table_base.py` 에도 같은 값이 있다. `scripts/` 는 패키지가 아니라
+> 두 폴더가 서로를 import 할 수 없어서다(`sys.path` 조작은 하지 않는다 — CLAUDE.md).
+> **경로를 바꾸면 두 곳을 함께 고친다.** 상수 하나뿐이라 이 중복이 폴더를 하나 더 만드는
+> 것보다 싸다고 판단했다.
+
+---
+
 # 1. `SampleFigure` — 정성 그림의 선별 규약
 
 ## 왜 선별하는가
@@ -23,7 +46,7 @@
 ## 흐름
 
     run()
-      ├─ paths.figure_dir(name)         폴더를 지우고 다시 만든다
+      ├─ figure_dir(name)                폴더를 지우고 다시 만든다
       ├─ scan()                          split 의 모든 stem 을 훑는다
       │    └─ measure(stem)              build_figure() 호출 → None 이면 탈락
       │         └─ build_figure(stem)    (이미지, 파일명 꼬리, 정렬 점수) 또는 None
@@ -83,7 +106,7 @@
 ## 흐름
 
     run()
-      ├─ paths.figure_dir(name)
+      ├─ figure_dir(name)
       ├─ collect()      수치를 모은다 (metrics.csv · 라벨 JSON · 캐시 · 판정 결과 CSV)
       ├─ save_csv()     그린 값을 그대로 CSV 로 남긴다   ← 여기가 요점
       └─ plot()         figure_XX.png (본문 확인용) + figure_XX.pdf (제출용 벡터)

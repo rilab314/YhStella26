@@ -62,7 +62,7 @@ F1 만 보면 두 가지 실패가 구별되지 않는다.
 (F 규격이라 4 GPU 배타 실행). 없는 행은 `–` 로 채우고 무엇이 없는지 화면에 찍는다.
 """
 
-# from stella.paper.table_base import PaperTable
+# from table_base import PaperTable
 #
 #
 # class MainComparisonTable(PaperTable):

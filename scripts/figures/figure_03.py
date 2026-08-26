@@ -45,7 +45,7 @@ config 하나를 받아 **블록별 텐서 shape·파라미터 수·활성 토�
 **착수 전.** 학습 없이 지금 만들 수 있다 (체크포인트 하나만 있으면 된다).
 """
 
-# from stella.paper.figure_base import PlotFigure
+# from figure_base import PlotFigure
 #
 #
 # class WorkflowShapeTable(PlotFigure):

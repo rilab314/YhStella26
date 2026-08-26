@@ -52,7 +52,7 @@
 **착수 전.** 최종 채택 설정의 캐시가 뜨면 만들 수 있다. baseline 은 필요 없다.
 """
 
-# from stella.paper.figure_base import SampleFigure
+# from figure_base import SampleFigure
 #
 #
 # class FailureModeFigure(SampleFigure):

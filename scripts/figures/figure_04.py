@@ -52,7 +52,7 @@
 **착수 전.** 학습·baseline 이 필요 없다 — GT 만으로 만들어지므로 지금 바로 가능하다.
 """
 
-# from stella.paper.figure_base import SampleFigure
+# from figure_base import SampleFigure
 #
 #
 # class ChainEncodingFigure(SampleFigure):

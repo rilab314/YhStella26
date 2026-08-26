@@ -51,7 +51,7 @@ F 규격과 U 규격 점을 한 그림에 그린다. **절대값 비교가 아�
 스크립트가 꼭 있어야 하는 그림이다.
 """
 
-# from stella.paper.figure_base import PlotFigure
+# from figure_base import PlotFigure
 #
 #
 # class LinkOkFragmentationFigure(PlotFigure):

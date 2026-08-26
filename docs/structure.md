@@ -115,9 +115,12 @@ stella/                         # 저장소 루트 (패키지명 "stella", edita
 │   ├── viz_gt.py               # GT 인코딩·합성 데이터 육안 확인
 │   ├── stat_labels.py          # SEED-MAP 라벨 통계 — 6.7.5절 표를 재생성
 │   ├── build_split_dataset.py  # 평평한 SEED-MAP 원본 → {train,val,test} 폴더 사본 (6.7.2절)
-│   ├── paper/                  # ★ 논문 그림·표 진입점 — 산출물 하나 = 스크립트 하나 (15절)
-│   │   ├── figures/            #   figure_01.py ~ figure_14.py
-│   │   └── tables/             #   table_01.py ~ table_09.py (논문 Table I~IX)
+│   ├── figures/                # ★ 논문 그림 — 그림 하나 = 스크립트 하나 (15절)
+│   │   ├── figure_base.py      #   SampleFigure(선별형, 상한 100장) · PlotFigure(집계형)
+│   │   └── figure_01.py ~ figure_14.py
+│   ├── tables/                 # ★ 논문 표 — 표 하나 = 스크립트 하나 (15절)
+│   │   ├── table_base.py       #   PaperTable — csv + markdown
+│   │   └── table_01.py ~ table_09.py   (논문 Table I~IX)
 │   ├── dump_predictions.py     # 체크포인트 추론(또는 GT 주입)을 예측 캐시(npz)로 저장
 │   ├── eval_decode.py          # 캐시된 예측으로 CPU만으로 디코딩+평가 (단일 설정/축 스윕)
 │   ├── tune_decoder.py         # DecodeConfig 여러 축을 좌표 하강으로 튜닝

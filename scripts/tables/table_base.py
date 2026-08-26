@@ -12,10 +12,23 @@
 채우는 표도 그 내용을 스크립트 안의 상수 표로 두고 렌더링만 코드가 한다 — 그래야
 "어느 파일을 고쳐야 하나"가 하나로 남는다.
 
+## 출력 경로와 덮어쓰기 규약
+
+    PAPER_ROOT = .../Ongoing/2026_stella/paper       ← 데이터 작업 폴더. 저장소가 아니다
+    TABLE_ROOT = PAPER_ROOT / "table"
+
+    def table_dir(name) -> Path:
+        '''TABLE_ROOT/name 을 **지우고 다시 만들어** 돌려준다.'''
+
+**폴더 단위로 지우고 다시 만든다** (사용자 지시). 지우는 단위는 **표 하나**다.
+
+> `PAPER_ROOT` 는 `figures/figure_base.py` 에도 같은 값이 있다. `scripts/` 는 패키지가 아니라
+> 두 폴더가 서로를 import 할 수 없어서다. **경로를 바꾸면 두 곳을 함께 고친다.**
+
 ## 흐름
 
     run()
-      ├─ paths.table_dir(name)     폴더를 지우고 다시 만든다
+      ├─ table_dir(name)           폴더를 지우고 다시 만든다
       ├─ collect()                 수치를 모은다 (하위 클래스가 구현)
       ├─ format()                  열 이름·자릿수·빈칸 기호를 논문 형식으로
       └─ save()                    table_XX.csv + table_XX.md

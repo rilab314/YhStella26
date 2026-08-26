@@ -42,7 +42,7 @@
 나머지 세 패널은 원고 그림 작업에서 만든다 — 저장소가 아니라 슬라이드 파일로 관리한다.
 """
 
-# from stella.paper.figure_base import PlotFigure
+# from figure_base import PlotFigure
 #
 #
 # class SectorDiscontinuityPanel(PlotFigure):
