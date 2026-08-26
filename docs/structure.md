@@ -114,6 +114,10 @@ stella/                         # 저장소 루트 (패키지명 "stella", edita
 ├── scripts/
 │   ├── viz_gt.py               # GT 인코딩·합성 데이터 육안 확인
 │   ├── stat_labels.py          # SEED-MAP 라벨 통계 — 6.7.5절 표를 재생성
+│   ├── build_split_dataset.py  # 평평한 SEED-MAP 원본 → {train,val,test} 폴더 사본 (6.7.2절)
+│   ├── paper/                  # ★ 논문 그림·표 진입점 — 산출물 하나 = 스크립트 하나 (15절)
+│   │   ├── figures/            #   figure_01.py ~ figure_14.py
+│   │   └── tables/             #   table_01.py ~ table_09.py (논문 Table I~IX)
 │   ├── dump_predictions.py     # 체크포인트 추론(또는 GT 주입)을 예측 캐시(npz)로 저장
 │   ├── eval_decode.py          # 캐시된 예측으로 CPU만으로 디코딩+평가 (단일 설정/축 스윕)
 │   ├── tune_decoder.py         # DecodeConfig 여러 축을 좌표 하강으로 튜닝
@@ -180,8 +184,8 @@ class ModuleConfig:
 class DataConfig(ModuleConfig):
     path: str = "stella.data.seedmap"
     name: str = "SeedMapDataset"  # 합성 데이터는 "stella.data.synthetic" / "SyntheticDataset" (6.6절)
-    # 원본 SEED_MAP_v1.1을 {train,val,test}/{image,label} 구조로 재정리한 사본 (6.7.2절)
-    root: str = "/media/humpback/.../Ongoing/2026_stella/SEED_MAP_v1.1_splits"
+    # 원본 SEED_MAP_v1.2를 {train,val,test}/{image,label} 구조로 재정리한 사본 (6.7.2절)
+    root: str = "/media/humpback/.../Ongoing/2026_stella/SEED_MAP_v1.2_splits"
     image_size: int = 768  # SEED-MAP 원본 크기와 동일 — 리사이즈 없음
     grid_stride: int = 4  # 격자 배율 s. L = image_size // grid_stride = 192
     num_classes: int = 12  # 0 = background + 차선 11종 (6.7.1절)
