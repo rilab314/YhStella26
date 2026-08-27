@@ -2,6 +2,8 @@
 name = "stella"
 version = "0.1.0"
 description = "STELLA — satellite lane detection with token-based connectivity heads"
+# 실제로 쓰는 인터프리터는 `.python-version`(3.11)이 고정한다 — uv.lock 은 3.11/3.12 양쪽
+# 해석을 담고 있어서, 이 파일만으로는 복원 환경이 갈린다.
 requires-python = ">=3.11"
 dependencies = [
     "torch>=2.5",
@@ -11,15 +13,18 @@ dependencies = [
     "transformers>=4.55",
     "timm>=1.0",
     "numpy>=1.26",
-    "einops>=0.8",
     "scipy>=1.11",
     "opencv-python>=4.10",
+    # einops 는 현재 어디서도 import 하지 않는다 — 빼도 되지만 지금 환경을 그대로 복원하기
+    # 위해 남겨 둔다.
+    "einops>=0.8",
 ]
 
 [project.optional-dependencies]
 dev = [
     "ruff>=0.6",
     "pytest>=8.0",
+    "matplotlib>=3.9",  # scripts/figures·tables 의 논문 산출물 렌더링
 ]
 
 [build-system]
@@ -37,6 +42,8 @@ name = "pytorch-cu124"
 url = "https://download.pytorch.org/whl/cu124"
 explicit = true
 
+# torchvision 은 코드가 직접 import 하지 않지만 timm 이 요구한다. 여기에 적어 두지 않으면
+# PyPI 의 CPU 빌드가 딸려 와 torch(cu124) 와 어긋난다 — 그래서 명시적으로 같은 인덱스에 묶는다.
 [tool.uv.sources]
 torch = { index = "pytorch-cu124" }
 torchvision = { index = "pytorch-cu124" }
