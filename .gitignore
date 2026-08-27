@@ -24,7 +24,10 @@ dist
 # 실험 일지·대기열 — 기계마다 다르고 결과는 로그 디렉터리에 따로 쌓인다
 experiment
 
-# 논문 산출물 — .md 만 추적하고 뷰어(HTML·zip)와 실측 그림 PNG 는 저장소에 두지 않는다
+# 논문 산출물 — 설계안 .md 만 추적하고 뷰어(HTML·zip)와 실측 그림 PNG 는 저장소에 두지 않는다
 docs/html/
 docs/paper_outline_html.zip
 docs/figures/
+
+# 영문 원고 본문 — 초안이 계속 갈리므로 저장소에 두지 않는다 (규칙은 skills/paper-english)
+docs/manuscript/
