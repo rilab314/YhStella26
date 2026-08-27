@@ -132,9 +132,25 @@ def test_class_freq_mean_redistributes():
     assert float(weight[0]) == cfg.loss.self_slot.class_bg_weight
 
 
-def test_class_freq_floor_lifts_rare_without_suppressing_common():
-    """기본값(`floor`)은 희소만 올리고 흔한 클래스는 1.0 그대로 둔다 (08-19 채택)."""
+def test_class_freq_is_off_by_default():
+    """**기본값은 빈도 가중을 쓰지 않는다** — U 규격에서 채택됐다가 전체 데이터에서 뒤집혔다.
+
+    F03(`class_freq_power=0.5` + `dir_loss=angle`)이 대조군 F02 대비 **−3.8%** 였다 (08-27).
+    흔한 종류가 충분히 많아지면 빈도 역가중이 그 종류를 눌러 손해가 된다.
+    """
     cfg = get_config()
+    weight = build_instance(cfg.loss.self_slot, cfg).class_weight
+    assert cfg.loss.self_slot.class_freq_power == 0.0
+    assert torch.allclose(weight[1:], torch.ones_like(weight[1:]))
+
+
+def test_class_freq_floor_lifts_rare_without_suppressing_common():
+    """`floor` 정규화는 희소만 올리고 흔한 클래스는 1.0 그대로 둔다 (기능 자체의 계약).
+
+    **켜는 쪽을 명시한다** — 기본값이 0.0(꺼짐)이라 명시하지 않으면 아무것도 시험하지 않는다.
+    """
+    cfg = get_config()
+    cfg.loss.self_slot.class_freq_power = 0.5
     weight = build_instance(cfg.loss.self_slot, cfg).class_weight
     rare = CLASS_NAMES.index("bus_only_lane")
     common = CLASS_NAMES.index("no_parking_stopping_line")
