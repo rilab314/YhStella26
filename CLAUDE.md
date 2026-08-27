@@ -8,9 +8,9 @@
 설계의 핵심은 **토큰 기반 연결성 출력 헤드**다. 셀마다 self 토큰 1개 + 연결 슬롯 R개를 두고,
 연결 슬롯이 "이 셀에서 선이 어느 방향으로 이어지는가"를 예측한다. 디코더가 그 방향들을
 **사슬로 확장**해 폴리라인을 만든다 (선 하나 = 사슬 하나 — 인코딩과 디코딩이 같은 모양이다).
-설계 근거는 `docs/`에 있다 — `docs/design.md`가 색인과 문서 작성 원칙을 담고, 본문은
-`structure`·`data`·`model`·`pipeline`·`decisions`·`paper_assets`로 나뉘며
-변경 내역은 `docs/history.md`에만 쌓는다.
+설계 근거는 `docs/`에 있다 — `docs/0_design.md`가 색인과 문서 작성 원칙을 담고, 본문은
+색인 순서대로 번호가 붙은 `1_structure`·`2_data`·`3_model`·`4_pipeline`·`5_decisions`·
+`6_paper_assets`로 나뉘며 변경 내역은 번호 없는 `docs/history.md`에만 쌓는다.
 
 **파이프라인 구현은 끝났고 지금은 개선(실험) 단계다.** 아래 "개선 실험" 절을 먼저 본다.
 
@@ -43,7 +43,7 @@ stella/
   eval/             ccq(인스턴스 F1)·geometry·cellstat(셀 단위 진단)·runlog(metrics.csv 판독)
   train/            module·optim·viz·callbacks·train(진입점)
 scripts/            아래 "실행" 참고 — 데이터 확인 · 학습 운영 · 디코더(D) 트랙 · 진단
-  figures/          논문 그림 — figure_01~14 + figure_base (docs/paper_assets.md 15절)
+  figures/          논문 그림 — figure_01~14 + figure_base (docs/6_paper_assets.md 15절)
   tables/           논문 표   — table_01~09 + table_base
 tests/              pytest — 인코더 불변식·매칭·RoPE·디코더·후처리·지표·셀진단·CPU예산·config 해석
 experiment/         STATE.md(냉시동 진입점) · plan_MMDD.md · result_MMDD.md · queue.json · data/
@@ -181,7 +181,7 @@ gate_baseline.json  PR 전 게이트의 검사 목록과 하한 — 코드가 �
   OOP·단일 책임, 길이 제한(모듈 400 / 클래스 200 / 함수 30줄, 한 줄 100자), 명사·동사 네이밍,
   호출 트리 깊이우선 순서 배치, 상수 분리, numpy 벡터화가 핵심이다.
 - 대화·문서·주석은 한국어로 쓴다.
-- **설계 문서를 고칠 때는 `docs/design.md`의 작성 원칙을 먼저 읽는다** — 본문에는 수정 이력을
+- **설계 문서를 고칠 때는 `docs/0_design.md`의 작성 원칙을 먼저 읽는다** — 본문에는 수정 이력을
   남기지 않고 현재 상태만 쓰며, 변경 내역은 `docs/history.md`에 날짜순으로 요약한다.
 - **설계 문서의 값과 실측이 다르면 실측을 따르고, config에 근거를 주석으로 남긴다.**
   `n_max`(실측 최대 8,909 → 9,500) · `decode.radius`(2 → 24, f1 +65%) ·
