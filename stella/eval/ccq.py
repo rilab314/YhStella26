@@ -1,9 +1,14 @@
 """커버리지 중심 인스턴스 F1 — 비대칭 버퍼 CCQ (design 11절).
 
     C1(G, P) = |{x in G : d(x, P) <= rho}| / |G|      커버리지(완전성) — 쌍의 성질
-    C2(P)    = |{y in P : d(y, 모든 GT) <= rho}| / |P| 정확성 — 예측 하나의 성질
+    C2(G, P) = |{y in P : d(y, G) <= rho}| / |P|      정확성 — **같은 쌍**의 성질
 
     TP  <=>  C1 >= theta_cov (0.5, 관대)  and  C2 >= theta_cor (0.9, 엄격)
+
+**C2 는 짝지어진 GT 기준으로 잰다** (paper_outline §7-⓪, 08-31 수정). 예측마다 "가장 잘 맞는
+GT 하나"로 재면, 실제로는 GT-B 위에 올라간 예측이 GT-A 와 짝지어지면서 B 기준 값으로 매칭
+문턱을 통과한다 — **옆 차선으로 갈아탄 예측**이 그 전형이다. 짝 기준 값은 TP 판정에 쓰고,
+"이 예측이 *어떤* GT 위에라도 있나"를 묻는 FP 분류·집계 통계에는 GT 축 최대값을 쓴다.
 
 차선은 폭이 거의 없는 1차원 구조라 마스크 IoU 매칭이 맞지 않는다(11.3절).
 """
@@ -68,44 +73,33 @@ class InstanceCCQ(Metric):
     def update(self, predictions: list[dict], targets: list[dict]) -> None:
         pred = _prepare(predictions[: self.max_instances], self.sample_step)
         gt = _prepare(targets[: self.max_instances], self.sample_step)
-        correctness = self._correctness(pred, gt)
-        coverage = self._coverage(pred, gt)
-        self._accumulate_aggregate(pred, gt, correctness, coverage)
-        self._accumulate_instances(pred, gt, correctness, coverage)
+        coverage, correctness = self._score_matrices(pred, gt)
+        best_correctness = _best_over_gt(correctness, len(pred))
+        self._accumulate_aggregate(pred, gt, best_correctness)
+        self._accumulate_instances(pred, gt, coverage, correctness, best_correctness)
 
-    def _correctness(self, pred: list[dict], gt: list[dict]) -> np.ndarray:
-        """C2(P) — 예측이 **GT 선 하나** 위에 머무는 비율. 가장 잘 맞는 GT 하나로 잰다.
+    def _score_matrices(self, pred: list[dict], gt: list[dict]) -> tuple[np.ndarray, np.ndarray]:
+        """C1(G, P) 와 C2(G, P) 를 같은 쌍 루프에서 함께 낸다 — 둘 다 (GT x 예측) 행렬이다.
 
-        합집합까지의 거리로 재면 **차선을 갈아탄 사슬도 만점을 받는다** — 차선 간격 중앙값이
-        11.8 px 라 이웃 선이 늘 버퍼 안에 있기 때문이다(val 80장·선 2,896개 실측).
-        실측(cnxl 40장): 합집합 기준 통과 90.3% vs 한 선 기준 73.2% — **통과분의 17%가
-        갈아탄 것**이었다. 같은 디코더라도 GT 주입은 그 차이가 1.0p 라 지표의 인위적
-        산물이 아니다. 선 하나 = 인스턴스 하나가 이 프로젝트의 출력 계약이다.
+        두 값은 버퍼를 두르는 쪽만 반대다. C1 은 예측에 버퍼를 두르고 GT 점을 세고(조각남을
+        처벌), C2 는 GT 에 버퍼를 두르고 예측 점을 센다(GT 를 벗어나는 것을 처벌).
         """
-        return np.array([max(self._inside_ratios(item, gt), default=0.0) for item in pred])
-
-    def _inside_ratios(self, item: dict, others: list[dict]):
-        """GT 하나하나에 대해 '버퍼 안에 든 예측 점의 비율'을 낸다."""
-        for other in others:
-            if not geometry.boxes_overlap(item["box"], other["box"], self.buffer_rho):
-                continue
-            distance = geometry.gated_distance(
-                item["points"], item["tangent"], other["points"], self.angle_cos
-            )
-            yield float((distance <= self.buffer_rho).mean()) if distance.size else 0.0
-
-    def _coverage(self, pred: list[dict], gt: list[dict]) -> np.ndarray:
-        """C1(G, P) — GT가 각 예측에 덮인 비율 (쌍마다)."""
-        values = np.zeros((len(gt), len(pred)))
+        coverage = np.zeros((len(gt), len(pred)))
+        correctness = np.zeros((len(gt), len(pred)))
         for gt_index, target in enumerate(gt):
             for pred_index, item in enumerate(pred):
                 if not geometry.boxes_overlap(target["box"], item["box"], self.buffer_rho):
                     continue
-                distance = geometry.gated_distance(
-                    target["points"], target["tangent"], item["points"], self.angle_cos
-                )
-                values[gt_index, pred_index] = float((distance <= self.buffer_rho).mean())
-        return values
+                coverage[gt_index, pred_index] = self._inside_ratio(target, item)
+                correctness[gt_index, pred_index] = self._inside_ratio(item, target)
+        return coverage, correctness
+
+    def _inside_ratio(self, item: dict, other: dict) -> float:
+        """`item` 의 샘플점 중 `other` 의 버퍼 안에 든 비율."""
+        distance = geometry.gated_distance(
+            item["points"], item["tangent"], other["points"], self.angle_cos
+        )
+        return float((distance <= self.buffer_rho).mean()) if distance.size else 0.0
 
     def _distance_to_union(self, item: dict, others: list[dict]) -> np.ndarray:
         distance = np.full(item["points"].shape[0], np.inf)
@@ -118,8 +112,11 @@ class InstanceCCQ(Metric):
             distance = np.minimum(distance, candidate)
         return distance
 
-    def _accumulate_aggregate(self, pred, gt, correctness, coverage) -> None:
-        """집계 커버리지·정확성·RMS 횡오차 (11.2절)."""
+    def _accumulate_aggregate(self, pred, gt, best_correctness) -> None:
+        """집계 커버리지·정확성·RMS 횡오차 (11.2절).
+
+        여기서 묻는 것은 "이 예측이 **어떤** GT 위에라도 있나"이므로 GT 축 최대값을 쓴다.
+        """
         for target in gt:
             distance = self._distance_to_union(target, pred)
             inside = distance <= self.buffer_rho
@@ -131,16 +128,16 @@ class InstanceCCQ(Metric):
             self.covered_points += float(inside.sum())
         for index, item in enumerate(pred):
             self.pred_total += float(item["length"])
-            self.pred_covered += float(correctness[index]) * float(item["length"])
+            self.pred_covered += float(best_correctness[index]) * float(item["length"])
 
-    def _accumulate_instances(self, pred, gt, correctness, coverage) -> None:
+    def _accumulate_instances(self, pred, gt, coverage, correctness, best_correctness) -> None:
         matched_gt, matched_pred = _greedy_match(
             gt, pred, coverage, correctness, self.cov_thresh, self.cor_thresh
         )
         for gt_index, target in enumerate(gt):
             if gt_index in matched_gt:
                 self.tp[target["class"]] += 1
-                self._accumulate_fragments(coverage[gt_index], correctness)
+                self._accumulate_fragments(coverage[gt_index], best_correctness)
             else:
                 self.fn[target["class"]] += 1
         for pred_index, item in enumerate(pred):
@@ -149,15 +146,15 @@ class InstanceCCQ(Metric):
             self.fp[item["class"]] += 1
             bucket = (
                 self.fp_redundant
-                if correctness[pred_index] >= self.cor_thresh
+                if best_correctness[pred_index] >= self.cor_thresh
                 else self.fp_spurious
             )
             bucket[item["class"]] += 1
 
-    def _accumulate_fragments(self, coverage: np.ndarray, correctness: np.ndarray) -> None:
+    def _accumulate_fragments(self, coverage: np.ndarray, best_correctness: np.ndarray) -> None:
         """조각 수 두 가지. `frag`는 스치기만 해도 세고(정확성이 높을수록 부풀려진다),
         `frag_strict`는 그 GT를 `frag_min_cov` 이상 덮은 조각만 센다 (E00 관찰)."""
-        accurate = correctness >= self.cor_thresh
+        accurate = best_correctness >= self.cor_thresh
         self.frag_sum += float(((coverage > 0) & accurate).sum())
         self.frag_strict_sum += float(((coverage >= self.frag_min_cov) & accurate).sum())
         self.frag_count += 1
@@ -226,13 +223,17 @@ def _greedy_match(
     cov_thresh: float,
     cor_thresh: float,
 ) -> tuple[set, set]:
-    """두 조건을 통과한 쌍만 후보로 두고 C1 + C2 가중치로 일대일 최대가중 매칭한다."""
+    """두 조건을 통과한 쌍만 후보로 두고 C1 + C2 가중치로 일대일 최대가중 매칭한다.
+
+    **두 값 모두 그 쌍 (G, P) 에서 잰 것이다** — C2 를 예측별 최대값으로 재면 옆 차선 위에
+    올라간 예측이 다른 GT 와 짝지어지면서 문턱을 통과한다 (paper_outline §7-⓪).
+    """
     candidates = []
     for gt_index in range(len(gt)):
         for pred_index in range(len(pred)):
             if gt[gt_index]["class"] != pred[pred_index]["class"]:
                 continue
-            c1, c2 = coverage[gt_index, pred_index], correctness[pred_index]
+            c1, c2 = coverage[gt_index, pred_index], correctness[gt_index, pred_index]
             if c1 >= cov_thresh and c2 >= cor_thresh:
                 candidates.append((c1 + c2, gt_index, pred_index))
     matched_gt: set[int] = set()
@@ -242,6 +243,13 @@ def _greedy_match(
             matched_gt.add(gt_index)
             matched_pred.add(pred_index)
     return matched_gt, matched_pred
+
+
+def _best_over_gt(matrix: np.ndarray, pred_count: int) -> np.ndarray:
+    """예측마다 GT 축 최대값 — "어떤 GT 위에라도 있나"를 묻는 자리에서 쓴다."""
+    if matrix.size == 0:
+        return np.zeros(pred_count)
+    return matrix.max(axis=0)
 
 
 def _micro_scores(tp: torch.Tensor, fp: torch.Tensor, fn: torch.Tensor) -> dict[str, torch.Tensor]:
