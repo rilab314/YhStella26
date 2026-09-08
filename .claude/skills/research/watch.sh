@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# 유휴 감시자 — improve-loop SKILL "완료 감지".
+# 유휴 감시자 — research SKILL "완료 감지".
 #
 # 실험을 띄운 **직후** 백그라운드로 이걸 건다. 자원이 비면 즉시 종료하면서 요약을 찍는데,
 # 그 종료가 완료 알림이 되어 팀장을 깨운다. 이것이 없으면 GPU가 밤새 놀아도 아무도 모른다.
 #
-#   사용:  bash .claude/skills/improve-loop/watch.sh [확인간격초] [유휴판정횟수]
+#   사용:  bash .claude/skills/research/watch.sh [확인간격초] [유휴판정횟수]
 #   기본:  60초 간격, 연속 3회 유휴면 종료 (= 3분)
 set -uo pipefail
 

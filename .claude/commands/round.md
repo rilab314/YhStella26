@@ -9,13 +9,13 @@ STELLA 개선 루프를 이어서 진행한다. **상태는 파일에서 읽는�
 
 ## 1. 복원
 
-`.claude/skills/improve-loop/SKILL.md` 와 `experiment/STATE.md` 를 읽는다(이미 컨텍스트에
+`.claude/skills/research/SKILL.md` 와 `experiment/STATE.md` 를 읽는다(이미 컨텍스트에
 있으면 다시 읽지 않는다). STATE.md의 **"다음 행동"이 지금 할 일**이다.
 **"확정된 사실"에 있는 것은 다시 검증하지 않는다.** `result_*.md` 는 근거가 필요할 때만 펼친다.
 
 ## 2. 자원
 
-`bash .claude/skills/improve-loop/resources.sh` 로 확인한다.
+`bash .claude/skills/research/resources.sh` 로 확인한다.
 부하가 16을 넘으면 **그 자리에서** 낮춘다: `renice 15` 재적용 → D 트랙 중단 → U arm 축소.
 조사보다 조치가 먼저다 — 사람이 같은 CPU를 쓴다.
 

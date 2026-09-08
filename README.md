@@ -14,10 +14,10 @@ uv sync --extra dev          # 새로 만들 때
 uv sync --extra dev --frozen # 잠금 파일 그대로 복원할 때 (재해석 금지)
 ```
 
-Python 3.11 / torch 2.6 (cu124) / PyTorch Lightning. 저장소는 editable 설치된다.
+Python 3.11 / torch 2.11 (cu128) / PyTorch Lightning. 저장소는 editable 설치된다.
 
 **환경은 세 파일이 함께 고정한다** — `.python-version`(인터프리터 3.11) · `pyproject.toml`
-(직접 의존성과 cu124 인덱스) · `uv.lock`(전 패키지 정확한 버전). 셋 다 커밋돼 있으므로
+(직접 의존성과 cu128 인덱스) · `uv.lock`(전 패키지 정확한 버전). 셋 다 커밋돼 있으므로
 `--frozen`으로 동기하면 같은 환경이 그대로 복원된다. `uv.lock`이 pyproject와 어긋났는지는
 `uv lock --check`로 확인한다.
 

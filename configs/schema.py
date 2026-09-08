@@ -28,10 +28,7 @@ class DataConfig(ModuleConfig):
     # 80~100 m 간격이라 이웃끼리 절반 넘게 겹쳐 split 경계에서 픽셀이 새고 있었다.
     # 라벨은 형식·내용이 같다(v1.2가 지운 "타일 밖 선"은 로더가 이미 잘라 버리던 것이다).
     # **과거 실행의 성적을 다시 재지 않는다** (사용자 판단) — 규격이 갈리는 것에 주의한다.
-    root: str = (
-        "/media/humpback/435806fd-079f-4ba1-ad80-109c8f6e2ec0/Ongoing/2026_stella"
-        "/SEED_MAP_v1.2_splits"
-    )
+    root: str = "/data/ongoing/2026_stella/SEED_MAP_v1.2_splits"
     image_size: int = 768  # SEED-MAP 원본 크기와 동일 — 리사이즈 없음
     grid_stride: int = 4  # 격자 배율 s. L = image_size // grid_stride = 192
     num_classes: int = 12  # 0 = background + 차선 11종 (6.7.1절)
@@ -55,9 +52,7 @@ class DataConfig(ModuleConfig):
     conn_lookahead: int = 1
     cache_gt: str = "val_test"  # "none" | "val_test" | "all" (6.4.1절)
     # 데이터셋 폴더를 건드리지 않도록 캐시는 그 옆에 둔다. 빈 문자열이면 {root}/gt_cache.
-    cache_dir: str = (
-        "/media/humpback/435806fd-079f-4ba1-ad80-109c8f6e2ec0/Ongoing/2026_stella/gt_cache"
-    )
+    cache_dir: str = "/data/ongoing/2026_stella/gt_cache"
     augment: bool = True  # 학습 split에만 적용 (6.7.6절)
     # 격자 대칭 외의 기하 증강 (가설 백로그). 0이면 끈다 — 기본은 기존 동작.
     aug_rotate_deg: float = 0.0  # +-이 각도까지 임의 회전. 타일 밖은 검게 채운다
@@ -396,9 +391,10 @@ class MetricConfig(ModuleConfig):
     # 성능에서 빼는 종류. **기본값이 빈 튜플이 아닌 이유**: `_cast_tuple` 이 원소 타입을
     # 현재 값에서 읽으므로 `()` 로 두면 덮어쓴 값이 문자열로 남아 손잡이가 조용히 꺼진다.
     # 0 = background 는 인스턴스가 없어 어차피 세지 않으므로 무동작이다.
-    # 8 = guiding_line 은 **선이 아니라 영역**이라 원래 선으로 찾을 대상이 아니다(사용자 08-26).
-    # 논문 성능을 그렇게 낼 때 `--set eval.exclude_classes=(0,8)` 로 켠다.
-    exclude_classes: tuple = (0,)
+    # 10 = safety_zone 은 **선이 아니라 면으로 칠해진 영역**이라 선으로 찾을 대상이 아니다
+    #      (f1 0.056). 08-31 부터 기본으로 뺀다 — 논문 성능은 10종으로 낸다.
+    # 8 = guiding_line 은 얽혀 있어도 **남긴다** (사용자 결정 08-27).
+    exclude_classes: tuple = (0, 10)
 
 
 @dataclass(kw_only=True)
@@ -441,9 +437,7 @@ class TrainConfig(ModuleConfig):
     ckpt_top_k: int = 3
     # 최소 1노드 보장(7.4절) 덕에 미사용 파라미터가 없다 — 끄면 매 스텝 그래프 순회가 사라진다.
     find_unused_parameters: bool = False
-    output_root: str = (
-        "/media/humpback/435806fd-079f-4ba1-ad80-109c8f6e2ec0/Ongoing/2026_stella/log"
-    )
+    output_root: str = "/data/ongoing/2026_stella/log"
 
 
 @dataclass(kw_only=True)
@@ -460,8 +454,9 @@ class CpuConfig(ModuleConfig):
     torch_threads: int = 2  # 프로세스당 intra-op 스레드. 0이면 torch 기본(= 전체 코어)
     interop_threads: int = 1
     cores: str = ""  # "0-14" 처럼 주면 그 코어에만 붙는다. 비면 reserved_cores로 계산
-    # 사람 몫으로 남길 코어 수. 32코어 중 17을 남겨 **이 프로젝트는 0~14 (15코어) 만 쓴다**
-    # (사용자 지시 08-14). 같은 기계에서 사용자 본인 추론 작업이 함께 도는 것을 실측했다.
+    # 사람 몫으로 남길 코어 수. 남기는 **개수 17을 유지**한다 (사용자 지시 08-14 · 08-31 재확인)
+    # — 64코어 기계에서는 **이 프로젝트가 0~46 (47코어) 를 쓴다**.
+    # 같은 기계에서 사용자 본인 추론 작업이 함께 도는 것을 실측했다.
     reserved_cores: int = 17
 
 

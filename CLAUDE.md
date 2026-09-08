@@ -16,13 +16,16 @@
 
 ## 환경
 
-- `uv` + `pyproject.toml`. Python 3.11, torch 2.6/cu124, PyTorch Lightning.
+- `uv` + `pyproject.toml`. Python 3.11, torch 2.11/cu128, PyTorch Lightning.
+  **torch 는 2.7 미만으로 내리지 않는다** — 이 기계의 GPU(Blackwell, sm_120)는 cu124 빌드에서
+  `no kernel image is available` 로 죽는다 (08-31 실측).
 - `uv sync --extra dev` 로 `.venv` 구성. 실행은 `.venv/bin/python`.
 - 저장소는 editable 설치라 `sys.path` 조작이 없다. **절대 import만** 쓴다.
   (editable 설치가 worktree를 가리키면 `python scripts/*.py`가 남의 코드로 돈다 —
   `scripts/gate.py`의 `install` 검사가 그 사고를 막는다.)
-- GPU는 RTX 4090 4장, CPU 32코어. **CPU 예산은 `cfg.cpu`가 단일 출처**다 —
-  학습은 코어 `0-21`만 쓰고 `22-31`은 사람 몫으로 비워 둔다 (`stella/runtime/cpu.py`).
+- GPU는 RTX PRO 6000 Blackwell 2장(96 GB/장), CPU 64코어. **CPU 예산은 `cfg.cpu`가 단일 출처**다 —
+  학습은 코어 `0-46`만 쓰고 뒤 17코어는 사람 몫으로 비워 둔다 (`stella/runtime/cpu.py`).
+  **GPU 가 4장에서 2장으로 줄었다** — arm 당 1 GPU 로 동시에 돌릴 수 있는 실험은 2개다.
 
 ## 구조
 
