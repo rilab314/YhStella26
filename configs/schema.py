@@ -107,6 +107,11 @@ class ModelConfig(ModuleConfig):
     grad_checkpoint: bool = True  # 윈도우 층만 재계산 (활성의 대부분이 거기 있다, 7.6절)
     head_hidden: int = 1  # 헤드 MLP의 은닉층 수. 1 = 계획서 원안(2층) (가설 백로그 C5)
     share_slot_weights: bool = True  # 연결 슬롯 R개가 MLP를 공유하는가 (가설 백로그 C5)
+    # 어텐션을 지나는 토큰 구조 (Table VI · 논지 C2).
+    # "per_slot" = 노드당 토큰 K개(자기 + 슬롯 R개) — 역할 표시를 어텐션 입구에서 더한다 (현행).
+    # "single"   = 노드당 토큰 1개로 어텐션을 통과시키고, 역할 표시는 헤드 입구에서 더한다.
+    #              슬롯끼리 서로 보는 단계가 할 일을 잃는다. 파라미터 수는 같고 계산량은 약 1/K.
+    token_mode: str = "per_slot"
     node_sampling: str = "gt+pred"  # "gt+pred"(기본) | "gt" (7.4절)
     # 전체 train 8979장 실측: 평균 2121, p90 3681, p99 5893, 최대 8909 (6.7.5절).
     n_max: int = 9500

@@ -18,6 +18,9 @@ from stella.model.heads import ConnHead, SelfHead
 from stella.model.heatmap import HeatmapHead, NodeSelector
 from stella.model.neck import Neck
 
+# 어텐션을 지나는 토큰 구조 — `configs.schema.ModelConfig.token_mode` 주석 참고.
+TOKEN_MODES = ("per_slot", "single")
+
 
 @dataclass
 class ModelOutput:
@@ -59,10 +62,14 @@ class StellaModel(nn.Module):
         head_hidden: int,
         fg_head: bool,
         share_slot_weights: bool,
+        token_mode: str,
         num_classes: int,
         grid_size: int,
     ):
         super().__init__()
+        if token_mode not in TOKEN_MODES:
+            raise ValueError(f"token_mode 는 {TOKEN_MODES} 중 하나여야 한다: {token_mode}")
+        self.token_mode = token_mode
         self.backbone = backbone
         self.neck = neck
         self.selector = selector
@@ -124,6 +131,7 @@ class StellaModel(nn.Module):
             head_hidden=module_cfg.head_hidden,
             fg_head=module_cfg.fg_head,
             share_slot_weights=module_cfg.share_slot_weights,
+            token_mode=module_cfg.token_mode,
             num_classes=cfg.data.num_classes,
             grid_size=cfg.data.grid_size,
         )
@@ -144,12 +152,24 @@ class StellaModel(nn.Module):
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """선택 셀의 임베딩을 gather해 쿼리를 만들고 어텐션 스택을 돌린다 (7.5절)."""
         embeddings = feature[:, cells[:, 0], cells[:, 1]].transpose(0, 1)  # (N, D)
-        tokens = embeddings.unsqueeze(1) + self.role_embed.unsqueeze(0)  # (N, K, D)
+        tokens = self._initial_tokens(embeddings)
         positions = torch.stack([cells[:, 1], cells[:, 0]], dim=-1)  # (x, y) 순서
         neighbors = window_neighbors(cells, self.grid_size, self.window_size)
         for block in self.blocks:
             tokens = self._run_block(block, tokens, embeddings, positions, neighbors)
-        return tokens, embeddings
+        return self._expand_roles(tokens), embeddings
+
+    def _initial_tokens(self, embeddings: torch.Tensor) -> torch.Tensor:
+        """어텐션 입력. per_slot 은 역할 표시를 더해 (N, K, D), single 은 노드당 하나 (N, 1, D)."""
+        if self.token_mode == "single":
+            return embeddings.unsqueeze(1)
+        return embeddings.unsqueeze(1) + self.role_embed.unsqueeze(0)
+
+    def _expand_roles(self, tokens: torch.Tensor) -> torch.Tensor:
+        """single 이면 헤드 입구에서 역할 표시를 더해 (N, K, D) 로 펼친다. per_slot 은 그대로."""
+        if self.token_mode == "single":
+            return tokens + self.role_embed.unsqueeze(0)
+        return tokens
 
     def _run_block(self, block: StellaBlock, *inputs: torch.Tensor) -> torch.Tensor:
         """윈도우 층만 재계산한다 — 활성의 대부분이 여기 (N, w^2, D) gather에 있고,
