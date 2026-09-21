@@ -1,64 +1,71 @@
-"""Fig. 8 — 평가 지표와 버퍼 폭 (VI-B, 2단, 1×3). **미구현 — 설계만 적어 둔다.**
+"""Fig. 8 — 대표 정성 결과 (VI-G, 2단, 4~6장면 × 3열).
 
-## 무엇을 그리나
+열: 원본 | GT | STELLA.
 
-    (a) 지표 정의 도식. GT 선 위에 버퍼 띠를 그리고, 그 안에 든 예측의 길이 비율을 표시.
-        커버리지(코드 이름 C1) = GT 중 예측이 덮은 비율,
-        정확성(코드 이름 C2) = 예측 중 어떤 GT 위에 놓인 비율.
-    (b) **갈아탐 사례.** 예측 하나가 GT 두 개를 옮겨 다니는 그림.
-        "합집합 기준으로 재면 정확성 만점, 단일 선 기준으로 재면 실패"를 나란히 표기.
-    (c) **차선 간 최근접 거리 히스토그램**(실측)에 옛 버퍼 반경 12 px 과
-        현재 3 px 을 수직선으로 얹는다.
+**"잘 된 장면만 골랐다"는 반박을 구조적으로 막는 그림이다.** 그래서 한 사분면에서만 뽑지 않고
+**F1 × coverage 사분면 넷**에서 각각 후보를 만든다 — 잘 찾고 잘 덮은 장면(HH), 정확하지만 덜 덮은
+장면(HL), 많이 덮었지만 틀린 장면(LH), 둘 다 낮은 장면(LL).
 
-## 왜 필요한가
+    python scripts/figures/figure_08.py --candidates --quadrant hh    # 사분면마다 한 번씩
+    python scripts/figures/figure_08.py --quadrant hh                 # 고른 것만 조판
 
-자체 지표를 쓰는 논문은 반드시 *"왜 표준 지표를 안 쓰나, 유리하게 만든 것 아닌가"* 를 받는다.
+**후보 순위**: 그 사분면 중심에서 먼 순 — 사분면의 성격이 가장 뚜렷한 장면이 위로 온다.
+**무엇을 실을지는 사람이 고른다**(미팅 결정 09-15).
 
-    (c) 버퍼 반경이 **자의적 선택이 아니라 데이터가 정한 값**임을 보인다.
-    (b) 우리가 지표를 **우리에게 불리한 방향으로** 고쳤다는 사실을 보인다.
-
-신뢰를 사는 그림이다. §6.2 감축안에서 **절대 줄이지 않을 다섯 중 하나**다.
-
-## 제작 방식
-
-    (a)(b) 개념도 (그리기 도구). 단 (b)의 두 숫자는 실제 평가 코드로 계산해 적는다.
-    (c) 실측 — 이 스크립트가 만드는 부분.
-
-## (c) 히스토그램 — ★ 실측 완료
-
-    파일    docs/figures/fig8c_lane_spacing.png (이미 있다)
-    표본    val 300장 · 인스턴스 11,663개
-    방법    각 선을 2 px 간격으로 재샘플링해 **다른 인스턴스까지 최근접 거리**를 잰다
-    값      중앙값 **11.64 px** (설계 문서의 옛 값 11.8 px 과 사실상 같다 — 다른 표본)
-    표시    옛 반경 12 px(폭 24 px)과 현재 3 px(폭 6 px)을 수직선으로
-
-이 스크립트는 그 히스토그램을 **재현 가능하게 다시 만드는 것**이 목적이다.
-현재 저장소의 PNG 는 세션 스크래치에서 만든 것이라 재현 스크립트가 없다.
-
-    입력   {data.root}/val/label/*.json  (GT 만 읽는다 — 모델이 필요 없다)
-    계산   인스턴스별 2 px 재샘플 → 같은 타일의 다른 인스턴스까지 최근접 거리
-    출력   figure_08/figure_08c.png · .pdf
-           figure_08/figure_08c.csv   (거리 히스토그램의 구간과 개수, 중앙값·사분위)
-    표본   val 300장 (전체를 쓰지 않는 이유: 300장에서 이미 1만 개가 넘어 분포가 안정된다.
-           장수는 상수로 두고 바꿔 잴 수 있게 한다.)
-
-## 상태
-
-**(c) 실측 완료 · 재현 스크립트 미구현.** (a)(b) 개념도는 원고 그림 작업에서 만든다.
+경계값은 검증셋 전량 평균(F1 0.4489 · coverage 0.6728)에서 잡았다 — 임의로 고른 값이 아니라
+**이 모델의 평균**이라 "평균보다 나은/못한 장면"이라는 뜻이 분명하다.
 """
 
-# from figure_base import PlotFigure
-#
-#
-# class LaneSpacingHistogram(PlotFigure):
-#     """(c): 차선 사이 최근접 거리 분포와 버퍼 반경 선택 근거."""
-#
-#     name = "figure_08"
-#     split = "val"
-#     SAMPLE_TILES = 300         # 분포가 안정되는 최소 규모
-#     RESAMPLE_STEP_PX = 2.0
-#     OLD_RHO_PX, NEW_RHO_PX = 12.0, 3.0   # 그림에 수직선으로 얹을 값
-#     width_in, height_in = 2.4, 1.8       # 2단 1×3 중 한 칸
-#
-#     def collect(self):
-#         raise NotImplementedError("설계는 위 docstring 참고")
+import argparse
+
+from figure_base import SampleFigure, add_arguments
+
+from stella.config_io import load_config
+
+F1_SPLIT = 0.4489
+COVERAGE_SPLIT = 0.6728
+MIN_GT = 5  # 정답이 거의 없는 타일은 어느 사분면에서도 볼 것이 없다
+QUADRANTS = ("hh", "hl", "lh", "ll")
+
+
+class Qualitative(SampleFigure):
+    name = "figure_08"
+    split = "val"
+    columns = (
+        ("원본", ""),
+        ("GT", ""),  # 정답 선은 저장된 예측이 아니라 데이터셋에서 읽는다
+        ("STELLA", "stella"),
+    )
+
+    def __init__(self, cfg, quadrant: str):
+        super().__init__(cfg)
+        self.quadrant = quadrant
+        self.name = f"figure_08_{quadrant}"
+
+    def score(self, stem: str):
+        if self.scores.value("stella", stem, "n_gt") < MIN_GT:
+            return None
+        f1 = self.scores.value("stella", stem, "f1")
+        coverage = self.scores.value("stella", stem, "coverage")
+        if self._quadrant_of(f1, coverage) != self.quadrant:
+            return None
+        return abs(f1 - F1_SPLIT) + abs(coverage - COVERAGE_SPLIT)
+
+    def _quadrant_of(self, f1: float, coverage: float) -> str:
+        return ("h" if f1 >= F1_SPLIT else "l") + ("h" if coverage >= COVERAGE_SPLIT else "l")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    add_arguments(parser)
+    parser.add_argument("--quadrant", default="hh", choices=QUADRANTS, help="F1×coverage 사분면")
+    args = parser.parse_args()
+    figure = Qualitative(load_config(args.config, []), args.quadrant)
+    if args.candidates:
+        figure.write_candidates()
+        return
+    figure.write_selected()
+
+
+if __name__ == "__main__":
+    main()

@@ -1,80 +1,103 @@
-"""Table V — 주 비교 (VII-A, 2단) ★ 이 논문의 생사를 가르는 표.
-**미구현 — 설계만 적어 둔다.**
+"""Table V — 후처리 단계별 ablation (VI-C, 1단).
 
-## 무엇이 들어가나
+후처리 두 단계를 하나씩 켜 가며 이득과 대가를 격리한다. **마지막 열(정답 주입 천장)이 논지다.**
 
-| 방법 | 표현 | 인스턴스 F1 | 정밀도 | 재현율 | 커버리지 | 조각 수 | RMS(px/m) | 예측 수 | 초/타일 |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Seg + LaneStitch 후처리 | 면 | | | | | | | | |
-| Seg + watershed + 샘플링 (OpenSatMap식) | 면 | | | | | | | | |
-| Seg + skeleton + Douglas–Peucker | 면 | | | | | | | | |
-| **GTE 헤드 (같은 백본/neck)** | 셀·섹터 | | | | | | | | |
-| **STELLA (ours), 후처리 없음** | 셀·매칭 | | | | | | | | |
-| **STELLA (ours) + 중복 정리** | 셀·매칭 | | | | | | | | |
+    능선만 남기기   정점 단계 — 한 차선 위에 두 줄로 선 정점을 한 줄로 줄인다 (`vertex_local_max`)
+    중복 정리      선 단계 — 다른 선과 겹친 머리·꼬리를 자른다 (`dedup_high`)
 
-열 이름 풀이 (논문에는 영어, 이 파일에는 한국어):
-    인스턴스 F1  선 하나를 하나로 맞혔는가 (커버리지 0.5 · 정확성 0.9 문턱)
-    커버리지     정답 선 중 예측이 덮은 길이 비율
-    조각 수      정답 선 하나를 예측 몇 개로 나눠 놨는가 (1이 최선)
-    예측 수      영상당 예측 인스턴스 개수
+## 이 표가 말하는 것 (09-11 · val 전량 실측)
 
-## 왜 4행(GTE 헤드)이 사활인가
+1. **두 단계는 서로를 대체하지 않고 더해진다.**
+2. **능선만 남기기는 천장을 전혀 깎지 않는다** — 정답에는 넓은 전경 띠가 없어 줄일 것이 없다.
+3. **중복 정리의 대가는 천장 −0.3%** 다. 이 논문이 공개하는 후처리의 대가다.
 
-**같은 백본·같은 neck·같은 학습 예산에서 출력 표현만 GTE 로 바꾼 대조군**이다.
-이것이 없으면 C1·C2 는 논증일 뿐 증거가 아니고, 성능 차이가 "백본이 좋아서"로 반박된다.
+"지우기만" 행은 없다 — 현행 중복 정리(`dedup_mode="ends"`)에는 **잇는 단계가 아예 없어서**
+"지우기만"과 "채택"이 소수점까지 같다(`result_0910b.md` C절). 각주로 적는다.
 
-## 후처리 전/후를 두 행으로 반드시 함께 싣는다 (사용자 지시)
+## 열
 
-후처리를 넣은 값만 보이면 **"표현의 이득인가 후처리의 이득인가"** 를 독자가 가를 수 없다 —
-이 논문이 baseline 을 비판하는 바로 그 지점이다. 우리가 같은 비판을 되받으면 안 된다.
+    inst F1 · 정밀도 · 재현율     5단계 요약 파일 (`eval_methods.py`)
+    ΔF1                         후처리 없음 대비
+    중복 선 비율                  `eval_breakdown.py` — 같은 종류의 다른 예측선 하나와 자기 길이의
+                                80% 이상이 8 px 안에서 나란히 가는 선의 비율
+    #pred                       타일당 예측 선 수 — "후처리는 선을 줄이기만 한다"의 수치
+    정답 주입 천장                같은 후처리 조건으로 정답을 디코딩한 F1
 
-`예측 수` 열을 함께 실어 **후처리가 선을 줄이기만 한다**는 것을 수치로 보인다
-(실측 31.5 → 27.1개). Table IX 가 그것을 더 자세히 분해한다.
+**미리 정한 판정 기준**: 후처리는 정밀도를 올리고 재현율을 밴드(±2%) 밖으로 떨어뜨리지 않아야
+한다. 떨어뜨리면 중복이 아니라 진짜 선을 지우고 있는 것이다.
 
-## 커버리지와 조각 수를 함께 실어야 하는 이유
-
-F1 만 보면 두 가지 실패가 구별되지 않는다.
-
-    커버리지 높고 조각 수 많다   → 덮긴 덮었는데 **못 이었다** (연결의 실패)
-    커버리지 낮다               → **애초에 못 찾았다** (검출의 실패)
-
-## 값의 출처
-
-    우리 방법     예측 캐시를 같은 디코더 설정으로 평가 (stella/decode/sweep.py)
-    GTE 헤드      같은 방식. 표현만 다른 실행의 캐시
-    면 기반 3종   각 baseline 의 출력을 폴리라인으로 바꿔 **같은 평가 코드**에 넣는다
-                 (stella/eval/ccq.py). 평가 코드가 다르면 비교가 성립하지 않는다.
-    초/타일       같은 기계·같은 배치에서 잰다. 다른 날 잰 값을 섞지 않는다.
-    split        **test**
-
-## 규격을 섞지 않는다
-
-여섯 행 전부 **F 규격**(전체 데이터)이어야 한다. U 규격(3,000장·10에폭) 값이 한 행이라도
-섞이면 표 전체가 무효다. 스크립트가 각 실행의 데이터 규모·에폭을 읽어 **다르면 경고를 찍는다.**
-
-## 출력
-
-    table_05/table_05.csv · table_05.md
-
-## 상태
-
-**착수 전 — baseline 4종이 막고 있다.** GTE 헤드 대조군이 그중 가장 중요하고 가장 오래 걸린다
-(F 규격이라 4 GPU 배타 실행). 없는 행은 `–` 로 채우고 무엇이 없는지 화면에 찍는다.
+사용:
+    python scripts/tables/table_05.py --split val
 """
 
-# from table_base import PaperTable
-#
-#
-# class MainComparisonTable(PaperTable):
-#     """방법 6종을 같은 평가 코드·같은 split 에서 비교한다."""
-#
-#     name = "table_05"
-#     SPLIT = "test"
-#     METHODS = (
-#         "seg_lanestitch", "seg_watershed", "seg_skeldp",
-#         "gte_head", "stella_raw", "stella_post",
-#     )
-#     METRICS = ("f1", "precision", "recall", "coverage", "frag", "rms_px", "n_pred", "sec_tile")
-#
-#     def collect(self):
-#         raise NotImplementedError("설계는 위 docstring 참고")
+import argparse
+
+from table_base import PaperTable, change, number, read_breakdown, read_summary
+
+# (논문 행 이름, 예측 방법, 천장 방법). 방법 이름은 `scripts/eval_methods.py` 의 METHODS 다.
+ROWS = (
+    ("후처리 없음 (디코더 출력 그대로)", "stella_nopost", "gt_nopost"),
+    ("+ 능선만 남기기 (정점 단계)", "stella_ridge", "gt_ridge"),
+    ("+ 중복 정리 (선 단계)", "stella_dedup", "gt_dedup"),
+    ("+ 둘 다 (채택)", "stella", "gt"),
+)
+COLUMNS = (
+    "조건",
+    "inst F1",
+    "ΔF1",
+    "precision",
+    "recall",
+    "중복 선 비율",
+    "#pred",
+    "정답 주입 천장",
+)
+
+
+class PostprocessAblation(PaperTable):
+    name = "table_05"
+    columns = COLUMNS
+
+    def __init__(self, split: str):
+        self.split = split
+
+    def collect(self) -> list[dict]:
+        base = read_summary(ROWS[0][1], self.split).get("summary", {}).get("f1")
+        rows = [self._row(label, method, ceiling, base) for label, method, ceiling in ROWS]
+        if base is not None:
+            rows[0]["ΔF1"] = "기준"
+        return rows
+
+    def _row(self, label: str, method: str, ceiling: str, base) -> dict:
+        payload = read_summary(method, self.split)
+        scores = payload.get("summary", {})
+        redundancy = read_breakdown(method, self.split).get("redundancy", {})
+        ceiling_scores = read_summary(ceiling, self.split).get("summary", {})
+        return {
+            "조건": label,
+            "inst F1": number(scores.get("f1")),
+            "ΔF1": change(scores.get("f1"), base),
+            "precision": number(scores.get("precision")),
+            "recall": number(scores.get("recall")),
+            "중복 선 비율": percent(redundancy.get("redundant_ratio")),
+            "#pred": number(payload.get("pred_per_tile"), 1),
+            "정답 주입 천장": number(ceiling_scores.get("f1")),
+        }
+
+
+def percent(value) -> str:
+    return number(None) if value is None else f"{float(value) * 100:.1f}%"
+
+
+def main() -> None:
+    args = parse_args()
+    PostprocessAblation(args.split).run()
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--split", default="val", help="결과 표는 7단계 이후 test 로 낸다")
+    return parser.parse_args()
+
+
+if __name__ == "__main__":
+    main()

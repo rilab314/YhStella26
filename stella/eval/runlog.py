@@ -46,6 +46,32 @@ def tail_mean(run: Path, tail: int, keys: tuple[str, ...]) -> dict | None:
     }
 
 
+def best_epoch(run: Path, keys: tuple[str, ...], score_key: str = PRESENCE_KEY) -> dict | None:
+    """검증 점수가 가장 높은 **에폭 하나**의 값. 평가된 에폭이 없으면 None.
+
+    판정은 마지막 N 에폭 평균으로 하지만(판정 규칙 2), 논문 표는 **최고 에폭의 체크포인트**를
+    싣는다 — 예측 캐시·그림이 그 체크포인트에서 나오므로(`best_checkpoint`) 표도 같은 에폭이다.
+    """
+    merged = merge_by_epoch(run / "metrics.csv")
+    epochs = [e for e in sorted(merged) if score_key in merged[e]]
+    if not epochs:
+        return None
+    chosen = max(epochs, key=lambda e: float(merged[e][score_key]))
+    values = {key: _float_or_none(merged[chosen].get(key)) for key in keys}
+    return {"name": run.name, "epoch": chosen, **values}
+
+
+def last_value(run: Path, key: str) -> float | None:
+    """그 값이 기록된 마지막 에폭의 값 — 학습이 끝난 시점의 상태를 말할 때 쓴다."""
+    merged = merge_by_epoch(run / "metrics.csv")
+    epochs = [e for e in sorted(merged) if key in merged[e]]
+    return float(merged[epochs[-1]][key]) if epochs else None
+
+
+def _float_or_none(value) -> float | None:
+    return None if value in (None, "") else float(value)
+
+
 def decode_signature(run: Path) -> dict:
     """그 실행이 **검증에 쓴 디코더 설정**. 판정에서 실행끼리 같은지 확인하는 데 쓴다.
 

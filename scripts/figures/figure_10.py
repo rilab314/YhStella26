@@ -1,67 +1,66 @@
-"""Fig. 10 — 셀 단위 연결 성공률에서 조각 수를 예측한다 (VIII절, 1단).
-**미구현 — 설계만 적어 둔다.**
+"""Fig. 10 — 두 체제: 어디서 지고 어디서 이기나 (VII-B, 2단, 3행 × 4열).
 
-## 무엇을 그리나
+열: 원본 | GT | Segmentation | STELLA.
+행: ① 짧은 선이 붐비는 구간(seg 우세) ② 그늘·가림 구간(seg 우세) ③ 교차·중첩 구간(STELLA 우세).
 
-이론 곡선 하나와 실측 점들.
+**우리가 지는 장면을 먼저 놓는다** — 리뷰어가 가장 먼저 물을 "그래서 seg 보다 무조건 낫다는
+거냐"에 그림이 먼저 답한다.
 
-    곡선   E[조각 수] = 1 + 47 × (1 − link_ok)
-           `link_ok` = 셀 단위 연결 성공률 (사슬의 한 칸에서 다음 칸으로 제대로 이어질 확률).
-           47 = 사슬 하나의 평균 칸 수. "매 링크가 독립적으로 실패한다"고 가정한 식이다.
-    점     실행마다 (측정한 link_ok, 실제로 센 조각 수) 하나씩
+    python scripts/figures/figure_10.py --candidates --side seg    # 분할이 이긴 장면(1·2행용)
+    python scripts/figures/figure_10.py --candidates --side ours   # 우리가 이긴 장면(3행용)
 
-## 왜 필요한가
+**후보 순위**: (분할 F1 − STELLA F1) 또는 그 반대. 두 방법 다 정답이 충분한 타일만 본다.
 
-셀 단위 진단이 인스턴스 단위 결과를 **예측한다**는 것을 보이는 그림이다.
-점들이 곡선 근처에 모이면 이 논문은 "성능이 올랐다"가 아니라 **"왜 오르는지 안다"** 가 된다.
-
-## ★ 실측 완료 — 그리고 어긋났다
-
-    파일    docs/figures/fig10_link_ok_fragmentation.png (이미 있다)
-    표본    F 규격(전체 데이터) 3개 + U 규격(3,000장·10에폭) 7개
-    결과    **점들이 곡선을 따르지 않는다.**
-            `link_ok` 가 가장 높은 F01(0.9785)의 조각 수(4.92)가 오히려 가장 크고,
-            U 규격 실행들(link_ok 0.94~0.96)은 이론값(2~3)보다 낮은 1.3~1.6 에 몰려 있다.
-
-**본문에서 이 어긋남 자체를 발견으로 쓴다** — "매 링크 실패가 독립"이라는 전제가 실제로는
-깨진다(실패가 특정 구간에 몰리거나, 사슬이 멈추는 사유가 링크 실패 말고도 여럿이다).
-디코더의 정지 사유 카운터(`stella/decode/stats.py`: end / nocand / exist / slotused)를
-같이 실으면 "왜 어긋나는가"에 부분적으로 답할 수 있다 — **표에 정지 사유 분해를 붙이는 것을
-검토한다.**
-
-## 주의 — 규격을 섞고 있다
-
-F 규격과 U 규격 점을 한 그림에 그린다. **절대값 비교가 아니라 "곡선을 따르는가"라는
-관계를 보는 그림**이라 허용되지만, 마커 모양을 규격별로 다르게 해서 구별되게 한다.
-캡션에도 규격을 밝힌다.
-
-## 입력·출력
-
-    입력   log/{실행}/metrics.csv        ← stella/eval/runlog.py 로 읽는다
-    지표   val/cell/link_ok · val/inst/frag
-    출력   figure_10/figure_10.png · .pdf
-           figure_10/figure_10.csv
-             (실행 이름, 규격, link_ok, frag, 이론값, 잔차)
-    표시   점 옆에 실행 이름. 이론곡선은 회색 점선.
-
-## 상태
-
-**실측 완료 · 재현 스크립트 미구현.** 현재 저장소의 PNG 는 세션 스크래치에서 만든 것이라
-재현 스크립트가 없다 — 그 구멍을 메운다. 새 실행이 늘면 점도 늘어야 하므로
-스크립트가 꼭 있어야 하는 그림이다.
+**아직 자동으로 가르지 못하는 것**: "짧은 선이 붐비는 구간"과 "그늘·가림 구간"을 나누려면
+타일별 선 길이 분포와 가림 여부가 필요한데 지금 점수표에 없다. 그래서 `--side seg` 후보 안에서
+1행·2행에 쓸 장면을 **사람이 눈으로 고른다**(미팅 결정 09-15와 같은 방향이다).
 """
 
-# from figure_base import PlotFigure
-#
-#
-# class LinkOkFragmentationFigure(PlotFigure):
-#     """셀 단위 연결 성공률 대 실측 조각 수. 이론 곡선과의 어긋남이 논지다."""
-#
-#     name = "figure_10"
-#     MEAN_CHAIN_CELLS = 47.0          # 곡선의 계수 — 사슬 하나의 평균 칸 수
-#     LINK_KEY = "val/cell/link_ok"
-#     FRAG_KEY = "val/inst/frag"
-#     width_in, height_in = 3.5, 2.6   # 1단
-#
-#     def collect(self):
-#         raise NotImplementedError("설계는 위 docstring 참고")
+import argparse
+
+from figure_base import SampleFigure, add_arguments
+
+from stella.config_io import load_config
+
+MIN_GT = 8
+SIDES = ("seg", "ours")
+
+
+class TwoRegimes(SampleFigure):
+    name = "figure_10"
+    split = "val"
+    columns = (
+        ("원본", ""),
+        ("GT", ""),  # 정답 선은 저장된 예측이 아니라 데이터셋에서 읽는다
+        ("Segmentation", "seg_dp"),
+        ("STELLA", "stella"),
+    )
+
+    def __init__(self, cfg, side: str):
+        super().__init__(cfg)
+        self.side = side
+        self.name = f"figure_10_{side}"
+
+    def score(self, stem: str):
+        if self.scores.value("stella", stem, "n_gt") < MIN_GT:
+            return None
+        ours = self.scores.value("stella", stem, "f1")
+        seg = self.scores.value("seg_dp", stem, "f1")
+        margin = seg - ours if self.side == "seg" else ours - seg
+        return margin if margin > 0 else None
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    add_arguments(parser)
+    parser.add_argument("--side", default="seg", choices=SIDES, help="어느 쪽이 이긴 장면인가")
+    args = parser.parse_args()
+    figure = TwoRegimes(load_config(args.config, []), args.side)
+    if args.candidates:
+        figure.write_candidates()
+        return
+    figure.write_selected()
+
+
+if __name__ == "__main__":
+    main()

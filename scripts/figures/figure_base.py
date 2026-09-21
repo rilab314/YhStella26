@@ -1,136 +1,203 @@
-"""그림 생성기의 공통 뼈대 (design 15.3절).
+"""그림 생성기의 공통 뼈대 (design 15.3절 · 6단계).
 
-**미구현 — 설계만 적어 둔다.**
+## 선별 규칙이 바뀌었다 (교수 미팅 결정 09-15)
 
-논문 그림은 성질이 두 갈래고, 그래서 베이스도 둘이다.
+옛 규약은 "정량 조건으로 자동으로 고르고 상한 30~40장"이었다. **이제 자동으로 고르지 않는다.**
+스크립트는 **후보를 그려 두기만** 하고, 사람이 눈으로 골라 타일 id 를 적으면 그 타일만 조판한다.
 
-| 갈래 | 무엇 | 출력 | 예 |
-| --- | --- | --- | --- |
-| `SampleFigure` | 샘플마다 조건을 재고 통과한 것만 그린다 | 최대 100장 | Fig. 1·9·11·12 |
-| `PlotFigure` | 데이터 전체를 집계해 그래프 한 장 | 1장 (+csv) | Fig. 5c·8c·10·13·14 |
-| (베이스 없음) | 개념도 — 코드가 아니라 그리기 도구로 만든다 | — | Fig. 2·3·4·7 |
+    python scripts/figures/figure_07.py --candidates     # 후보 100장을 그린다
+    (사람이 figure_07/selected.txt 에 타일 id 를 한 줄에 하나씩 적는다)
+    python scripts/figures/figure_07.py                  # 고른 타일만 조판한다
 
----
+재현성은 그대로다 — **고른 목록이 파일로 남아** 다시 돌려도 같은 그림이 나온다.
+정량 조건은 **고르기가 아니라 후보를 좁히는 데만** 쓴다(예: "정답 선이 8~25개인 타일").
 
-# 0. 출력 경로와 덮어쓰기 규약
+## 입력은 5단계 산출물이다 — 모델도 GPU도 쓰지 않는다
 
-    PAPER_ROOT  = .../Ongoing/2026_stella/paper       ← 데이터 작업 폴더. 저장소가 아니다
-    FIGURE_ROOT = PAPER_ROOT / "figure"
+    paper/pred/{방법}/{split}/{타일}.npz     예측 폴리라인
+    paper/score/{방법}_{split}/per_tile.csv  타일별 점수 (후보 순위를 매긴다)
 
-    def figure_dir(name) -> Path:
-        '''FIGURE_ROOT/name 을 **지우고 다시 만들어** 돌려준다.'''
+영상과 정답 선만 데이터셋에서 타일 이름으로 다시 읽는다(`scripts/viz_cache.py` 와 같은 방식).
 
-**폴더 단위로 지우고 다시 만든다** (사용자 지시). `figure_01` 을 다시 그리면
-`figure/figure_01/` 을 통째로 `rmtree` 하고 새로 `mkdir` 한다. 파일 하나씩 덮어쓰면
-사고가 난다 — 지난 실행에서 3위였다가 이번에 조건을 통과하지 못한 그림이 그대로 남아
-"이번 결과"에 섞인다. 지우는 단위는 **그림 하나**이므로 다른 그림 폴더는 건드리지 않는다.
+## 렌더링은 한 규칙을 공유한다
 
-그림은 실행마다 수백 MB 가 새로 만들어진다 — git 이력에 넣을 것이 아니다.
-**논문에 실제로 고른 몇 장만** `docs/figures/` 로 옮겨 커밋한다.
-
-> `PAPER_ROOT` 는 `tables/table_base.py` 에도 같은 값이 있다. `scripts/` 는 패키지가 아니라
-> 두 폴더가 서로를 import 할 수 없어서다(`sys.path` 조작은 하지 않는다 — CLAUDE.md).
-> **경로를 바꾸면 두 곳을 함께 고친다.** 상수 하나뿐이라 이 중복이 폴더를 하나 더 만드는
-> 것보다 싸다고 판단했다.
-
----
-
-# 1. `SampleFigure` — 정성 그림의 선별 규약
-
-## 왜 선별하는가
-
-**데이터 전체를 렌더링해 눈으로 고르지 않는다.** val 1,218장을 다 그려 놓고 넘겨 보면
-(1) 시간이 오래 걸리고 (2) 무엇을 기준으로 골랐는지 논문에 쓸 수 없다.
-그림마다 **그 현상이 실제로 일어난 프레임만** 정량 조건으로 고른다.
-
-## 흐름
-
-    run()
-      ├─ figure_dir(name)                폴더를 지우고 다시 만든다
-      ├─ scan()                          split 의 모든 stem 을 훑는다
-      │    └─ measure(stem)              build_figure() 호출 → None 이면 탈락
-      │         └─ build_figure(stem)    (이미지, 파일명 꼬리, 정렬 점수) 또는 None
-      ├─ sort(점수 내림차순)
-      ├─ write(상위 CAP개)               001_{stem}{suffix}.png
-      └─ report()                        "훑은 N장 중 후보 M장, 상위 K장 저장"
-
-## 규약
-
-1. **상한 `CAP = 100`** (사용자 지시). 사람이 100장까지는 넘겨 보고 고를 수 있다.
-   조건이 100장보다 훨씬 많이 통과하면 그것은 **조건이 헐거운 것**이므로 조건을 조인다.
-2. **파일명 앞 세 자리가 순위**다 — `001_`이 가장 좋은 후보. 뒤에 타일 id 와 판정 수치를
-   붙여, 파일 이름만 보고 왜 뽑혔는지 알 수 있게 한다.
-   예: `003_126.6219,37.3851_f1-742.png` (프레임 F1 0.742)
-3. **점수는 그림마다 다르다.** Fig. 1은 프레임 F1, Fig. 9는 ΔF1, Fig. 12는 유형 강도.
-   무엇으로 정렬했는지 각 스크립트 docstring 첫 문단에 반드시 쓴다.
-4. **이미지는 한 번만 만든다.** 조건 판정 중에 완성 이미지를 메모리에 PNG 로 인코딩해 두고,
-   상위 100장만 디스크에 쓴다. 조건 판정과 렌더링을 두 번 돌리지 않는다.
-5. **판넬 사이 여백은 검정 20 px**, 원본 해상도(768) 그대로 붙인다. 모든 그림이 같다.
-
-## 입력은 예측 캐시다 — 파이프라인을 다시 돌리지 않는다
-
-`scripts/dump_predictions.py`가 떨군 희소 캐시(`.../pred_cache/`)를 읽는다.
-**GPU 를 쓰지 않고, 학습이 도는 중에도 돌아간다**(D 트랙 규약, CLAUDE.md).
-캐시에는 영상이 없으므로 파일 이름(stem)으로 데이터셋에서 영상만 다시 읽는다 —
-`scripts/viz_cache.py`가 이미 쓰는 방식과 같다.
-
-**어느 split 을 쓰나.** 방법 설명용 그림(Fig. 1·4·6·7)은 `val`, 결과용 그림
-(Fig. 9·11·12)은 **`test`** 다 — 논문이 수치를 보고하는 split 과 그림이 어긋나면 안 된다.
-
-## 렌더링은 하나의 규칙을 공유한다
-
-예측이든 GT 든, 우리 것이든 baseline 것이든 **같은 함수로 그린다**. 그래야 그림에서 보이는
-차이가 알고리즘의 차이로 읽힌다. 클래스 색 폴리라인 + **양 끝점에 흰 테두리 원**.
-끝점 원이 이 논문의 장치다 — 선만 그리면 한 선이 4조각 났는지 보이지 않지만,
-끝점 원을 찍으면 점이 8개라 **조각남이 눈으로 세진다.**
-`stella/train/viz.py`가 이미 하는 일이라 그것을 재사용한다.
-
-## 설계할 클래스
-
-    class SampleFigure:
-        name: str          # "figure_01" — 폴더 이름이자 파일 이름
-        split: str         # "val" | "test"
-        cap: int = 100
-
-        def run(self) -> None
-        def scan(self) -> list[tuple[float, str, str, bytes]]
-        def measure(self, stem) -> tuple | None
-        def build_figure(self, stem, sample, pred) -> tuple | None   # 하위 클래스가 구현
-        def write(self, ranked) -> int
-        def report(self, kept, n_candidates, n_scanned) -> None
-
----
-
-# 2. `PlotFigure` — 집계 그림의 규약
-
-## 흐름
-
-    run()
-      ├─ figure_dir(name)
-      ├─ collect()      수치를 모은다 (metrics.csv · 라벨 JSON · 캐시 · 판정 결과 CSV)
-      ├─ save_csv()     그린 값을 그대로 CSV 로 남긴다   ← 여기가 요점
-      └─ plot()         figure_XX.png (본문 확인용) + figure_XX.pdf (제출용 벡터)
-
-## 규약
-
-1. **그린 값을 반드시 CSV 로 같이 남긴다.** 그림의 숫자와 본문의 숫자가 어긋나는 사고는
-   논문에서 가장 자주 나오고 가장 창피하다. CSV 가 있으면 본문을 쓸 때 그것을 보고 옮긴다.
-2. **표가 이미 그 값을 갖고 있으면 표의 CSV 를 읽는다.** 다시 계산하지 않는다 —
-   표와 그림이 어긋날 수 있는 경로 자체를 없앤다.
-3. **PDF 를 같이 낸다.** IEEE 는 벡터 그림을 요구하고, 확대해도 글자가 깨지지 않아야 한다.
-4. **폰트 크기는 본문 캡션보다 작지 않게.** 1단 그림은 폭 3.5 in, 2단은 7.16 in 로 그린다
-   (IEEE Access 2단 규격). 그려 놓고 줄이면 글자가 읽히지 않는다.
-5. 색은 흑백 인쇄에서도 갈리게 — 색만이 아니라 **선 모양·마커도 같이 바꾼다.**
-
-## 설계할 클래스
-
-    class PlotFigure:
-        name: str
-        width_in: float     # 3.5 (1단) | 7.16 (2단)
-        height_in: float
-
-        def run(self) -> None
-        def collect(self) -> "pandas.DataFrame"    # 하위 클래스가 구현
-        def plot(self, frame, axes) -> None        # 하위 클래스가 구현
-        def save(self, frame, figure) -> None      # csv + png + pdf
+예측이든 정답이든, 우리 것이든 비교 대상이든 **같은 함수로 그린다**(`stella/train/viz.py`).
+클래스 색 폴리라인 + **양 끝점 흰 테두리 원**. 끝점 원이 있어야
+한 선이 몇 조각 났는지 눈으로 세진다.
 """
+
+import csv
+import shutil
+from pathlib import Path
+
+import cv2
+import numpy as np
+
+from stella.builder import build_instance
+from stella.data.types import GridDatasetBase
+from stella.eval.instance_io import load_instances
+from stella.train import viz
+
+DATA_ROOT = Path("/data/ongoing/2026_stella")
+# `scripts/tables/table_base.py` 에도 같은 값이 있다 — scripts/ 는 패키지가 아니다.
+PAPER_ROOT = DATA_ROOT / "paper"
+FIGURE_ROOT = PAPER_ROOT / "figure"
+PRED_ROOT = PAPER_ROOT / "pred"
+SCORE_ROOT = PAPER_ROOT / "score"
+
+CAP = 100  # 후보 상한 (사용자 지시) — 이보다 훨씬 많이 통과하면 조건이 헐거운 것이다
+GAP = 20  # 패널 사이 여백(px)
+GAP_COLOR = (0, 0, 0)
+LINE_WIDTH = 2  # 폴리라인 굵기(px) — 지면에서 사라지지 않을 최소치
+LABEL_FONT = cv2.FONT_HERSHEY_SIMPLEX
+SELECTED = "selected.txt"
+
+
+class TileImages:
+    """타일 이름으로 원본 영상과 정답 선을 읽는다. 캐시에는 영상이 없다."""
+
+    def __init__(self, cfg, split: str):
+        self.dataset = build_instance(cfg.data, cfg, base=GridDatasetBase, split=split)
+        self.index = {stem: position for position, stem in enumerate(self.dataset.stems)}
+
+    def stems(self) -> list[str]:
+        return list(self.index)
+
+    def __call__(self, stem: str) -> tuple[np.ndarray, list[dict]]:
+        item = self.dataset[self.index[stem]]
+        return item["image"].numpy(), item["instances"]
+
+
+class MethodLines:
+    """5단계가 떨군 예측 폴리라인을 방법별로 읽는다."""
+
+    def __init__(self, split: str):
+        self.split = split
+
+    def __call__(self, method: str, stem: str) -> list[dict]:
+        path = PRED_ROOT / method / self.split / f"{stem}.npz"
+        return load_instances(path) if path.exists() else []
+
+
+class TileScores:
+    """타일별 점수표(`per_tile.csv`)를 방법별로 읽어 둔다 — 후보 순위의 근거다."""
+
+    def __init__(self, split: str, methods: tuple[str, ...]):
+        self.table = {method: self._read(method, split) for method in methods}
+
+    def _read(self, method: str, split: str) -> dict[str, dict]:
+        path = SCORE_ROOT / f"{method}_{split}" / "per_tile.csv"
+        if not path.exists():
+            print(f"[figure_base] 점수표 없음: {path}")
+            return {}
+        with path.open(encoding="utf-8") as stream:
+            return {row["tile"]: row for row in csv.DictReader(stream)}
+
+    def value(self, method: str, stem: str, column: str) -> float:
+        row = self.table.get(method, {}).get(stem)
+        return float(row[column]) if row else 0.0
+
+
+class SampleFigure:
+    """후보를 그리고(사람이 고른 뒤) 고른 것만 조판하는 공통 절차."""
+
+    name = "figure_00"
+    split = "val"
+    columns: tuple[tuple[str, str], ...] = ()  # (열 제목, 방법 이름 · ""면 원본/GT)
+    score_column = "f1"
+
+    def __init__(self, cfg):
+        self.images = TileImages(cfg, self.split)
+        self.lines = MethodLines(self.split)
+        self.scores = TileScores(self.split, tuple(m for _, m in self.columns if m))
+
+    # --- 후보 만들기 -------------------------------------------------------
+    def write_candidates(self) -> None:
+        ranked = self.rank()
+        out_dir = fresh(FIGURE_ROOT / self.name / "candidates")
+        for order, (stem, score) in enumerate(ranked[:CAP], start=1):
+            sheet = self.compose(stem)
+            cv2.imwrite(str(out_dir / f"{order:03d}_{stem}_{score:.3f}.png"), sheet[:, :, ::-1])
+        print(f"[{self.name}] 훑은 {len(self.images.stems())}장 → 후보 {len(ranked)}장 → "
+              f"{min(len(ranked), CAP)}장 저장: {out_dir}")
+        listing = out_dir.parent / SELECTED
+        print(f"[{self.name}] 이제 사람이 고른다 — 타일 id 를 {listing} 에 적는다")
+
+    def rank(self) -> list[tuple[str, float]]:
+        scored = [(stem, self.score(stem)) for stem in self.images.stems()]
+        passed = [(stem, value) for stem, value in scored if value is not None]
+        return sorted(passed, key=lambda pair: -pair[1])
+
+    def score(self, stem: str):
+        """후보 자격과 순위 점수. None 이면 후보에서 뺀다 — 하위 클래스가 정한다."""
+        raise NotImplementedError
+
+    # --- 고른 것 조판하기 ---------------------------------------------------
+    def write_selected(self) -> None:
+        listed = self.read_selected()
+        if not listed:
+            print(f"[{self.name}] {SELECTED} 가 비어 있다 — 먼저 --candidates 로 후보를 만든다")
+            return
+        out_dir = fresh(FIGURE_ROOT / self.name / "selected")
+        for order, stem in enumerate(listed, start=1):
+            sheet = self.compose(stem)
+            cv2.imwrite(str(out_dir / f"{order:02d}_{stem}.png"), sheet[:, :, ::-1])
+        print(f"[{self.name}] 고른 {len(listed)}장 조판: {out_dir}")
+
+    def read_selected(self) -> list[str]:
+        path = FIGURE_ROOT / self.name / SELECTED
+        if not path.exists():
+            return []
+        lines = path.read_text(encoding="utf-8").splitlines()
+        return [line.strip() for line in lines if line.strip() and not line.startswith("#")]
+
+    # --- 한 타일을 가로 한 줄로 ---------------------------------------------
+    def compose(self, stem: str) -> np.ndarray:
+        image, truth = self.images(stem)
+        panels = [self._panel(image, title, method, truth, stem) for title, method in self.columns]
+        return join_row(panels)
+
+    def _panel(self, image, title: str, method: str, truth: list[dict], stem: str) -> np.ndarray:
+        if not method:
+            plain = title == "원본"
+            drawn = image if plain else draw(image, truth)
+            return label(viz.to_uint8_image(drawn) if plain else drawn, title)
+        return label(draw(image, self.lines(method, stem)), title)
+
+
+def draw(image: np.ndarray, instances: list[dict]) -> np.ndarray:
+    """모든 패널이 같은 규칙으로 그린다 — 굵기 2 px · 끝점 원 반지름 4 px.
+
+    1 px 은 화면에서는 보이지만 2단 지면(3.5 in)으로 줄이면 사라진다(09-16 육안 확인).
+    """
+    return viz.draw_instances(image, instances, thickness=LINE_WIDTH)
+
+
+def join_row(panels: list[np.ndarray]) -> np.ndarray:
+    """패널을 가로로 잇는다 — 사이는 검은 띠, 원본 해상도 그대로."""
+    height = panels[0].shape[0]
+    gap = np.full((height, GAP, 3), GAP_COLOR, np.uint8)
+    pieces = []
+    for index, panel in enumerate(panels):
+        if index:
+            pieces.append(gap)
+        pieces.append(panel)
+    return np.concatenate(pieces, axis=1)
+
+
+def label(panel: np.ndarray, text: str) -> np.ndarray:
+    canvas = panel.copy()
+    cv2.putText(canvas, text, (12, 34), LABEL_FONT, 1.0, (0, 0, 0), 4, cv2.LINE_AA)
+    cv2.putText(canvas, text, (12, 34), LABEL_FONT, 1.0, (255, 255, 255), 1, cv2.LINE_AA)
+    return canvas
+
+
+def fresh(path: Path) -> Path:
+    shutil.rmtree(path, ignore_errors=True)
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def add_arguments(parser) -> None:
+    parser.add_argument("--candidates", action="store_true", help="후보를 그린다(사람이 고를 것)")
+    parser.add_argument("--config", default="configs.base")
