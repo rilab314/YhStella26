@@ -1,4 +1,4 @@
-"""다섯 방법을 **같은 자로** 채점하고, 논문 그림이 읽을 파일로 남긴다 — 5단계 진입점.
+"""여러 방법을 **같은 자로** 채점하고, 논문 그림이 읽을 파일로 남긴다 — 5단계 진입점.
 
 **GPU 를 쓰지 않는다.** 이미 떨궈 둔 예측(희소 캐시 · 분할 예측 PNG)만 읽는다.
 
@@ -55,11 +55,15 @@ UNIT_CACHES = {
 }
 
 # 방법 목록. 캐시 갈래는 **디코더 설정만** 다르다 — 모델도 캐시도 같은 것을 쓴다.
+# `config` 를 적은 방법만 그 config 의 디코더를 쓴다 (없으면 `--config`, 기본 `configs.base`).
 METHODS = {
     "stella": {"cache": "F06d_ctrl", "decode": ()},
     # 후처리 없음 = 능선만 남기기(vertex_local_max) 끄고 + 중복 정리(dedup_high=0) 끈다.
     "stella_nopost": {"cache": "F06d_ctrl", "decode": ("vertex_local_max=False", "dedup_high=0")},
+    # 각도 섹터만 가져온 판 — Table VI 의 한 행. Table III 의 비교 대상은 아래 `gte_delta` 다.
     "gte": {"cache": "G01_gte", "decode": ()},
+    # Sat2Graph GTE 전체(각도 섹터 + 변위 회귀) — Table III 비교 대상. 조율한 문턱이 config 에 있다.
+    "gte_delta": {"cache": "G06_delta", "config": "configs.exp_gte_delta", "decode": ()},
     # 정답 주입 천장은 **후처리 조건마다 다르다** (Table V 마지막 열) — 두 조건을 모두 둔다.
     "gt": {"cache": "gt_val_v12", "decode": ()},
     "gt_nopost": {"cache": "gt_val_v12", "decode": ("vertex_local_max=False", "dedup_high=0")},
@@ -78,6 +82,7 @@ EXPECTED_F1 = {
     "stella": 0.4489,
     "stella_nopost": 0.4031,
     "gte": 0.4148,
+    "gte_delta": 0.3736,  # `result_0924.md` 2절 (조율 후)
     "seg_dp": 0.3088,
     "gt": 0.9404,
     "gt_nopost": 0.9434,
@@ -136,7 +141,7 @@ def build_cache_method(args: argparse.Namespace, spec: dict):
     """캐시를 만든 격자·슬롯 규격을 config 에 되돌린 뒤 디코더를 세운다."""
     cache = Path(args.cache) if args.cache else CACHE_ROOT / spec["cache"]
     meta = read_meta(cache)
-    cfg = build_cfg(args.config, list(spec["decode"]), meta)
+    cfg = build_cfg(spec.get("config", args.config), list(spec["decode"]), meta)
     method = CacheMethod(
         cache=cache, cfg=cfg, decode_cfg=cfg.decode, shape=shape_of(meta), limit=args.limit
     )

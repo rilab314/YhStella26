@@ -10,6 +10,12 @@
     python scripts/figures/figure_07.py                  # 고른 타일만 조판한다
 
 재현성은 그대로다 — **고른 목록이 파일로 남아** 다시 돌려도 같은 그림이 나온다.
+
+## 후보는 두 묶음이다 (사용자 요청 09-29)
+
+**교차로 100장(번호 001~100) + 그 밖의 장면 100장(101~200).** 교차로는 정답 유도선이
+`MIN_GUIDING` 개 이상인 타일이다. 한 묶음으로만 뽑으면 선이 적은 장면이 위로 몰려 교차로가
+거의 빠지고, 교차로로만 좁히면 평범한 도로가 빠진다. 그림마다 두 묶음의 자격을 따로 둔다.
 정량 조건은 **고르기가 아니라 후보를 좁히는 데만** 쓴다(예: "정답 선이 8~25개인 타일").
 
 ## 입력은 5단계 산출물이다 — 모델도 GPU도 쓰지 않는다
@@ -34,7 +40,7 @@ import cv2
 import numpy as np
 
 from stella.builder import build_instance
-from stella.data.types import GridDatasetBase
+from stella.data.types import CLASS_NAMES, GridDatasetBase
 from stella.eval.instance_io import load_instances
 from stella.train import viz
 
@@ -51,6 +57,12 @@ GAP_COLOR = (0, 0, 0)
 LINE_WIDTH = 2  # 폴리라인 굵기(px) — 지면에서 사라지지 않을 최소치
 LABEL_FONT = cv2.FONT_HERSHEY_SIMPLEX
 SELECTED = "selected.txt"
+INTERSECTION, OTHER, ANY = "intersection", "other", "any"  # 후보 묶음
+GUIDING = CLASS_NAMES.index("guiding_line")
+# 교차로로 보는 정답 유도선 수 (사용자 요청 09-29 — 후보에 교차로가 드물었다).
+# val 1,218장 중 350장이 이 조건을 넘는다. 이런 타일은 정답 선이 많아(중앙값 56개)
+# 그림마다 두던 "정답 선 25개 이하" 상한이 교차로를 거의 다 걸러 내고 있었다.
+MIN_GUIDING = 3
 
 
 class TileImages:
@@ -105,32 +117,54 @@ class SampleFigure:
     split = "val"
     columns: tuple[tuple[str, str], ...] = ()  # (열 제목, 방법 이름 · ""면 원본/GT)
     score_column = "f1"
+    pools: tuple[str, ...] = (INTERSECTION, OTHER)  # 묶음마다 `CAP` 장씩, 이 순서로 번호를 잇는다
 
     def __init__(self, cfg):
         self.images = TileImages(cfg, self.split)
         self.lines = MethodLines(self.split)
         self.scores = TileScores(self.split, tuple(m for _, m in self.columns if m))
+        self.guiding: dict[str, int] = {}  # 타일별 정답 유도선 수 — 영상 읽기가 비싸 한 번만 센다
 
     # --- 후보 만들기 -------------------------------------------------------
     def write_candidates(self) -> None:
-        ranked = self.rank()
         out_dir = fresh(FIGURE_ROOT / self.name / "candidates")
-        for order, (stem, score) in enumerate(ranked[:CAP], start=1):
-            sheet = self.compose(stem)
-            cv2.imwrite(str(out_dir / f"{order:03d}_{stem}_{score:.3f}.png"), sheet[:, :, ::-1])
-        print(f"[{self.name}] 훑은 {len(self.images.stems())}장 → 후보 {len(ranked)}장 → "
-              f"{min(len(ranked), CAP)}장 저장: {out_dir}")
+        for index, pool in enumerate(self.pools):
+            ranked = self.rank(pool)
+            for order, (stem, score) in enumerate(ranked[:CAP], start=index * CAP + 1):
+                sheet = self.compose(stem)
+                name = f"{order:03d}_{stem}_{score:.3f}.png"
+                cv2.imwrite(str(out_dir / name), sheet[:, :, ::-1])
+            print(
+                f"[{self.name}] {pool}: 훑은 {len(self.images.stems())}장 → 후보 {len(ranked)}장"
+                f" → {min(len(ranked), CAP)}장 저장 (번호 {index * CAP + 1}부터)"
+            )
         listing = out_dir.parent / SELECTED
         print(f"[{self.name}] 이제 사람이 고른다 — 타일 id 를 {listing} 에 적는다")
 
-    def rank(self) -> list[tuple[str, float]]:
-        scored = [(stem, self.score(stem)) for stem in self.images.stems()]
+    def rank(self, pool: str = ANY) -> list[tuple[str, float]]:
+        scored = [(stem, self.score(stem, pool)) for stem in self.images.stems()]
         passed = [(stem, value) for stem, value in scored if value is not None]
         return sorted(passed, key=lambda pair: -pair[1])
 
-    def score(self, stem: str):
-        """후보 자격과 순위 점수. None 이면 후보에서 뺀다 — 하위 클래스가 정한다."""
+    def score(self, stem: str, pool: str):
+        """묶음 `pool` 의 후보 자격과 순위 점수. None 이면 뺀다 — 하위 클래스가 정한다."""
         raise NotImplementedError
+
+    def in_pool(self, stem: str, pool: str) -> bool:
+        """타일이 묶음에 드는가. 영상까지 읽으므로 싼 조건 뒤에 부른다."""
+        if pool == ANY:
+            return True
+        return self.is_intersection(stem) == (pool == INTERSECTION)
+
+    def is_intersection(self, stem: str) -> bool:
+        """정답 유도선이 `MIN_GUIDING` 개 이상인 타일."""
+        return self.guiding_count(stem) >= MIN_GUIDING
+
+    def guiding_count(self, stem: str) -> int:
+        if stem not in self.guiding:
+            truth = self.images(stem)[1]
+            self.guiding[stem] = sum(1 for item in truth if item["class"] == GUIDING)
+        return self.guiding[stem]
 
     # --- 고른 것 조판하기 ---------------------------------------------------
     def write_selected(self) -> None:

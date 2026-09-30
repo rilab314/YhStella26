@@ -7,8 +7,7 @@
 행 구성(설계 `docs/paper_outline.md` §4):
 
     Seg + skeleton + Douglas–Peucker      분할 비교 대상
-    AerialLaneNet                          **보류** — 공개 코드가 현 장비에서 돌지 않는다
-    GTE head (같은 backbone/neck)          출력 표현만 바꾼 대조군
+    Sat2Graph GTE (각도 섹터 + 변위 회귀)  출력 표현만 바꾼 비교 대상 — 같은 backbone/neck
     STELLA (ours), 후처리 없음
     STELLA (ours) + 후처리                 채택
 
@@ -25,11 +24,12 @@ import argparse
 
 from table_base import BLANK, PaperTable, number, read_summary
 
-# (논문 행 이름, 표현, 5단계 방법 이름). AerialLaneNet 은 방법이 없어 빈 행으로 남는다.
+# (논문 행 이름, 표현, 5단계 방법 이름). 비교 대상은 둘이다 — AerialLaneNet 은 뺐다
+# (교수 미팅 09-23 · `experiment/meeting_0923.md` 3절). GTE 는 **변위 회귀까지 갖춘 판**이다 —
+# 각도 섹터만 가져온 판(`gte`)은 Table VI 의 한 행으로 남는다.
 ROWS = (
     ("Seg + skeleton + Douglas–Peucker", "면", "seg_dp"),
-    ("AerialLaneNet (정점+캐스케이드)", "정점·분류", ""),
-    ("GTE head (같은 backbone/neck)", "셀·섹터", "gte"),
+    ("Sat2Graph GTE (각도 섹터 + 변위 회귀)", "셀·섹터", "gte_delta"),
     ("STELLA (ours), 후처리 없음", "셀·매칭", "stella_nopost"),
     ("STELLA (ours) + 후처리", "셀·매칭", "stella"),
 )
@@ -59,7 +59,7 @@ class MainComparison(PaperTable):
         return [self._row(label, kind, method) for label, kind, method in ROWS]
 
     def _row(self, label: str, kind: str, method: str) -> dict:
-        payload = read_summary(method, self.split) if method else {}
+        payload = read_summary(method, self.split)
         scores = payload.get("summary", {})
         return {
             "방법": label,

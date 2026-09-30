@@ -10,6 +10,8 @@
     python scripts/figures/figure_10.py --candidates --side ours   # 우리가 이긴 장면(3행용)
 
 **후보 순위**: (분할 F1 − STELLA F1) 또는 그 반대. 두 방법 다 정답이 충분한 타일만 본다.
+**`--side ours` 는 교차로 묶음과 그 밖의 묶음을 따로 뽑는다**(`figure_base` 의 두 묶음) — 3행이
+교차·중첩 구간이다. 분할이 이긴 쪽(1·2행: 짧은 선 · 그늘)은 교차로와 무관해 한 묶음으로 둔다.
 
 **아직 자동으로 가르지 못하는 것**: "짧은 선이 붐비는 구간"과 "그늘·가림 구간"을 나누려면
 타일별 선 길이 분포와 가림 여부가 필요한데 지금 점수표에 없다. 그래서 `--side seg` 후보 안에서
@@ -18,7 +20,7 @@
 
 import argparse
 
-from figure_base import SampleFigure, add_arguments
+from figure_base import ANY, SampleFigure, add_arguments
 
 from stella.config_io import load_config
 
@@ -40,14 +42,20 @@ class TwoRegimes(SampleFigure):
         super().__init__(cfg)
         self.side = side
         self.name = f"figure_10_{side}"
+        if side == "seg":
+            self.pools = (ANY,)
 
-    def score(self, stem: str):
+    def score(self, stem: str, pool: str):
         if self.scores.value("stella", stem, "n_gt") < MIN_GT:
             return None
         ours = self.scores.value("stella", stem, "f1")
         seg = self.scores.value("seg_dp", stem, "f1")
         margin = seg - ours if self.side == "seg" else ours - seg
-        return margin if margin > 0 else None
+        if margin <= 0:
+            return None
+        if not self.in_pool(stem, pool):
+            return None
+        return margin
 
 
 def main() -> None:

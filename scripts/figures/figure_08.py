@@ -10,6 +10,7 @@
     python scripts/figures/figure_08.py --quadrant hh                 # 고른 것만 조판
 
 **후보 순위**: 그 사분면 중심에서 먼 순 — 사분면의 성격이 가장 뚜렷한 장면이 위로 온다.
+사분면마다 **교차로 묶음과 그 밖의 묶음**을 따로 뽑는다(`figure_base` 의 두 묶음).
 **무엇을 실을지는 사람이 고른다**(미팅 결정 09-15).
 
 경계값은 검증셋 전량 평균(F1 0.4489 · coverage 0.6728)에서 잡았다 — 임의로 고른 값이 아니라
@@ -42,12 +43,14 @@ class Qualitative(SampleFigure):
         self.quadrant = quadrant
         self.name = f"figure_08_{quadrant}"
 
-    def score(self, stem: str):
+    def score(self, stem: str, pool: str):
         if self.scores.value("stella", stem, "n_gt") < MIN_GT:
             return None
         f1 = self.scores.value("stella", stem, "f1")
         coverage = self.scores.value("stella", stem, "coverage")
         if self._quadrant_of(f1, coverage) != self.quadrant:
+            return None
+        if not self.in_pool(stem, pool):
             return None
         return abs(f1 - F1_SPLIT) + abs(coverage - COVERAGE_SPLIT)
 
