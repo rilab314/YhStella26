@@ -50,6 +50,9 @@ class DataConfig(ModuleConfig):
     # **목표 자체의 잡음이 하한을 만들고 있을 수 있다** (E23에서 검증).
     # **바꾸면 GT 캐시가 낡는다** — `seedmap`이 캐시 폴더 이름에 이 값을 붙여 분리한다.
     conn_lookahead: int = 1
+    # 분기 길이(`conn_lengths`)를 GT에 함께 싣는가 — Sat2Graph 식 (dx,dy) 회귀 대조군만 쓴다.
+    # **켜면 GT 캐시 폴더가 갈린다**(`_len` 접미사) — 기본 캐시를 건드리지 않기 위해서다.
+    conn_store_length: bool = False
     cache_gt: str = "val_test"  # "none" | "val_test" | "all" (6.4.1절)
     # 데이터셋 폴더를 건드리지 않도록 캐시는 그 옆에 둔다. 빈 문자열이면 {root}/gt_cache.
     cache_dir: str = "/data/ongoing/2026_stella/gt_cache"
@@ -112,6 +115,10 @@ class ModelConfig(ModuleConfig):
     # "single"   = 노드당 토큰 1개로 어텐션을 통과시키고, 역할 표시는 헤드 입구에서 더한다.
     #              슬롯끼리 서로 보는 단계가 할 일을 잃는다. 파라미터 수는 같고 계산량은 약 1/K.
     token_mode: str = "per_slot"
+    # 연결 슬롯이 무엇을 내놓는가 (Table III · 논지 C1-(2)).
+    # "unit"  = 단위 방향만. 거리는 디코딩 때 실제 정점으로 복원한다 (현행).
+    # "delta" = 이웃 정점까지의 변위 (dx, dy) 를 그대로 회귀한다 — Sat2Graph GTE 식.
+    conn_target: str = "unit"
     node_sampling: str = "gt+pred"  # "gt+pred"(기본) | "gt" (7.4절)
     # 전체 train 8979장 실측: 평균 2121, p90 3681, p99 5893, 최대 8909 (6.7.5절).
     n_max: int = 9500

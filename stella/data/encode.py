@@ -32,6 +32,7 @@ class ChainEncoder:
         max_degree: int,
         supersample: int = 1,
         conn_lookahead: int = 1,
+        store_length: bool = False,
     ):
         if max_degree != 2:
             raise ValueError(f"선 단위 사슬은 분기가 항상 2다 (6.4절): max_degree={max_degree}")
@@ -42,6 +43,7 @@ class ChainEncoder:
         self.num_classes = num_classes
         self.supersample = supersample
         self.conn_lookahead = conn_lookahead
+        self.store_length = store_length
         self.grid_size = image_size // grid_stride
         self.cell_pixels = grid_stride * supersample
         self.rarity_position = _rarity_position(num_classes)
@@ -53,17 +55,20 @@ class ChainEncoder:
         owner, coord = self._resolve_ownership(traces)
         class_map = self._class_map(traces, owner)
         length_map = self._length_map(traces, owner)
-        end_map, conn_dirs = self._topology_stage(traces, owner, coord)
+        end_map, conn_dirs, conn_lengths = self._topology_stage(traces, owner, coord)
         side = self.grid_size
         self.stats["lines"] += len(instances)
         self.stats["nodes"] += int((class_map > 0).sum())
-        return {
+        target = {
             "class_map": class_map.reshape(side, side),
             "coord_map": np.clip(coord, 0.0, 0.999999).reshape(side, side, 2),
             "end_map": end_map.reshape(side, side),
             "conn_dirs": conn_dirs.reshape(side, side, 2, 2),
             "length_map": length_map.reshape(side, side),
         }
+        if conn_lengths is not None:
+            target["conn_lengths"] = conn_lengths.reshape(side, side, 2)
+        return target
 
     # --- (A) 선별 래스터 -> 셀 통계·셀 열, 끝칸·잉여 셀 제거 --------------------------
 
@@ -185,10 +190,11 @@ class ChainEncoder:
 
     def _topology_stage(
         self, traces: list[dict], owner: np.ndarray, coord: np.ndarray
-    ) -> tuple[np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray | None]:
         n_cells = self.grid_size**2
         end_map = np.zeros(n_cells, np.float32)
         conn_dirs = np.zeros((n_cells, 2, 2), np.float32)
+        conn_lengths = np.zeros((n_cells, 2), np.float32) if self.store_length else None
         for index, trace in enumerate(traces):
             chain = trace["sequence"][owner[trace["sequence"]] == index]
             self.stats["cells_lost"] += int(trace["sequence"].size - chain.size)
@@ -198,9 +204,11 @@ class ChainEncoder:
             rows, cols = np.divmod(chain, self.grid_size)
             points = np.stack([cols, rows], axis=-1) + coord[chain]
             conn_dirs[chain] = self._chain_dirs(points, trace["head"], trace["tail"])
+            if conn_lengths is not None:
+                conn_lengths[chain] = self._chain_lengths(points, trace["head"], trace["tail"])
             end_map[chain[0]] = end_map[chain[-1]] = 1.0
             self._record_chain_stats(chain, rows, cols)
-        return end_map, conn_dirs
+        return end_map, conn_dirs, conn_lengths
 
     def _chain_dirs(self, points: np.ndarray, head: np.ndarray, tail: np.ndarray) -> np.ndarray:
         """(n, 2) 점 열 -> (n, 2, 2) 분기 방향 — 자기 점에서 `conn_lookahead`칸 앞뒤로.
@@ -233,6 +241,21 @@ class ChainEncoder:
         step = min(self.conn_lookahead, max(count - 1, 1))
         index = np.arange(count)
         return np.minimum(index + step, count - 1), np.maximum(index - step, 0)
+
+    def _chain_lengths(self, points: np.ndarray, head: np.ndarray, tail: np.ndarray) -> np.ndarray:
+        """(n, 2) 점 열 -> (n, 2) 분기 길이 — `_chain_dirs`가 단위화하기 전 변위의 노름.
+
+        단위는 **셀**이다(점 열이 격자 좌표다). 방향과 길이를 곱하면 GTE 의 `(dx, dy)`가 된다.
+        끝 분기는 실제 끝점까지의 거리다 — 끝점이 노드 점과 겹치면 0 이고, 그때 `_chain_dirs`
+        는 대체 방향을 쓰므로 변위가 0 벡터가 된다(사실상 없다, `_chain_dirs` 참고).
+        """
+        lengths = np.zeros((points.shape[0], 2), np.float32)
+        forward, backward = self._branch_targets(points)
+        lengths[:-1, 1] = _row_norms(points[forward[:-1]] - points[:-1])
+        lengths[1:, 0] = _row_norms(points[backward[1:]] - points[1:])
+        lengths[0, 0] = float(np.linalg.norm(head - points[0]))
+        lengths[-1, 1] = float(np.linalg.norm(tail - points[-1]))
+        return lengths
 
     def _record_chain_stats(self, chain: np.ndarray, rows: np.ndarray, cols: np.ndarray) -> None:
         """M10 통계 — 사슬 길이, 1셀 사슬, 건너뛴 간선(체비셰프 거리 >= 2)."""
@@ -270,6 +293,10 @@ def _dedup_keep_first(values: np.ndarray) -> np.ndarray:
     """자기 교차 선 — 같은 셀의 뒤 등장은 무시한다 (design 14절)."""
     _, first = np.unique(values, return_index=True)
     return values[np.sort(first)]
+
+
+def _row_norms(vectors: np.ndarray) -> np.ndarray:
+    return np.linalg.norm(vectors, axis=-1).astype(np.float32)
 
 
 def _unit_rows(vectors: np.ndarray) -> np.ndarray:

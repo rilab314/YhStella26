@@ -63,6 +63,7 @@ class StellaModel(nn.Module):
         fg_head: bool,
         share_slot_weights: bool,
         token_mode: str,
+        conn_target: str,
         num_classes: int,
         grid_size: int,
     ):
@@ -95,6 +96,7 @@ class StellaModel(nn.Module):
             num_slots=num_conn_slots,
             hidden_layers=head_hidden,
             share_slots=share_slot_weights,
+            target=conn_target,
         )
 
     @classmethod
@@ -132,6 +134,7 @@ class StellaModel(nn.Module):
             fg_head=module_cfg.fg_head,
             share_slot_weights=module_cfg.share_slot_weights,
             token_mode=module_cfg.token_mode,
+            conn_target=module_cfg.conn_target,
             num_classes=cfg.data.num_classes,
             grid_size=cfg.data.grid_size,
         )

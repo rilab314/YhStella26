@@ -51,7 +51,7 @@ def assigned(branches: list[list[float]]) -> tuple[torch.Tensor, torch.Tensor, f
     loss = make_loss()
     _, targets = scene(branches)
     gt = targets["conn_dirs"][targets["class_map"] > 0].float()
-    target_dir, target_exist, collision = loss._assign_by_sector(gt)
+    target_dir, target_exist, collision = loss._assign_by_sector(gt, gt)
     return target_dir[0], target_exist[0], float(collision)
 
 

@@ -128,11 +128,15 @@ def test_gt_cache_key_separates_grid_stride(tmp_path):
     """
     from stella.data.seedmap import SeedMapDataset
 
-    def suffix(stride: int, lookahead: int) -> str:
+    def suffix(stride: int, lookahead: int, store_length: bool = False) -> str:
         dataset = object.__new__(SeedMapDataset)
-        dataset.encoder = types.SimpleNamespace(grid_stride=stride, conn_lookahead=lookahead)
+        dataset.encoder = types.SimpleNamespace(
+            grid_stride=stride, conn_lookahead=lookahead, store_length=store_length
+        )
         return dataset._cache_suffix()
 
     assert suffix(4, 1) == ""
     assert suffix(8, 1) == "_s8"
     assert suffix(8, 2) == "_look2_s8"
+    # 분기 길이를 실은 GT 는 키가 다르다 — 기본 캐시를 덮어쓰면 안 된다
+    assert suffix(4, 1, store_length=True) == "_len"

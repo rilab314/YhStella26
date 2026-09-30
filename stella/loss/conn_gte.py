@@ -47,7 +47,8 @@ class ConnLossGTE(LossModule):
         if not bool(supervised.any()):
             return self._empty(output)
         gt_dir = targets["conn_dirs"][supervised].float()
-        target_dir, target_exist, collision = self._assign_by_sector(gt_dir)
+        gt_vec = self._branch_vectors(targets, supervised, gt_dir)
+        target_dir, target_exist, collision = self._assign_by_sector(gt_dir, gt_vec)
         pred_exist = output.exist_logit[supervised].float()
         pred_dir = output.conn_dir[supervised].float()
         exist = self._exist_loss(pred_exist, target_exist, output, supervised)
@@ -55,8 +56,19 @@ class ConnLossGTE(LossModule):
         total = self.w_exist * exist + self.w_dir * direction
         return {"exist": exist, "dir": direction, "sector_collision": collision, "total": total}
 
-    def _assign_by_sector(self, gt_dir: torch.Tensor) -> tuple:
-        """분기 (P, D, 2) -> 섹터별 목표 방향 (P, R, 2) · 존재 (P, R) · 충돌 비율."""
+    def _branch_vectors(self, targets: dict, supervised, gt_dir: torch.Tensor) -> torch.Tensor:
+        """섹터 칸에 실어 둘 목표 벡터 — 기본 판은 단위 방향 그대로다.
+
+        `(dx, dy)` 회귀 판(`conn_gte_delta`)이 여기만 바꿔 길이를 곱한다.
+        """
+        return gt_dir
+
+    def _assign_by_sector(self, gt_dir: torch.Tensor, gt_vec: torch.Tensor) -> tuple:
+        """분기 (P, D, 2) -> 섹터별 목표 벡터 (P, R, 2) · 존재 (P, R) · 충돌 비율.
+
+        **섹터·유효 판정은 언제나 단위 방향(`gt_dir`)으로 한다** — 목표 벡터의 크기가
+        달라져도 어느 슬롯이 어느 분기를 맡는지는 똑같아야 한다.
+        """
         valid = gt_dir.norm(dim=-1) > VALID_NORM_THRESH  # (P, D)
         angle = torch.atan2(gt_dir[..., 1], gt_dir[..., 0]) % TWO_PI
         sector = (angle / (TWO_PI / self.num_conn_slots)).long().clamp(0, self.num_conn_slots - 1)
@@ -66,7 +78,7 @@ class ConnLossGTE(LossModule):
         rows = torch.arange(points, device=gt_dir.device)
         for branch in range(branches):  # 분기 수는 2뿐이라 순회가 싸다
             keep = valid[:, branch]
-            target_dir[rows[keep], sector[keep, branch]] = gt_dir[keep, branch]
+            target_dir[rows[keep], sector[keep, branch]] = gt_vec[keep, branch]
             target_exist[rows[keep], sector[keep, branch]] = 1.0
         filled = target_exist.sum(dim=1)
         collision = (valid.sum(dim=1).float() - filled).clamp(min=0).sum() / valid.sum().clamp(
