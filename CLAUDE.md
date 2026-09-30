@@ -23,6 +23,21 @@
 - 저장소는 editable 설치라 `sys.path` 조작이 없다. **절대 import만** 쓴다.
   (editable 설치가 worktree를 가리키면 `python scripts/*.py`가 남의 코드로 돈다 —
   `scripts/gate.py`의 `install` 검사가 그 사고를 막는다.)
+- **★ GPU 2장 학습에는 `NCCL_P2P_DISABLE=1` 을 반드시 붙인다** (09-23 실측).
+  안 붙이면 DDP 가 **첫 스텝도 못 가고 멈춘다** — 카드는 100%로 보이지만 메모리가 1 GB 에
+  머물고, 8분 뒤 NCCL watchdog 이 rank 1 을 죽여 전체가 내려간다. 두 카드 사이에 NVLink 가
+  없어 P2P 가 PCIe 로 도는 구조다. **설정과 무관하다** — 손대지 않은 `configs.exp_gte` 도 같이
+  멈췄고, 1 GPU 는 멀쩡했다. 끄면 정상 학습된다.
+  **09-15 까지의 실행(G01~G05)은 이 변수 없이 2장으로 돌았다** — 저장소·셸 어디에도 설정이 없다.
+  즉 기계의 성질이 아니라 **09-15 이후 어느 시점에 P2P 가 망가진 것**이고, 원인은 못 찾았다
+  (커널 로그 권한 없음 · 재부팅 없음 · 드라이버 580.173.02 그대로 · Xid/ECC 기록 없음).
+  `torch.cuda.can_device_access_peer` 는 **True 를 반환한다** — 가능하다고 보고하고 실제로는
+  멎는, PCIe 카드에서 알려진 형태다. **재부팅 뒤에는 다시 확인해 볼 것.**
+
+  ```bash
+  NCCL_P2P_DISABLE=1 .venv/bin/python -m stella.train.train --config ... --override train.devices=2
+  ```
+
 - GPU는 RTX PRO 6000 Blackwell 2장(96 GB/장), CPU 64코어. **CPU 예산은 `cfg.cpu`가 단일 출처**다 —
   학습은 코어 `0-46`만 쓰고 뒤 17코어는 사람 몫으로 비워 둔다 (`stella/runtime/cpu.py`).
   **GPU 가 4장에서 2장으로 줄었다** — arm 당 1 GPU 로 동시에 돌릴 수 있는 실험은 2개다.
