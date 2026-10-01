@@ -1,69 +1,73 @@
-"""Fig. 8 — 대표 정성 결과 (VI-G, 2단, 4~6장면 × 3열).
+"""Fig. 8 — baseline 정성 비교 (VI-A, 2단, 4행 × 4열).
 
-열: 원본 | GT | STELLA.
+열: GT | Seg+skeleton+DP | Sat2Graph GTE | STELLA. 원본 열은 두지 않는다 — 2단 폭에 5열은
+칸이 너무 작다(교수 지시 10-01). 모든 열이 원본 영상 위에 그리므로 영상은 어느 칸에서나 보인다.
+세 예측 열은 **같은 렌더링 규칙**(클래스 색 폴리라인 + 끝점 흰 원)을 쓴다 — 렌더링을 통일해야
+차이가 알고리즘에서 온 것으로 읽힌다.
 
-**"잘 된 장면만 골랐다"는 반박을 구조적으로 막는 그림이다.** 그래서 한 사분면에서만 뽑지 않고
-**F1 × coverage 사분면 넷**에서 각각 후보를 만든다 — 잘 찾고 잘 덮은 장면(HH), 정확하지만 덜 덮은
-장면(HL), 많이 덮었지만 틀린 장면(LH), 둘 다 낮은 장면(LL).
+**후보 순위**: ΔF1 = F1(STELLA) − max(F1(분할), F1(GTE)). 내림차순.
+**후보 자격**(설계 §3): F1(STELLA) ≥ 0.5 · 정답 인스턴스 8개 이상. 상한은 묶음마다 다르다
+(`figure_base` 의 두 묶음) — 교차로 80개 · 그 밖의 장면 25개. 분할 방식이 선을 가르지 못하는
+곳이 교차로라 교차로 묶음을 앞 번호에 둔다.
+자격을 통과한 타일만 후보가 되고, **그중 무엇을 실을지는 사람이 고른다**(미팅 결정 09-15).
 
-    python scripts/figures/figure_08.py --candidates --quadrant hh    # 사분면마다 한 번씩
-    python scripts/figures/figure_08.py --quadrant hh                 # 고른 것만 조판
-
-**후보 순위**: 그 사분면 중심에서 먼 순 — 사분면의 성격이 가장 뚜렷한 장면이 위로 온다.
-사분면마다 **교차로 묶음과 그 밖의 묶음**을 따로 뽑는다(`figure_base` 의 두 묶음).
-**무엇을 실을지는 사람이 고른다**(미팅 결정 09-15).
-
-경계값은 검증셋 전량 평균(F1 0.4489 · coverage 0.6728)에서 잡았다 — 임의로 고른 값이 아니라
-**이 모델의 평균**이라 "평균보다 나은/못한 장면"이라는 뜻이 분명하다.
+사용:
+    python scripts/figures/figure_08.py --candidates   # 후보 100장
+    python scripts/figures/figure_08.py                # selected.txt 의 타일만 조판
 """
 
 import argparse
 
-from figure_base import SampleFigure, add_arguments
+from figure_base import INTERSECTION, OTHER, SampleFigure, add_arguments, draw
 
 from stella.config_io import load_config
 
-F1_SPLIT = 0.4489
-COVERAGE_SPLIT = 0.6728
-MIN_GT = 5  # 정답이 거의 없는 타일은 어느 사분면에서도 볼 것이 없다
-QUADRANTS = ("hh", "hl", "lh", "ll")
+MIN_F1 = 0.5  # 우리 예측이 이보다 나쁜 장면은 "비교 그림"으로 쓸 수 없다
+# 묶음별 정답 인스턴스 수. 교차로는 선이 많다(중앙값 56개) — 80 을 넘으면 그림에서 안 보인다
+GT_RANGE = {INTERSECTION: (8, 80), OTHER: (8, 25)}
+PAPER_ROWS = 4  # 논문에 싣는 장면 수
+BASELINES = ("seg_dp", "gte_delta")  # GTE 는 변위 회귀까지 갖춘 판 (Table III 와 같은 행)
 
 
-class Qualitative(SampleFigure):
+class BaselineComparison(SampleFigure):
     name = "figure_08"
     split = "val"
     columns = (
-        ("원본", ""),
         ("GT", ""),  # 정답 선은 저장된 예측이 아니라 데이터셋에서 읽는다
+        ("Seg+skeleton+DP", "seg_dp"),
+        ("Sat2Graph GTE", "gte_delta"),
         ("STELLA", "stella"),
     )
 
-    def __init__(self, cfg, quadrant: str):
-        super().__init__(cfg)
-        self.quadrant = quadrant
-        self.name = f"figure_08_{quadrant}"
-
     def score(self, stem: str, pool: str):
-        if self.scores.value("stella", stem, "n_gt") < MIN_GT:
-            return None
-        f1 = self.scores.value("stella", stem, "f1")
-        coverage = self.scores.value("stella", stem, "coverage")
-        if self._quadrant_of(f1, coverage) != self.quadrant:
+        ours = self.scores.value("stella", stem, "f1")
+        n_gt = self.scores.value("stella", stem, "n_gt")
+        low, high = GT_RANGE[pool]
+        if ours < MIN_F1 or not low <= n_gt <= high:
             return None
         if not self.in_pool(stem, pool):
             return None
-        return abs(f1 - F1_SPLIT) + abs(coverage - COVERAGE_SPLIT)
+        rival = max(self.scores.value(method, stem, "f1") for method in BASELINES)
+        return ours - rival
 
-    def _quadrant_of(self, f1: float, coverage: float) -> str:
-        return ("h" if f1 >= F1_SPLIT else "l") + ("h" if coverage >= COVERAGE_SPLIT else "l")
+    def write_selected(self) -> None:
+        """고른 장면마다 한 줄 — 열은 `columns` 순서(정답 · 분할 · GTE · STELLA)."""
+        super().write_selected()
+        rows = [self._paper_row(stem) for stem in self.read_selected()]
+        self.write_paper_grid(rows, expected=PAPER_ROWS)
+
+    def _paper_row(self, stem: str) -> list:
+        image, truth = self.images(stem)
+        return [
+            draw(image, self.lines(method, stem) if method else truth) for _, method in self.columns
+        ]
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     add_arguments(parser)
-    parser.add_argument("--quadrant", default="hh", choices=QUADRANTS, help="F1×coverage 사분면")
     args = parser.parse_args()
-    figure = Qualitative(load_config(args.config, []), args.quadrant)
+    figure = BaselineComparison(load_config(args.config, []))
     if args.candidates:
         figure.write_candidates()
         return

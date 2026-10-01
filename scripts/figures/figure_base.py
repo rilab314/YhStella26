@@ -5,9 +5,9 @@
 옛 규약은 "정량 조건으로 자동으로 고르고 상한 30~40장"이었다. **이제 자동으로 고르지 않는다.**
 스크립트는 **후보를 그려 두기만** 하고, 사람이 눈으로 골라 타일 id 를 적으면 그 타일만 조판한다.
 
-    python scripts/figures/figure_07.py --candidates     # 후보 100장을 그린다
-    (사람이 figure_07/selected.txt 에 타일 id 를 한 줄에 하나씩 적는다)
-    python scripts/figures/figure_07.py                  # 고른 타일만 조판한다
+    python scripts/figures/figure_08.py --candidates     # 후보 100장을 그린다
+    (사람이 figure_08/selected.txt 에 타일 id 를 한 줄에 하나씩 적는다)
+    python scripts/figures/figure_08.py                  # 고른 타일만 조판한다
 
 재현성은 그대로다 — **고른 목록이 파일로 남아** 다시 돌려도 같은 그림이 나온다.
 
@@ -54,6 +54,7 @@ SCORE_ROOT = PAPER_ROOT / "score"
 CAP = 100  # 후보 상한 (사용자 지시) — 이보다 훨씬 많이 통과하면 조건이 헐거운 것이다
 GAP = 20  # 패널 사이 여백(px)
 GAP_COLOR = (0, 0, 0)
+PAPER_GAP = 12  # 논문용 격자 그림의 칸 사이 흰 여백(px)
 LINE_WIDTH = 2  # 폴리라인 굵기(px) — 지면에서 사라지지 않을 최소치
 LABEL_FONT = cv2.FONT_HERSHEY_SIMPLEX
 SELECTED = "selected.txt"
@@ -178,12 +179,32 @@ class SampleFigure:
             cv2.imwrite(str(out_dir / f"{order:02d}_{stem}.png"), sheet[:, :, ::-1])
         print(f"[{self.name}] 고른 {len(listed)}장 조판: {out_dir}")
 
-    def read_selected(self) -> list[str]:
-        path = FIGURE_ROOT / self.name / SELECTED
+    def read_selected(self, folder: str = "") -> list[str]:
+        """고른 타일 id 목록. 타일 id 대신 **후보 번호**를 적어도 된다(`35`, `035`).
+
+        사람은 확인용 시트의 파일 이름(번호)을 보고 고른다 — 번호를 쉼표로 한 줄에 적은 것도
+        읽는다(사용자 요청 10-01). 번호는 `candidates/` 의 파일 이름으로 타일 id 를 찾는다.
+        `folder` 를 주면 다른 그림 폴더의 목록을 읽는다 — 여러 폴더를 한 장으로 묶을 때 쓴다.
+        """
+        folder = folder or self.name
+        path = FIGURE_ROOT / folder / SELECTED
         if not path.exists():
             return []
         lines = path.read_text(encoding="utf-8").splitlines()
-        return [line.strip() for line in lines if line.strip() and not line.startswith("#")]
+        entries = [line for line in lines if line.strip() and not line.startswith("#")]
+        if all(token.isdigit() for token in _tokens(entries)):
+            return [_stem_of(folder, int(token)) for token in _tokens(entries)]
+        return [line.strip() for line in entries]
+
+    def write_paper_grid(self, rows: list[list[np.ndarray]], expected: int) -> None:
+        """논문에 싣는 한 장 — 칸 안에 글자가 없다(09-23 미팅). 열·행 설명은 캡션이 한다."""
+        if len(rows) != expected:
+            print(f"[{self.name}] 논문용 그림에는 {expected}줄이 필요하다 — 지금 {len(rows)}줄")
+            return
+        path = FIGURE_ROOT / self.name / f"{self.name}.png"
+        grid = join_white([join_white(row, axis=1) for row in rows], axis=0)
+        cv2.imwrite(str(path), grid[:, :, ::-1])
+        print(f"[{self.name}] 논문용 그림: {path}")
 
     # --- 한 타일을 가로 한 줄로 ---------------------------------------------
     def compose(self, stem: str) -> np.ndarray:
@@ -197,6 +218,19 @@ class SampleFigure:
             drawn = image if plain else draw(image, truth)
             return label(viz.to_uint8_image(drawn) if plain else drawn, title)
         return label(draw(image, self.lines(method, stem)), title)
+
+
+def _tokens(entries: list[str]) -> list[str]:
+    """쉼표·공백으로 나눈 낱말들 — 번호 여러 개를 한 줄에 적은 경우를 펼친다."""
+    return [token for entry in entries for token in entry.replace(",", " ").split()]
+
+
+def _stem_of(folder: str, order: int) -> str:
+    """후보 번호 → 타일 id. 후보 파일 이름이 `{번호:03d}_{타일}_{점수}.png` 다."""
+    found = list((FIGURE_ROOT / folder / "candidates").glob(f"{order:03d}_*.png"))
+    if len(found) != 1:
+        raise FileNotFoundError(f"[{folder}] 후보 {order:03d}번을 찾지 못했다")
+    return found[0].stem.split("_", 1)[1].rsplit("_", 1)[0]
 
 
 def draw(image: np.ndarray, instances: list[dict]) -> np.ndarray:
@@ -217,6 +251,17 @@ def join_row(panels: list[np.ndarray]) -> np.ndarray:
             pieces.append(gap)
         pieces.append(panel)
     return np.concatenate(pieces, axis=1)
+
+
+def join_white(pieces: list[np.ndarray], axis: int) -> np.ndarray:
+    """흰 여백을 끼워 가로(axis=1) 또는 세로(axis=0)로 잇는다 — 논문용 격자."""
+    shape = list(pieces[0].shape)
+    shape[axis] = PAPER_GAP
+    gap = np.full(shape, 255, np.uint8)
+    joined = [pieces[0]]
+    for piece in pieces[1:]:
+        joined += [gap, piece]
+    return np.concatenate(joined, axis=axis)
 
 
 def label(panel: np.ndarray, text: str) -> np.ndarray:

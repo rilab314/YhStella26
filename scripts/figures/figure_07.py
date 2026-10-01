@@ -1,65 +1,67 @@
-"""Fig. 7 — baseline 정성 비교 (VI-A, 2단, 4행 × 5열).
+"""Fig. 7 — $C_1$·$C_2$ 정의 (V-B, 2단, 1×2). **미구현 — 설계만 적어 둔다.**
 
-열: 원본 | 원본+GT | Seg+skeleton+DP | Sat2Graph GTE | STELLA.
-세 예측 열은 **같은 렌더링 규칙**(클래스 색 폴리라인 + 끝점 흰 원)을 쓴다 — 렌더링을 통일해야
-차이가 알고리즘에서 온 것으로 읽힌다.
+**08-27 설계 기준으로 번호를 다시 맞췄다 (09-16, STATE 6-0).** 아래 본문은 옛 설계의 메모라
+새 내용과 다를 수 있다 — 기준은 `docs/paper_outline.md` §3·§4 다.
 
-**후보 순위**: ΔF1 = F1(STELLA) − max(F1(분할), F1(GTE)). 내림차순.
-**후보 자격**(설계 §3): F1(STELLA) ≥ 0.5 · 정답 인스턴스 8개 이상. 상한은 묶음마다 다르다
-(`figure_base` 의 두 묶음) — 교차로 80개 · 그 밖의 장면 25개. 분할 방식이 선을 가르지 못하는
-곳이 교차로라 교차로 묶음을 앞 번호에 둔다.
-자격을 통과한 타일만 후보가 되고, **그중 무엇을 실을지는 사람이 고른다**(미팅 결정 09-15).
+## 무엇을 그리나
 
-사용:
-    python scripts/figures/figure_07.py --candidates   # 후보 100장
-    python scripts/figures/figure_07.py                # selected.txt 의 타일만 조판
+    (a) 지표 정의 도식. GT 선 위에 버퍼 띠를 그리고, 그 안에 든 예측의 길이 비율을 표시.
+        커버리지(코드 이름 C1) = GT 중 예측이 덮은 비율,
+        정확성(코드 이름 C2) = 예측 중 어떤 GT 위에 놓인 비율.
+    (b) **갈아탐 사례.** 예측 하나가 GT 두 개를 옮겨 다니는 그림.
+        "합집합 기준으로 재면 정확성 만점, 단일 선 기준으로 재면 실패"를 나란히 표기.
+    (c) **차선 간 최근접 거리 히스토그램**(실측)에 옛 버퍼 반경 12 px 과
+        현재 3 px 을 수직선으로 얹는다.
+
+## 왜 필요한가
+
+자체 지표를 쓰는 논문은 반드시 *"왜 표준 지표를 안 쓰나, 유리하게 만든 것 아닌가"* 를 받는다.
+
+    (c) 버퍼 반경이 **자의적 선택이 아니라 데이터가 정한 값**임을 보인다.
+    (b) 우리가 지표를 **우리에게 불리한 방향으로** 고쳤다는 사실을 보인다.
+
+신뢰를 사는 그림이다. §6.2 감축안에서 **절대 줄이지 않을 다섯 중 하나**다.
+
+## 제작 방식
+
+    (a)(b) 개념도 (그리기 도구). 단 (b)의 두 숫자는 실제 평가 코드로 계산해 적는다.
+    (c) 실측 — 이 스크립트가 만드는 부분.
+
+## (c) 히스토그램 — ★ 실측 완료
+
+    파일    docs/figures/fig8c_lane_spacing.png (이미 있다)
+    표본    val 300장 · 인스턴스 11,663개
+    방법    각 선을 2 px 간격으로 재샘플링해 **다른 인스턴스까지 최근접 거리**를 잰다
+    값      중앙값 **11.64 px** (설계 문서의 옛 값 11.8 px 과 사실상 같다 — 다른 표본)
+    표시    옛 반경 12 px(폭 24 px)과 현재 3 px(폭 6 px)을 수직선으로
+
+이 스크립트는 그 히스토그램을 **재현 가능하게 다시 만드는 것**이 목적이다.
+현재 저장소의 PNG 는 세션 스크래치에서 만든 것이라 재현 스크립트가 없다.
+
+    입력   {data.root}/val/label/*.json  (GT 만 읽는다 — 모델이 필요 없다)
+    계산   인스턴스별 2 px 재샘플 → 같은 타일의 다른 인스턴스까지 최근접 거리
+    출력   figure_08/figure_08c.png · .pdf
+           figure_08/figure_08c.csv   (거리 히스토그램의 구간과 개수, 중앙값·사분위)
+    표본   val 300장 (전체를 쓰지 않는 이유: 300장에서 이미 1만 개가 넘어 분포가 안정된다.
+           장수는 상수로 두고 바꿔 잴 수 있게 한다.)
+
+## 상태
+
+**(c) 실측 완료 · 재현 스크립트 미구현.** (a)(b) 개념도는 원고 그림 작업에서 만든다.
 """
 
-import argparse
-
-from figure_base import INTERSECTION, OTHER, SampleFigure, add_arguments
-
-from stella.config_io import load_config
-
-MIN_F1 = 0.5  # 우리 예측이 이보다 나쁜 장면은 "비교 그림"으로 쓸 수 없다
-# 묶음별 정답 인스턴스 수. 교차로는 선이 많다(중앙값 56개) — 80 을 넘으면 그림에서 안 보인다
-GT_RANGE = {INTERSECTION: (8, 80), OTHER: (8, 25)}
-BASELINES = ("seg_dp", "gte_delta")  # GTE 는 변위 회귀까지 갖춘 판 (Table III 와 같은 행)
-
-
-class BaselineComparison(SampleFigure):
-    name = "figure_07"
-    split = "val"
-    columns = (
-        ("원본", ""),
-        ("원본+GT", ""),  # 정답 선은 저장된 예측이 아니라 데이터셋에서 읽는다
-        ("Seg+skeleton+DP", "seg_dp"),
-        ("Sat2Graph GTE", "gte_delta"),
-        ("STELLA", "stella"),
-    )
-
-    def score(self, stem: str, pool: str):
-        ours = self.scores.value("stella", stem, "f1")
-        n_gt = self.scores.value("stella", stem, "n_gt")
-        low, high = GT_RANGE[pool]
-        if ours < MIN_F1 or not low <= n_gt <= high:
-            return None
-        if not self.in_pool(stem, pool):
-            return None
-        rival = max(self.scores.value(method, stem, "f1") for method in BASELINES)
-        return ours - rival
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser()
-    add_arguments(parser)
-    args = parser.parse_args()
-    figure = BaselineComparison(load_config(args.config, []))
-    if args.candidates:
-        figure.write_candidates()
-        return
-    figure.write_selected()
-
-
-if __name__ == "__main__":
-    main()
+# from figure_base import PlotFigure
+#
+#
+# class LaneSpacingHistogram(PlotFigure):
+#     """(c): 차선 사이 최근접 거리 분포와 버퍼 반경 선택 근거."""
+#
+#     name = "figure_08"
+#     split = "val"
+#     SAMPLE_TILES = 300         # 분포가 안정되는 최소 규모
+#     RESAMPLE_STEP_PX = 2.0
+#     OLD_RHO_PX, NEW_RHO_PX = 12.0, 3.0   # 그림에 수직선으로 얹을 값
+#     width_in, height_in = 2.4, 1.8       # 2단 1×3 중 한 칸
+#
+#     def collect(self):
+#         raise NotImplementedError("설계는 위 docstring 참고")

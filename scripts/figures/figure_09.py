@@ -1,74 +1,97 @@
-"""Fig. 9 — 실패 유형 (VI-G, 2단, 2×3). **미구현 — 설계만 적어 둔다.**
+"""Fig. 9 — 대표 정성 결과 (VI-G, 2단, 4~6장면 × 3열).
 
-**08-27 설계 기준으로 번호를 다시 맞췄다 (09-16, STATE 6-0).** 아래 본문은 옛 설계의 메모라
-새 내용과 다를 수 있다 — 기준은 `docs/paper_outline.md` §3·§4 다.
+열: 원본 | GT | STELLA.
 
-## 무엇을 그리나
+**"잘 된 장면만 골랐다"는 반박을 구조적으로 막는 그림이다.** 그래서 한 사분면에서만 뽑지 않고
+**F1 × coverage 사분면 넷**에서 각각 후보를 만든다 — 잘 찾고 잘 덮은 장면(HH), 정확하지만 덜 덮은
+장면(HL), 많이 덮었지만 틀린 장면(LH), 둘 다 낮은 장면(LL).
 
-여섯 가지 실패를 각 한 장씩. 한 칸 = 원본 위에 GT(가는 흰 선)와 예측(클래스 색)을 겹친 것.
+    python scripts/figures/figure_09.py --candidates --quadrant hh    # 사분면마다 한 번씩
+    python scripts/figures/figure_09.py --quadrant hh                 # 고른 것만 조판
+    python scripts/figures/figure_09.py --paper                       # 사분면을 한 장으로 묶는다
 
-    ① 옆 차선 갈아탐        예측 하나가 GT 두 개를 옮겨 다닌다
-    ② 그늘·가림에서 점선 소실  가려진 구간에서 사슬이 끊긴다
-    ③ 분기점 클래스 혼동     같은 기하인데 종류를 다르게 부른다
-    ④ 타일 경계 절단        선이 타일 밖으로 나가며 잘린다
-    ⑤ safety_zone          면인데 선으로 라벨된 클래스 — 구조적으로 못 맞히는 것
-    ⑥ GT 오정렬            정답 자체가 영상과 어긋나 있다
+**후보 순위**: 그 사분면 중심에서 먼 순 — 사분면의 성격이 가장 뚜렷한 장면이 위로 온다.
+사분면마다 **교차로 묶음과 그 밖의 묶음**을 따로 뽑는다(`figure_base` 의 두 묶음).
+**무엇을 실을지는 사람이 고른다**(미팅 결정 09-15).
 
-## 왜 필요한가
+경계값은 검증셋 전량 평균(F1 0.4489 · coverage 0.6728)에서 잡았다 — 임의로 고른 값이 아니라
+**이 모델의 평균**이라 "평균보다 나은/못한 장면"이라는 뜻이 분명하다.
 
-직전 논문 심사에서 **R3-3d 가 "오류에 대한 별도 시각화"를 요구**했다.
-그리고 ⑤⑥은 **모델의 실패가 아니라 데이터의 성질**이라, 이것을 싣지 않으면 남은 격차 전체가
-모델 탓으로 읽힌다.
-
-## ★ 주의 — 유형 분류는 그림 고르기용 휴리스틱일 뿐이다
-
-**"어느 유형이 몇 %"라는 지표를 만들지 않는다.** 임계값 여섯 개짜리 자체 분류기를 만들면
-논문에 새 공격면이 생긴다("그 분류기가 맞다는 근거는?"). 유형은 **후보를 고르는 데만** 쓰고,
-본문에는 "이런 실패가 있다"만 쓴다. 스크립트 출력에도 비율을 찍지 않는다.
-
-## 유형별 선별 조건
-
-    ① 갈아탐      한 예측이 GT 2개 이상에 각각 자기 길이의 25% 이상 붙어 있다
-                  (`scripts/lane_switch.py` 가 이미 재는 것과 같은 정의를 쓴다)
-    ② 점선 소실   같은 GT 를 덮는 예측이 2조각 이상 · 끊긴 구간의 영상 밝기가
-                  타일 중앙값보다 25% 이상 어둡다
-    ③ 클래스 혼동  기하로는 맞았는데(커버리지 >= 0.5) 클래스가 틀린 예측 >= 3개
-    ④ 경계 절단   타일 가장자리 8 px 안에서 끝나는 GT >= 3개이고 그중 절반 이상을 놓쳤다
-    ⑤ safety_zone GT 에 safety_zone 인스턴스가 있는 타일
-    ⑥ GT 오정렬   GT 선의 90% 이상이 영상의 밝은 노면 표시에서 5 px 이상 떨어져 있다
-                  (자동 판정이 가장 약한 항목 — 후보를 넓게 뽑고 **사람이 확인한다**)
-
-## 정렬·상한·파일명
-
-    정렬   유형별 강도 내림차순 (①은 갈아탄 GT 수, ②는 어두운 구간 길이, ...)
-    상한   **유형당 16장 · 합계 96장** (100장 안)
-    이름   {순위:03d}_t{유형}_{타일id}_{강도}.png     유형 = 1~6
-
-## 입력
-
-    예측 캐시  .../pred_cache/{실행}/test/{stem}.npz
-    영상       ②⑥이 영상 밝기를 보므로 원본 픽셀이 필요하다
-    split      **test**
-
-## 상태
-
-**착수 전.** 최종 채택 설정의 캐시가 뜨면 만들 수 있다. baseline 은 필요 없다.
+**논문용 한 장**(`--paper`): 사분면마다 고른 장면을 한 줄씩, `QUADRANTS` 순서로 쌓는다.
+LH 는 뺐다(사용자 결정 10-01) — 후보의 빨간 선 상당수가 모델 실수가 아니라 **정답 라벨이 빠진
+곳**이라 독자가 오해한다. 그래서 `selected.txt` 가 빈 사분면은 줄 없이 건너뛴다.
 """
 
-# from figure_base import SampleFigure
-#
-#
-# class FailureModeFigure(SampleFigure):
-#     """여섯 실패 유형의 후보를 유형별로 골라 낸다. 유형 비율은 내지 않는다."""
-#
-#     name = "figure_12"
-#     split = "test"
-#     PER_TYPE = 16               # 유형당 장수 — 6 × 16 = 96, 상한 100 안
-#     SWITCH_SHARE_MIN = 0.25     # ① 갈아탐 판정: GT 하나에 붙은 최소 비율
-#     SHADOW_DROP = 0.25          # ② 어두움 판정: 타일 중앙값 대비 밝기 하락
-#     CONFUSED_MIN = 3            # ③ 클래스 혼동 최소 개수
-#     BORDER_PX = 8               # ④ 타일 경계 폭
-#     MISALIGN_PX = 5.0           # ⑥ GT 오정렬 판정 거리
-#
-#     def build_figure(self, stem, sample, pred):
-#         raise NotImplementedError("설계는 위 docstring 참고")
+import argparse
+
+from figure_base import SampleFigure, add_arguments, draw
+
+from stella.config_io import load_config
+from stella.train import viz
+
+F1_SPLIT = 0.4489
+COVERAGE_SPLIT = 0.6728
+MIN_GT = 5  # 정답이 거의 없는 타일은 어느 사분면에서도 볼 것이 없다
+QUADRANTS = ("hh", "hl", "lh", "ll")
+PAPER_ROWS = 3  # hh · hl · ll — lh 는 마땅한 장면이 없어 뺐다(10-01)
+
+
+class Qualitative(SampleFigure):
+    name = "figure_09"
+    split = "val"
+    columns = (
+        ("원본", ""),
+        ("GT", ""),  # 정답 선은 저장된 예측이 아니라 데이터셋에서 읽는다
+        ("STELLA", "stella"),
+    )
+
+    def __init__(self, cfg, quadrant: str):
+        super().__init__(cfg)
+        self.quadrant = quadrant
+        self.name = f"figure_09_{quadrant}"
+
+    def score(self, stem: str, pool: str):
+        if self.scores.value("stella", stem, "n_gt") < MIN_GT:
+            return None
+        f1 = self.scores.value("stella", stem, "f1")
+        coverage = self.scores.value("stella", stem, "coverage")
+        if self._quadrant_of(f1, coverage) != self.quadrant:
+            return None
+        if not self.in_pool(stem, pool):
+            return None
+        return abs(f1 - F1_SPLIT) + abs(coverage - COVERAGE_SPLIT)
+
+    def _quadrant_of(self, f1: float, coverage: float) -> str:
+        return ("h" if f1 >= F1_SPLIT else "l") + ("h" if coverage >= COVERAGE_SPLIT else "l")
+
+    def write_paper(self) -> None:
+        """사분면마다 고른 장면을 한 줄로 — 열은 원본 · 정답 · STELLA, 칸 안에 글자가 없다."""
+        self.name = "figure_09"
+        stems = [stem for q in QUADRANTS for stem in self.read_selected(f"figure_09_{q}")]
+        rows = [self._paper_row(stem) for stem in stems]
+        self.write_paper_grid(rows, expected=PAPER_ROWS)
+
+    def _paper_row(self, stem: str) -> list:
+        image, truth = self.images(stem)
+        plain = viz.to_uint8_image(image)
+        return [plain, draw(image, truth), draw(image, self.lines("stella", stem))]
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    add_arguments(parser)
+    parser.add_argument("--quadrant", default="hh", choices=QUADRANTS, help="F1×coverage 사분면")
+    parser.add_argument("--paper", action="store_true", help="사분면들을 논문용 한 장으로 묶는다")
+    args = parser.parse_args()
+    figure = Qualitative(load_config(args.config, []), args.quadrant)
+    if args.paper:
+        figure.write_paper()
+        return
+    if args.candidates:
+        figure.write_candidates()
+        return
+    figure.write_selected()
+
+
+if __name__ == "__main__":
+    main()

@@ -62,7 +62,7 @@ stella/
                     methods·per_tile·instance_io(방법별 채점) · breakdown(종류별 · 중복 선)
   train/            module·optim·viz·callbacks·train(진입점)
 scripts/            아래 "실행" 참고 — 데이터 확인 · 학습 운영 · 디코더(D) 트랙 · 진단
-  figures/          논문 그림 — figure_01~10 + figure_base (docs/6_paper_assets.md 15절)
+  figures/          논문 그림 — figure_01~11 (06 은 손으로 그린 것뿐) + figure_base + check_sheet
   tables/           논문 표   — table_01~07 + table_base
 tests/              pytest — 인코더 불변식·매칭·RoPE·디코더·후처리·지표·셀진단·CPU예산·config 해석
 experiment/         STATE.md(냉시동 진입점) · plan_MMDD.md · result_MMDD.md · queue.json · data/

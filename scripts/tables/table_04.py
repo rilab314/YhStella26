@@ -1,8 +1,11 @@
 """Table IV — 천장 분해: 남은 격차는 어느 출력에서 오는가 (VI-B, 1단).
 
 모델 출력의 **한 묶음만 정답으로 바꿔 끼우고** 나머지는 모델 예측 그대로 둔 채 채점한다.
-전부 바꿔 끼우면 표현의 천장이고, 하나도 안 바꾸면 모델 자신의 점수다. 각 묶음이 그 격차의
-몇 %를 메우는지가 이 표의 논지다.
+전부 바꿔 끼우면 표현의 천장이고, 하나도 안 바꾸면 모델 자신의 점수다. 각 묶음이 F1 을
+**얼마나 올리는지**(전부 예측 대비 절대 증가량)가 이 표의 논지다.
+
+**퍼센트로 쓰지 않는다 (교수 지시 09-30)** — "격차의 28%" 처럼 쓰면 행마다 쌓아 올린 누적값으로
+읽힌다. 각 행은 서로 독립인 실험이라 전부 예측(0.4489)에서 오른 양을 그대로 적는다.
 
 ## 이 표가 말하는 것 (09-17 · val 전량 1,218장 실측)
 
@@ -45,8 +48,8 @@ ROWS = (
     ("end", "+ 끝 판정만 정답"),
     ("all", "전부 정답 (표현의 천장)"),
 )
-COLUMNS = ("조건", "inst F1", "frag", "격차 회복")
-FLOOR, CEILING = "none", "all"
+COLUMNS = ("조건", "inst F1", "frag", "F1 증가량")
+FLOOR = "none"
 
 
 class CeilingBreakdown(PaperTable):
@@ -72,16 +75,17 @@ class CeilingBreakdown(PaperTable):
             "조건": label,
             "inst F1": number(score.get("f1")),
             "frag": number(score.get("frag")),
-            "격차 회복": recovered(score, scores[FLOOR], scores[CEILING]),
+            "F1 증가량": gain(score, scores[FLOOR]),
         }
 
 
-def recovered(score: dict, floor: dict, ceiling: dict) -> str:
-    """(이 행 − 전부 예측) / (천장 − 전부 예측). 세 값 중 하나라도 없으면 빈칸."""
-    if not (score and floor and ceiling):
+def gain(score: dict, floor: dict) -> str:
+    """이 행 − 전부 예측 (F1 절대값). 기준 행은 "기준", 둘 중 하나라도 없으면 빈칸."""
+    if not (score and floor):
         return BLANK
-    span = ceiling["f1"] - floor["f1"]
-    return f"{(score['f1'] - floor['f1']) / span * 100:.1f}%" if span else BLANK
+    if score is floor:
+        return "기준"
+    return f"{score['f1'] - floor['f1']:+.4f}"
 
 
 def main() -> None:

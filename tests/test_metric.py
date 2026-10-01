@@ -4,7 +4,7 @@ import numpy as np
 
 from configs.exp_synthetic import get_config
 from stella.builder import build_instance
-from stella.eval import runlog
+from stella.eval import ccq, runlog
 
 
 def make_metric(**overrides):
@@ -208,3 +208,26 @@ def test_excluded_class_leaves_every_score():
     assert float(result["recall"]) == 1.0  # 8번을 빼면 남은 하나를 다 맞혔다
     assert float(result["f1"]) == 1.0
     assert not any(key.endswith("/guiding_line") for key in result)
+
+
+def test_labels_agree_with_counts():
+    """선마다 돌려준 판정이 채점 누적값과 같은 짝을 쓴다 — 확인용 그림의 전제다."""
+    metric = make_metric()
+    truth = [line(0, 400, 100), line(0, 400, 300), line(0, 400, 500)]
+    pred = [line(0, 260, 100), line(270, 400, 100), line(0, 400, 200), line(0, 400, 500)]
+    gt_labels, pred_labels = metric.label_instances(pred, truth)
+    metric.update(pred, truth)
+    result = metric.compute()
+    assert gt_labels == [ccq.TP, ccq.FN, ccq.TP]
+    assert pred_labels == [ccq.TP, ccq.FP_REDUNDANT, ccq.FP_SPURIOUS, ccq.TP]
+    assert pred_labels.count(ccq.TP) == round(float(result["precision"]) * len(pred))
+
+
+def test_labels_mark_excluded_and_degenerate_lines():
+    """제외 종류와 점 하나짜리 선은 자리를 지킨 채 `EXCLUDED` 로 남는다."""
+    metric = make_metric(exclude_classes=(10,))
+    degenerate = {"class": 3, "points": np.array([[5.0, 5.0]], dtype=np.float32)}
+    truth = [line(0, 400, 100, label=10), degenerate, line(0, 400, 300)]
+    gt_labels, pred_labels = metric.label_instances([line(0, 400, 300)], truth)
+    assert gt_labels == [ccq.EXCLUDED, ccq.EXCLUDED, ccq.TP]
+    assert pred_labels == [ccq.TP]

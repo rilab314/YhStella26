@@ -1,74 +1,74 @@
-"""Fig. 10 — 두 체제: 어디서 지고 어디서 이기나 (VII-B, 2단, 3행 × 4열).
+"""Fig. 10 — 실패 유형 (VI-G, 2단, 2×3). **미구현 — 설계만 적어 둔다.**
 
-열: 원본 | GT | Segmentation | STELLA.
-행: ① 짧은 선이 붐비는 구간(seg 우세) ② 그늘·가림 구간(seg 우세) ③ 교차·중첩 구간(STELLA 우세).
+**08-27 설계 기준으로 번호를 다시 맞췄다 (09-16, STATE 6-0).** 아래 본문은 옛 설계의 메모라
+새 내용과 다를 수 있다 — 기준은 `docs/paper_outline.md` §3·§4 다.
 
-**우리가 지는 장면을 먼저 놓는다** — 리뷰어가 가장 먼저 물을 "그래서 seg 보다 무조건 낫다는
-거냐"에 그림이 먼저 답한다.
+## 무엇을 그리나
 
-    python scripts/figures/figure_10.py --candidates --side seg    # 분할이 이긴 장면(1·2행용)
-    python scripts/figures/figure_10.py --candidates --side ours   # 우리가 이긴 장면(3행용)
+여섯 가지 실패를 각 한 장씩. 한 칸 = 원본 위에 GT(가는 흰 선)와 예측(클래스 색)을 겹친 것.
 
-**후보 순위**: (분할 F1 − STELLA F1) 또는 그 반대. 두 방법 다 정답이 충분한 타일만 본다.
-**`--side ours` 는 교차로 묶음과 그 밖의 묶음을 따로 뽑는다**(`figure_base` 의 두 묶음) — 3행이
-교차·중첩 구간이다. 분할이 이긴 쪽(1·2행: 짧은 선 · 그늘)은 교차로와 무관해 한 묶음으로 둔다.
+    ① 옆 차선 갈아탐        예측 하나가 GT 두 개를 옮겨 다닌다
+    ② 그늘·가림에서 점선 소실  가려진 구간에서 사슬이 끊긴다
+    ③ 분기점 클래스 혼동     같은 기하인데 종류를 다르게 부른다
+    ④ 타일 경계 절단        선이 타일 밖으로 나가며 잘린다
+    ⑤ safety_zone          면인데 선으로 라벨된 클래스 — 구조적으로 못 맞히는 것
+    ⑥ GT 오정렬            정답 자체가 영상과 어긋나 있다
 
-**아직 자동으로 가르지 못하는 것**: "짧은 선이 붐비는 구간"과 "그늘·가림 구간"을 나누려면
-타일별 선 길이 분포와 가림 여부가 필요한데 지금 점수표에 없다. 그래서 `--side seg` 후보 안에서
-1행·2행에 쓸 장면을 **사람이 눈으로 고른다**(미팅 결정 09-15와 같은 방향이다).
+## 왜 필요한가
+
+직전 논문 심사에서 **R3-3d 가 "오류에 대한 별도 시각화"를 요구**했다.
+그리고 ⑤⑥은 **모델의 실패가 아니라 데이터의 성질**이라, 이것을 싣지 않으면 남은 격차 전체가
+모델 탓으로 읽힌다.
+
+## ★ 주의 — 유형 분류는 그림 고르기용 휴리스틱일 뿐이다
+
+**"어느 유형이 몇 %"라는 지표를 만들지 않는다.** 임계값 여섯 개짜리 자체 분류기를 만들면
+논문에 새 공격면이 생긴다("그 분류기가 맞다는 근거는?"). 유형은 **후보를 고르는 데만** 쓰고,
+본문에는 "이런 실패가 있다"만 쓴다. 스크립트 출력에도 비율을 찍지 않는다.
+
+## 유형별 선별 조건
+
+    ① 갈아탐      한 예측이 GT 2개 이상에 각각 자기 길이의 25% 이상 붙어 있다
+                  (`scripts/lane_switch.py` 가 이미 재는 것과 같은 정의를 쓴다)
+    ② 점선 소실   같은 GT 를 덮는 예측이 2조각 이상 · 끊긴 구간의 영상 밝기가
+                  타일 중앙값보다 25% 이상 어둡다
+    ③ 클래스 혼동  기하로는 맞았는데(커버리지 >= 0.5) 클래스가 틀린 예측 >= 3개
+    ④ 경계 절단   타일 가장자리 8 px 안에서 끝나는 GT >= 3개이고 그중 절반 이상을 놓쳤다
+    ⑤ safety_zone GT 에 safety_zone 인스턴스가 있는 타일
+    ⑥ GT 오정렬   GT 선의 90% 이상이 영상의 밝은 노면 표시에서 5 px 이상 떨어져 있다
+                  (자동 판정이 가장 약한 항목 — 후보를 넓게 뽑고 **사람이 확인한다**)
+
+## 정렬·상한·파일명
+
+    정렬   유형별 강도 내림차순 (①은 갈아탄 GT 수, ②는 어두운 구간 길이, ...)
+    상한   **유형당 16장 · 합계 96장** (100장 안)
+    이름   {순위:03d}_t{유형}_{타일id}_{강도}.png     유형 = 1~6
+
+## 입력
+
+    예측 캐시  .../pred_cache/{실행}/test/{stem}.npz
+    영상       ②⑥이 영상 밝기를 보므로 원본 픽셀이 필요하다
+    split      **test**
+
+## 상태
+
+**착수 전.** 최종 채택 설정의 캐시가 뜨면 만들 수 있다. baseline 은 필요 없다.
 """
 
-import argparse
-
-from figure_base import ANY, SampleFigure, add_arguments
-
-from stella.config_io import load_config
-
-MIN_GT = 8
-SIDES = ("seg", "ours")
-
-
-class TwoRegimes(SampleFigure):
-    name = "figure_10"
-    split = "val"
-    columns = (
-        ("원본", ""),
-        ("GT", ""),  # 정답 선은 저장된 예측이 아니라 데이터셋에서 읽는다
-        ("Segmentation", "seg_dp"),
-        ("STELLA", "stella"),
-    )
-
-    def __init__(self, cfg, side: str):
-        super().__init__(cfg)
-        self.side = side
-        self.name = f"figure_10_{side}"
-        if side == "seg":
-            self.pools = (ANY,)
-
-    def score(self, stem: str, pool: str):
-        if self.scores.value("stella", stem, "n_gt") < MIN_GT:
-            return None
-        ours = self.scores.value("stella", stem, "f1")
-        seg = self.scores.value("seg_dp", stem, "f1")
-        margin = seg - ours if self.side == "seg" else ours - seg
-        if margin <= 0:
-            return None
-        if not self.in_pool(stem, pool):
-            return None
-        return margin
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser()
-    add_arguments(parser)
-    parser.add_argument("--side", default="seg", choices=SIDES, help="어느 쪽이 이긴 장면인가")
-    args = parser.parse_args()
-    figure = TwoRegimes(load_config(args.config, []), args.side)
-    if args.candidates:
-        figure.write_candidates()
-        return
-    figure.write_selected()
-
-
-if __name__ == "__main__":
-    main()
+# from figure_base import SampleFigure
+#
+#
+# class FailureModeFigure(SampleFigure):
+#     """여섯 실패 유형의 후보를 유형별로 골라 낸다. 유형 비율은 내지 않는다."""
+#
+#     name = "figure_12"
+#     split = "test"
+#     PER_TYPE = 16               # 유형당 장수 — 6 × 16 = 96, 상한 100 안
+#     SWITCH_SHARE_MIN = 0.25     # ① 갈아탐 판정: GT 하나에 붙은 최소 비율
+#     SHADOW_DROP = 0.25          # ② 어두움 판정: 타일 중앙값 대비 밝기 하락
+#     CONFUSED_MIN = 3            # ③ 클래스 혼동 최소 개수
+#     BORDER_PX = 8               # ④ 타일 경계 폭
+#     MISALIGN_PX = 5.0           # ⑥ GT 오정렬 판정 거리
+#
+#     def build_figure(self, stem, sample, pred):
+#         raise NotImplementedError("설계는 위 docstring 참고")

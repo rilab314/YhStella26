@@ -20,6 +20,9 @@ from torchmetrics import Metric
 from stella.data.types import CLASS_NAMES
 from stella.eval import geometry
 
+# `label_instances` 가 선마다 돌려주는 판정 — 확인용 그림(`check_sheet.py`)이 읽는다.
+TP, FN, FP_REDUNDANT, FP_SPURIOUS, EXCLUDED = "tp", "fn", "fp_redundant", "fp_spurious", "excluded"
+
 
 class InstanceCCQ(Metric):
     is_differentiable = False
@@ -77,6 +80,34 @@ class InstanceCCQ(Metric):
         best_correctness = _best_over_gt(correctness, len(pred))
         self._accumulate_aggregate(pred, gt, best_correctness)
         self._accumulate_instances(pred, gt, coverage, correctness, best_correctness)
+
+    def label_instances(self, predictions: list[dict], targets: list[dict]) -> tuple[list, list]:
+        """선마다 채점 판정을 돌려준다 — 확인용 그림이 **채점과 같은 짝**을 쓰게 한다.
+
+        정답은 `TP`·`FN`, 예측은 `TP`·`FP_REDUNDANT`·`FP_SPURIOUS`. 채점에 들지 않는 선
+        (제외 종류 · 점 2개 미만 · 상한 초과)은 `EXCLUDED` 다. 누적 상태는 건드리지 않는다.
+        """
+        pred = _prepare(predictions[: self.max_instances], self.sample_step)
+        gt = _prepare(targets[: self.max_instances], self.sample_step)
+        coverage, correctness = self._score_matrices(pred, gt)
+        best_correctness = _best_over_gt(correctness, len(pred))
+        matched_gt, matched_pred = _greedy_match(
+            gt, pred, coverage, correctness, self.cov_thresh, self.cor_thresh
+        )
+        gt_labels = [TP if index in matched_gt else FN for index in range(len(gt))]
+        pred_labels = [
+            TP if index in matched_pred else self._fp_kind(best_correctness[index])
+            for index in range(len(pred))
+        ]
+        excluded = self.exclude_classes
+        return (
+            _restore_labels(gt_labels, gt, len(targets), excluded),
+            _restore_labels(pred_labels, pred, len(predictions), excluded),
+        )
+
+    def _fp_kind(self, best_correctness: float) -> str:
+        """어떤 정답 위에는 올라가 있으면 중복, 어디에도 없으면 헛검출 (`_accumulate_instances`)."""
+        return FP_REDUNDANT if best_correctness >= self.cor_thresh else FP_SPURIOUS
 
     def _score_matrices(self, pred: list[dict], gt: list[dict]) -> tuple[np.ndarray, np.ndarray]:
         """C1(G, P) 와 C2(G, P) 를 같은 쌍 루프에서 함께 낸다 — 둘 다 (GT x 예측) 행렬이다.
@@ -144,11 +175,8 @@ class InstanceCCQ(Metric):
             if pred_index in matched_pred:
                 continue
             self.fp[item["class"]] += 1
-            bucket = (
-                self.fp_redundant
-                if best_correctness[pred_index] >= self.cor_thresh
-                else self.fp_spurious
-            )
+            redundant = self._fp_kind(best_correctness[pred_index]) == FP_REDUNDANT
+            bucket = self.fp_redundant if redundant else self.fp_spurious
             bucket[item["class"]] += 1
 
     def _accumulate_fragments(self, coverage: np.ndarray, best_correctness: np.ndarray) -> None:
@@ -198,13 +226,14 @@ class InstanceCCQ(Metric):
 
 def _prepare(instances: list[dict], step: float) -> list[dict]:
     prepared = []
-    for item in instances:
+    for index, item in enumerate(instances):
         points = np.asarray(item["points"], dtype=np.float64)
         if points.shape[0] < 2:
             continue
         sampled, tangent = geometry.resample(points, step)
         prepared.append(
             {
+                "index": index,  # 원래 목록에서의 자리 — `label_instances` 가 되돌릴 때 쓴다
                 "class": int(item["class"]),
                 "points": sampled,
                 "tangent": tangent,
@@ -213,6 +242,15 @@ def _prepare(instances: list[dict], step: float) -> list[dict]:
             }
         )
     return prepared
+
+
+def _restore_labels(labels: list, prepared: list[dict], count: int, excluded: tuple) -> list:
+    """준비 단계에서 빠진 선과 제외 종류를 원래 순서 자리에 `EXCLUDED` 로 되돌려 놓는다."""
+    restored = [EXCLUDED] * count
+    for label, item in zip(labels, prepared, strict=True):
+        if item["class"] not in excluded:
+            restored[item["index"]] = label
+    return restored
 
 
 def _greedy_match(

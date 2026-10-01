@@ -10,6 +10,9 @@
 (`figure_base` 의 두 묶음) — 교차로는 선이 많아(중앙값 56개) 80개, 그 밖의 장면은 25개.
 **무엇을 실을지는 사람이 고른다**(미팅 결정 09-15) — 후보 100장을 보고 `selected.txt` 에 적는다.
 
+고른 4장은 `selected/` 에 한 장씩 남기고, **논문에 싣는 2×2 한 장**을 `figure_01.png` 로 따로
+만든다. 논문 그림에는 글자를 넣지 않는다(09-23 미팅) — 그래서 이 한 장에는 STELLA 결과만 있다.
+
 사용:
     python scripts/figures/figure_01.py --candidates
     python scripts/figures/figure_01.py
@@ -17,12 +20,13 @@
 
 import argparse
 
-from figure_base import INTERSECTION, OTHER, SampleFigure, add_arguments
+from figure_base import INTERSECTION, OTHER, SampleFigure, add_arguments, draw
 
 from stella.config_io import load_config
 
 GT_RANGE = {INTERSECTION: (10, 80), OTHER: (10, 25)}  # 묶음별 정답 인스턴스 수
 MIN_CLASSES = 4
+GRID_COLUMNS = 2
 
 
 class Showcase(SampleFigure):
@@ -42,6 +46,15 @@ class Showcase(SampleFigure):
         if not self.in_pool(stem, pool):
             return None
         return self.scores.value("stella", stem, "f1")
+
+    def write_selected(self) -> None:
+        """고른 순서대로 왼쪽 위 → 오른쪽 위 → 왼쪽 아래 → 오른쪽 아래."""
+        super().write_selected()
+        tiles = [
+            draw(self.images(stem)[0], self.lines("stella", stem)) for stem in self.read_selected()
+        ]
+        rows = [tiles[start : start + GRID_COLUMNS] for start in range(0, len(tiles), GRID_COLUMNS)]
+        self.write_paper_grid(rows, expected=GRID_COLUMNS)
 
 
 def main() -> None:
