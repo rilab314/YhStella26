@@ -120,10 +120,14 @@ def read_breakdown(method: str, split: str) -> dict:
 
 
 def change(value, base) -> str:
-    """기준 대비 상대 변화(%). 표마다 부호·자릿수를 다르게 쓰지 않기 위해 한 곳에 둔다."""
-    if value is None or not base:
+    """기준 대비 **절대 차이**(F1 점수 그대로). 표마다 부호·자릿수를 맞추려고 한 곳에 둔다.
+
+    퍼센트로 쓰지 않는다(교수 지시 09-30) — F1 자체가 비율이라 "+5.4%"가 점수 5.4점인지
+    상대 변화인지 헷갈리고, 누적값으로도 읽힌다.
+    """
+    if value is None or base is None:
         return BLANK
-    return f"{(float(value) - float(base)) / abs(float(base)) * 100:+.1f}%"
+    return f"{float(value) - float(base):+.4f}"
 
 
 def number(value, digits: int = 4) -> str:

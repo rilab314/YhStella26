@@ -52,22 +52,35 @@ from table_base import (
     write_markdown,
 )
 
-# (블록, 논문 행 이름, 방법). 블록마다 첫 행이 기준이다. 방법 이름은 `eval_methods.py` 의 METHODS.
-UPPER_ROWS = (
-    ("백본", "ConvNeXtV2-B (기준)", "u_cnxb"),
-    ("백본", "ConvNeXtV2-L (채택)", "u_cnxl"),
-    ("백본", "DINOv3-sat ViT-L", "u_dinov3"),
-    ("백본", "DINOv3-sat ViT-L (학습률 ×0.2)", "u_dinov3_lr02"),
-    ("백본", "Swin-B", "u_swinb"),
-    ("백본", "Swin-L", "u_swinl"),
-    ("백본", "ConvNeXtV2-B (동결)", "u_freeze"),
-    ("구조", "대조군 (창 7 · 층 6)", "u_ref"),
-    ("구조", "어텐션 창 9칸", "u_win9"),
-    ("구조", "어텐션 층 4개", "u_deep4"),
-    ("구조", "어텐션 층 3개", "u_deep3"),
-    ("구조", "백본 HRNet-W48 (고해상도 유지)", "u_hrnet"),
+# 블록마다 (제목 줄, ((조건, 방법), ...)). 블록마다 첫 행이 기준이다. 방법 이름은 `eval_methods.py`.
+# **제목 줄에 고정한 것을 한 번만 적는다 (교수 지시 09-30 · 사용자 확정 10-02)** — 구조 행은 전부
+# ConvNeXtV2-B 로 쟀는데 채택 백본은 L 이라, 적지 않으면 어느 백본의 결과인지 읽히지 않는다.
+# 칸마다 반복하면 바뀐 값이 묻혀 제목 줄로 올렸다. 백본·구조는 각 실행의 config.json 으로 확인했다.
+UPPER_BLOCKS = (
+    (
+        "백본 비교 — 어텐션 창 7 · 층 6 고정",
+        (
+            ("ConvNeXtV2-B (기준)", "u_cnxb"),
+            ("ConvNeXtV2-L (채택)", "u_cnxl"),
+            ("DINOv3-sat ViT-L", "u_dinov3"),
+            ("DINOv3-sat ViT-L (학습률 ×0.2)", "u_dinov3_lr02"),
+            ("Swin-B", "u_swinb"),
+            ("Swin-L", "u_swinl"),
+            ("ConvNeXtV2-B (동결)", "u_freeze"),
+            ("HRNet-W48 (고해상도 유지)", "u_hrnet"),
+        ),
+    ),
+    (
+        "구조 비교 — 백본 ConvNeXtV2-B 고정",
+        (
+            ("창 7 · 층 6 (기준)", "u_ref"),
+            ("창 9 · 층 6", "u_win9"),
+            ("창 7 · 층 4", "u_deep4"),
+            ("창 7 · 층 3", "u_deep3"),
+        ),
+    ),
 )
-UPPER_COLUMNS = ("블록", "조건", "inst F1", "ΔF1", "타일 수", "최대 메모리(GB)", "스텝(ms)")
+UPPER_COLUMNS = ("조건", "inst F1", "ΔF1", "타일 수", "최대 메모리(GB)", "스텝(ms)")
 
 FINAL_METHOD = "stella"
 # 종류 이름 (코드 이름 → 논문 표기). 표의 행 순서는 F1 내림차순으로 정한다.
@@ -118,15 +131,16 @@ class Sensitivity(PaperTable):
         print(f"[{self.name}] 저장 {out_dir}")
 
     def collect_upper(self) -> list[dict]:
-        rows, bases = [], {}
-        for block, label, method in UPPER_ROWS:
-            payload = read_summary(method, "val")
-            f1 = payload.get("summary", {}).get("f1")
-            is_base = block not in bases
-            bases.setdefault(block, f1)
-            rows.append(
-                upper_row(block, label, payload, "기준" if is_base else change(f1, bases[block]))
-            )
+        rows = []
+        for title, conditions in UPPER_BLOCKS:
+            rows.append(title_row(title))
+            base = None
+            for label, method in conditions:
+                payload = read_summary(method, "val")
+                f1 = payload.get("summary", {}).get("f1")
+                delta = "기준" if base is None else change(f1, base)
+                base = f1 if base is None else base
+                rows.append(upper_row(label, payload, delta))
         return rows
 
     def collect_lower(self) -> list[dict]:
@@ -156,9 +170,13 @@ class Sensitivity(PaperTable):
         }
 
 
-def upper_row(block: str, label: str, payload: dict, delta: str) -> dict:
+def title_row(title: str) -> dict:
+    """블록 제목 줄 — 조건 칸에만 글이 있고 나머지는 빈 문자열(빈칸 집계에서 빠진다)."""
+    return {column: "" for column in UPPER_COLUMNS} | {"조건": f"[{title}]"}
+
+
+def upper_row(label: str, payload: dict, delta: str) -> dict:
     return {
-        "블록": block,
         "조건": label,
         "inst F1": number(payload.get("summary", {}).get("f1")),
         "ΔF1": delta if payload else BLANK,

@@ -71,6 +71,12 @@ class SegmentMethod:
             produced += 1
 
 
+def target_tiles(cfg, split: str) -> Iterator[tuple[str, list[dict]]]:
+    """(타일 이름, 정답 인스턴스) — 떨궈 둔 예측을 다시 읽어 채점하는 스크립트들이 같이 쓴다."""
+    for batch in _build_loader(cfg, split):
+        yield _tile_name(batch), batch["instances"][0]
+
+
 def _build_loader(cfg, split: str) -> DataLoader:
     dataset = build_instance(cfg.data, cfg, base=GridDatasetBase, split=split)
     return DataLoader(dataset, batch_size=1, shuffle=False, num_workers=4, collate_fn=collate_fn)

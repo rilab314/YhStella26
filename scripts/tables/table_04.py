@@ -36,7 +36,7 @@
 import argparse
 import json
 
-from table_base import BLANK, SCORE_ROOT, PaperTable, number
+from table_base import BLANK, SCORE_ROOT, PaperTable, change, number
 
 # (저장 이름, 논문 행 이름). 순서가 표의 행 순서다.
 ROWS = (
@@ -85,7 +85,7 @@ def gain(score: dict, floor: dict) -> str:
         return BLANK
     if score is floor:
         return "기준"
-    return f"{score['f1'] - floor['f1']:+.4f}"
+    return change(score["f1"], floor["f1"])
 
 
 def main() -> None:
