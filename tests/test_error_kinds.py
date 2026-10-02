@@ -73,3 +73,9 @@ def test_labels_follow_original_order_and_skip_excluded(cfg):
     ]
     labels = ErrorKinds(cfg).label_predictions(prediction, [line(LANE, (0, 0), (100, 0))])
     assert labels == ["excluded", "spurious_long", "tp"]
+
+
+def test_target_labels_name_missed_lines(cfg):
+    target = [line(LANE, (0, 0), (100, 0)), line(LANE, (0, 300), (100, 300))]
+    labels = ErrorKinds(cfg).label_targets([line(LANE, (0, 0), (100, 0))], target)
+    assert labels == ["tp", "missed"]

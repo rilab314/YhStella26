@@ -1,74 +1,50 @@
-"""Fig. 10 — 실패 유형 (VI-G, 2단, 2×3). **미구현 — 설계만 적어 둔다.**
+"""Fig. 10 — 실패 유형 (VI-G, 2단, 4행 × 3열).
 
-**08-27 설계 기준으로 번호를 다시 맞췄다 (09-16, STATE 6-0).** 아래 본문은 옛 설계의 메모라
-새 내용과 다를 수 있다 — 기준은 `docs/paper_outline.md` §3·§4 다.
+열: 원본 | 정답 | STELLA — 실패 지점만 잘라 키운 칸이다. 실패가 작아 타일 전체로는 보이지 않는다.
+행: ① 옆으로 벗어남 ② 그늘에서 끊김 ③ 종류 혼동 ④ 정답이 틀린 사례(라벨 누락).
+네 유형은 사용자가 고르고(10-02) ④는 교수 미팅(09-30) 지시다.
 
-## 무엇을 그리나
+칸은 `scripts/sample_error_kind.py` 가 이미 그려 둔 것이다 — 원인 판정은 채점기와 같은 짝
+(`stella/eval/error_kinds.py`), 문제의 선은 흰 테두리를 두른 빨강(1행만), 정답 선은 초록 ·
+예측 선은 하늘색, 종류 혼동만 문제의 선을 종류 색으로 그린다. 여기서는 고른 칸을 쌓기만 한다.
 
-여섯 가지 실패를 각 한 장씩. 한 칸 = 원본 위에 GT(가는 흰 선)와 예측(클래스 색)을 겹친 것.
-
-    ① 옆 차선 갈아탐        예측 하나가 GT 두 개를 옮겨 다닌다
-    ② 그늘·가림에서 점선 소실  가려진 구간에서 사슬이 끊긴다
-    ③ 분기점 클래스 혼동     같은 기하인데 종류를 다르게 부른다
-    ④ 타일 경계 절단        선이 타일 밖으로 나가며 잘린다
-    ⑤ safety_zone          면인데 선으로 라벨된 클래스 — 구조적으로 못 맞히는 것
-    ⑥ GT 오정렬            정답 자체가 영상과 어긋나 있다
-
-## 왜 필요한가
-
-직전 논문 심사에서 **R3-3d 가 "오류에 대한 별도 시각화"를 요구**했다.
-그리고 ⑤⑥은 **모델의 실패가 아니라 데이터의 성질**이라, 이것을 싣지 않으면 남은 격차 전체가
-모델 탓으로 읽힌다.
-
-## ★ 주의 — 유형 분류는 그림 고르기용 휴리스틱일 뿐이다
-
-**"어느 유형이 몇 %"라는 지표를 만들지 않는다.** 임계값 여섯 개짜리 자체 분류기를 만들면
-논문에 새 공격면이 생긴다("그 분류기가 맞다는 근거는?"). 유형은 **후보를 고르는 데만** 쓰고,
-본문에는 "이런 실패가 있다"만 쓴다. 스크립트 출력에도 비율을 찍지 않는다.
-
-## 유형별 선별 조건
-
-    ① 갈아탐      한 예측이 GT 2개 이상에 각각 자기 길이의 25% 이상 붙어 있다
-                  (`scripts/lane_switch.py` 가 이미 재는 것과 같은 정의를 쓴다)
-    ② 점선 소실   같은 GT 를 덮는 예측이 2조각 이상 · 끊긴 구간의 영상 밝기가
-                  타일 중앙값보다 25% 이상 어둡다
-    ③ 클래스 혼동  기하로는 맞았는데(커버리지 >= 0.5) 클래스가 틀린 예측 >= 3개
-    ④ 경계 절단   타일 가장자리 8 px 안에서 끝나는 GT >= 3개이고 그중 절반 이상을 놓쳤다
-    ⑤ safety_zone GT 에 safety_zone 인스턴스가 있는 타일
-    ⑥ GT 오정렬   GT 선의 90% 이상이 영상의 밝은 노면 표시에서 5 px 이상 떨어져 있다
-                  (자동 판정이 가장 약한 항목 — 후보를 넓게 뽑고 **사람이 확인한다**)
-
-## 정렬·상한·파일명
-
-    정렬   유형별 강도 내림차순 (①은 갈아탄 GT 수, ②는 어두운 구간 길이, ...)
-    상한   **유형당 16장 · 합계 96장** (100장 안)
-    이름   {순위:03d}_t{유형}_{타일id}_{강도}.png     유형 = 1~6
-
-## 입력
-
-    예측 캐시  .../pred_cache/{실행}/test/{stem}.npz
-    영상       ②⑥이 영상 밝기를 보므로 원본 픽셀이 필요하다
-    split      **test**
-
-## 상태
-
-**착수 전.** 최종 채택 설정의 캐시가 뜨면 만들 수 있다. baseline 은 필요 없다.
+사용:
+    python scripts/figures/figure_10.py
+    → paper/figure/figure_10/figure_10.png
 """
 
-# from figure_base import SampleFigure
-#
-#
-# class FailureModeFigure(SampleFigure):
-#     """여섯 실패 유형의 후보를 유형별로 골라 낸다. 유형 비율은 내지 않는다."""
-#
-#     name = "figure_12"
-#     split = "test"
-#     PER_TYPE = 16               # 유형당 장수 — 6 × 16 = 96, 상한 100 안
-#     SWITCH_SHARE_MIN = 0.25     # ① 갈아탐 판정: GT 하나에 붙은 최소 비율
-#     SHADOW_DROP = 0.25          # ② 어두움 판정: 타일 중앙값 대비 밝기 하락
-#     CONFUSED_MIN = 3            # ③ 클래스 혼동 최소 개수
-#     BORDER_PX = 8               # ④ 타일 경계 폭
-#     MISALIGN_PX = 5.0           # ⑥ GT 오정렬 판정 거리
-#
-#     def build_figure(self, stem, sample, pred):
-#         raise NotImplementedError("설계는 위 docstring 참고")
+from pathlib import Path
+
+import cv2
+import numpy as np
+from figure_base import FIGURE_ROOT, join_white
+
+E5_ROOT = Path(__file__).resolve().parents[2] / "experiment" / "data" / "e5"
+# (후보 폴더, 고른 번호) — 행 순서. 종류 혼동은 칸 위 글자가 없는 판(_plain)을 쓴다.
+ROWS = (
+    ("stella_drift", "07"),
+    ("stella_missed_nomark", "01"),  # 2·4행은 빨강 없이(사용자 지적 10-02)
+    ("stella_wrong_class_plain", "07"),
+    ("stella_spurious_long_nomark", "13"),
+)
+NAME = "figure_10"
+
+
+def main() -> None:
+    rows = [read_row(folder, number) for folder, number in ROWS]
+    path = FIGURE_ROOT / NAME / f"{NAME}.png"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    cv2.imwrite(str(path), join_white(rows, axis=0))
+    print(f"[{NAME}] 논문용 그림: {path}")
+
+
+def read_row(folder: str, number: str) -> np.ndarray:
+    """후보 한 장(원본 | 정답 | 예측이 이미 한 줄로 붙어 있다)."""
+    found = sorted((E5_ROOT / folder).glob(f"{number}_*.jpg"))
+    if len(found) != 1:
+        raise FileNotFoundError(f"[{NAME}] {folder} 의 {number}번을 찾지 못했다")
+    return cv2.imread(str(found[0]))
+
+
+if __name__ == "__main__":
+    main()

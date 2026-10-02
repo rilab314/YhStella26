@@ -20,12 +20,16 @@
 
 import argparse
 
-from figure_base import ANY, SampleFigure, add_arguments
+from figure_base import ANY, SampleFigure, add_arguments, draw
 
 from stella.config_io import load_config
+from stella.train import viz
 
 MIN_GT = 8
 SIDES = ("seg", "ours")
+# 논문용 한 장 — 분할이 이긴 장면(seg 폴더 순서대로) 위에, 우리가 이긴 장면을 아래에 쌓는다.
+# 1행은 정지선 장면이라 seg 후보 밖에서 골랐다(사용자 결정 10-02) — selected.txt 에 타일 id.
+PAPER_ROWS = 3
 
 
 class TwoRegimes(SampleFigure):
@@ -57,13 +61,33 @@ class TwoRegimes(SampleFigure):
             return None
         return margin
 
+    def write_paper(self) -> None:
+        """두 폴더에서 고른 장면을 한 줄씩 — 열은 원본 · 정답 · 분할 · STELLA, 칸 안에 글자 없음."""
+        self.name = "figure_11"
+        stems = [stem for side in SIDES for stem in self.read_selected(f"figure_11_{side}")]
+        self.write_paper_grid([self._paper_row(stem) for stem in stems], expected=PAPER_ROWS)
+
+    def _paper_row(self, stem: str) -> list:
+        image, truth = self.images(stem)
+        drawn = [
+            draw(image, self.lines(method, stem) if method else truth)
+            for _, method in self.columns[1:]
+        ]
+        return [viz.to_uint8_image(image), *drawn]
+
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     add_arguments(parser)
     parser.add_argument("--side", default="seg", choices=SIDES, help="어느 쪽이 이긴 장면인가")
+    parser.add_argument(
+        "--paper", action="store_true", help="두 폴더의 고른 장면을 논문용 한 장으로"
+    )
     args = parser.parse_args()
     figure = TwoRegimes(load_config(args.config, []), args.side)
+    if args.paper:
+        figure.write_paper()
+        return
     if args.candidates:
         figure.write_candidates()
         return

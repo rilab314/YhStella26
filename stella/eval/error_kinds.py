@@ -68,12 +68,22 @@ class ErrorKinds:
 
         원인별 표본을 그려 눈으로 확인할 때 쓴다(E5). 순서는 `prediction` 그대로다.
         """
-        kept = [i for i, item in enumerate(prediction) if int(item["class"]) not in self.excluded]
         pred, gt = self._prepare(prediction), self._prepare(target)
         _, fp_kinds, _ = self._judge(pred, gt)
-        labels = ["excluded"] * len(prediction)
-        for position, item in enumerate(pred):
-            labels[kept[item["index"]]] = fp_kinds.get(position, "tp")
+        return self._restore(prediction, pred, fp_kinds)
+
+    def label_targets(self, prediction: list[dict], target: list[dict]) -> list[str]:
+        """정답 선마다 판정 — "tp" · FN 원인 이름 · "excluded". 순서는 `target` 그대로다."""
+        pred, gt = self._prepare(prediction), self._prepare(target)
+        _, _, fn_kinds = self._judge(pred, gt)
+        return self._restore(target, gt, fn_kinds)
+
+    def _restore(self, instances: list[dict], prepared: list[dict], kinds: dict) -> list[str]:
+        """준비 단계의 자리를 원래 목록의 자리로 되돌린다 — 빠진 선은 "excluded"."""
+        kept = [i for i, item in enumerate(instances) if int(item["class"]) not in self.excluded]
+        labels = ["excluded"] * len(instances)
+        for position, item in enumerate(prepared):
+            labels[kept[item["index"]]] = kinds.get(position, "tp")
         return labels
 
     def _judge(self, pred: list[dict], gt: list[dict]) -> tuple[set, dict, dict]:

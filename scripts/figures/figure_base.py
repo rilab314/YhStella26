@@ -202,6 +202,7 @@ class SampleFigure:
             print(f"[{self.name}] 논문용 그림에는 {expected}줄이 필요하다 — 지금 {len(rows)}줄")
             return
         path = FIGURE_ROOT / self.name / f"{self.name}.png"
+        path.parent.mkdir(parents=True, exist_ok=True)  # 없으면 cv2.imwrite 가 조용히 실패한다
         grid = join_white([join_white(row, axis=1) for row in rows], axis=0)
         cv2.imwrite(str(path), grid[:, :, ::-1])
         print(f"[{self.name}] 논문용 그림: {path}")
