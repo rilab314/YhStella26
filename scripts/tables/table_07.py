@@ -73,10 +73,12 @@ UPPER_BLOCKS = (
     (
         "구조 비교 — 백본 ConvNeXtV2-B 고정",
         (
-            ("창 7 · 층 6 (기준)", "u_ref"),
-            ("창 9 · 층 6", "u_win9"),
-            ("창 7 · 층 4", "u_deep4"),
-            ("창 7 · 층 3", "u_deep3"),
+            # 기준은 백본 블록의 첫 행과 같은 실행이다 — 구조 세 줄을 같은 학습 설정으로 다시
+            # 돌렸다(plan_1005 · R1). 같은 설정의 새 기준(r1_ctrl)은 0.3564 — 0.0015 차이.
+            ("창 7 · 층 6 (기준)", "u_cnxb"),
+            ("창 9 · 층 6", "r1_win9"),
+            ("창 7 · 층 4", "r1_deep4"),
+            ("창 7 · 층 3", "r1_deep3"),
         ),
     ),
 )
@@ -153,10 +155,15 @@ class Sensitivity(PaperTable):
         return [*(lower_row(name, per_class[name]) for name in names), self.total_row(per_class)]
 
     def total_row(self, per_class: dict) -> dict:
-        """전체 행 — 점수는 주 비교표와 같은 전 종류 합산 채점, 개수는 종류별 합."""
+        """전체 행 — 점수는 주 비교표와 같은 전 종류 합산 채점, **개수는 전부 종류별 합**.
+
+        중복·헛검출 FP 도 종류별 합이다. 합산 채점의 두 값은 "다른 종류 정답 위"도 중복으로 세서
+        종류별 행과 기준이 달라, 행을 더한 값과 어긋났다(사용자 발견 10-05).
+        """
         payload = read_summary(FINAL_METHOD, self.split)
         scores = payload.get("summary", {})
-        counts = {key: sum(item[key] for item in per_class.values()) for key in ("n_gt", "n_pred")}
+        keys = ("n_gt", "n_pred", "fp_redundant", "fp_spurious")
+        counts = {key: sum(item[key] for item in per_class.values()) for key in keys}
         return {
             "종류": "전체",
             "코드 이름": "all",
@@ -165,8 +172,8 @@ class Sensitivity(PaperTable):
             "inst F1": number(scores.get("f1")),
             "coverage": number(scores.get("coverage")),
             "frag": number(scores.get("frag")),
-            "중복 FP": count(scores.get("fp_redundant")),
-            "헛검출 FP": count(scores.get("fp_spurious")),
+            "중복 FP": count(counts["fp_redundant"]) if per_class else BLANK,
+            "헛검출 FP": count(counts["fp_spurious"]) if per_class else BLANK,
         }
 
 

@@ -52,6 +52,11 @@ UNIT_CACHES = {
     "u_deep3": "V7_A2_deep3",
     "u_slots3": "V7_A1_slots3",
     "u_hrnet": "V7_A1_hrnet",
+    # 구조 블록을 백본 블록과 같은 학습 설정으로 다시 돌린 판 (plan_1005 · R1)
+    "r1_ctrl": "R1_ctrl",
+    "r1_win9": "R1_win9",
+    "r1_deep4": "R1_deep4",
+    "r1_deep3": "R1_deep3",
 }
 
 # 방법 목록. 캐시 갈래는 **디코더 설정만** 다르다 — 모델도 캐시도 같은 것을 쓴다.

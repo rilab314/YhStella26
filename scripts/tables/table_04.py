@@ -36,7 +36,7 @@
 import argparse
 import json
 
-from table_base import BLANK, SCORE_ROOT, PaperTable, change, number
+from table_base import BLANK, SCORE_ROOT, PaperTable, change, number, read_summary
 
 # (저장 이름, 논문 행 이름). 순서가 표의 행 순서다.
 ROWS = (
@@ -49,7 +49,7 @@ ROWS = (
     ("all", "전부 정답 (표현의 천장)"),
 )
 COLUMNS = ("조건", "inst F1", "frag", "F1 증가량")
-FLOOR = "none"
+FLOOR, CEILING = "none", "all"
 
 
 class CeilingBreakdown(PaperTable):
@@ -64,6 +64,13 @@ class CeilingBreakdown(PaperTable):
         return [self._row(label, scores[key], scores) for key, label in ROWS]
 
     def _read(self, key: str) -> dict:
+        """행 하나의 점수. "전부 정답" 행만 Table V 의 천장(`gt` 방법)을 읽는다.
+
+        부분 주입 경로로 잰 값은 0.9402 라 Table V 의 0.9404 와 넷째 자리가 달랐다 — 같은 천장이
+        두 값으로 보여 헷갈렸으므로(사용자 지적 10-05) 한 출처로 맞춘다.
+        """
+        if key == CEILING:
+            return read_summary("gt", self.split).get("summary", {})
         path = SCORE_ROOT / f"ceiling_{self.split}" / f"{key}.json"
         if not path.exists():
             print(f"[table_04] 행 없음: {path}")

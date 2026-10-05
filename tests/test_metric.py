@@ -231,3 +231,12 @@ def test_labels_mark_excluded_and_degenerate_lines():
     gt_labels, pred_labels = metric.label_instances([line(0, 400, 300)], truth)
     assert gt_labels == [ccq.EXCLUDED, ccq.EXCLUDED, ccq.TP]
     assert pred_labels == [ccq.TP]
+
+
+def test_excluded_class_leaves_fp_split_counts():
+    """중복·헛검출 FP 개수에서도 제외 종류가 빠진다 — Table VII 전체 행이 97개 어긋났었다."""
+    metric = make_metric()
+    metric.update([line(10, 500, 300, label=10)], [line(10, 500, 100, label=3)])  # 안전지대 헛검출
+    result = metric.compute()
+    assert float(result["fp_spurious"]) == 0.0
+    assert float(result["fp_redundant"]) == 0.0

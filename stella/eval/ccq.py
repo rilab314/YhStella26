@@ -214,8 +214,10 @@ class InstanceCCQ(Metric):
 
     def _aggregate_scores(self) -> dict[str, torch.Tensor]:
         return {
-            "fp_redundant": self.fp_redundant.sum(),
-            "fp_spurious": self.fp_spurious.sum(),
+            # 제외 종류(안전지대 등)는 TP·FP·FN 처럼 여기서도 뺀다 — 빼지 않아 Table VII 하단
+            # 전체 행이 종류별 합과 97개 어긋났다(사용자 발견 10-05).
+            "fp_redundant": self._counted(self.fp_redundant).sum(),
+            "fp_spurious": self._counted(self.fp_spurious).sum(),
             "coverage": self.gt_covered / self.gt_total.clamp(min=1e-9),
             "correctness": self.pred_covered / self.pred_total.clamp(min=1e-9),
             "rms": (self.sq_error / self.covered_points.clamp(min=1e-9)).sqrt(),
