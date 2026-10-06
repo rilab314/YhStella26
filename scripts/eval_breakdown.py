@@ -29,7 +29,7 @@ DATA_ROOT = Path("/data/ongoing/2026_stella")
 # `scripts/eval_methods.py` 와 같은 값이다 — 경로를 바꾸면 함께 고친다.
 PAPER_ROOT = DATA_ROOT / "paper"
 CACHE_ROOT = DATA_ROOT / "pred_cache"
-GT_CACHE = {"val": "gt_val_v12"}
+GT_CACHE = {"val": "gt_val_v12", "test": "gt_test"}
 
 
 def main() -> None:
