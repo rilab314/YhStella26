@@ -21,11 +21,11 @@ from figure_base import FIGURE_ROOT, join_white
 
 E5_ROOT = Path(__file__).resolve().parents[2] / "experiment" / "data" / "e5"
 # (후보 폴더, 고른 번호) — 행 순서. 종류 혼동은 칸 위 글자가 없는 판(_plain)을 쓴다.
-ROWS = (
-    ("stella_drift", "07"),
-    ("stella_missed_nomark", "01"),  # 2·4행은 빨강 없이(사용자 지적 10-02)
-    ("stella_wrong_class_plain", "07"),
-    ("stella_spurious_long_nomark", "13"),
+ROWS = (  # 10-05 후처리를 원고대로 바꾼 뒤 같은 장면·같은 선을 새 예측으로 다시 그린 판(_new1005)
+    ("stella_drift_new1005", "02"),
+    ("stella_missed_nomark_new1005", "07"),  # 2·4행은 빨강 없이(사용자 지적 10-02)
+    ("stella_wrong_class_plain_new1005", "01"),
+    ("stella_spurious_long_nomark_new1005", "03"),
 )
 NAME = "figure_10"
 

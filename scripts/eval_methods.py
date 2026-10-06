@@ -78,38 +78,66 @@ METHODS = {
     "stella_dedup": {"cache": "F06d_ctrl", "decode": ("vertex_local_max=False",)},
     "gt_ridge": {"cache": "gt_val_v12", "decode": ("dedup_high=0",)},
     "gt_dedup": {"cache": "gt_val_v12", "decode": ("vertex_local_max=False",)},
+    # 원고가 설명하는 후처리(10-05 사용자 요청 · 결정 전 비교용) — 조각 잇기(merge) 끔 +
+    # 중복 정리는 남은 구간을 이어 붙이는 ratio 방식. 이름 끝 `_text`. 표 V 의 네 조건 · 천장까지.
+    **{
+        f"{who}_text{tail}": {
+            "cache": cache,
+            "decode": ("merge_gap=0", "dedup_mode=ratio", *extra),
+        }
+        for who, cache in (("stella", "F06d_ctrl"), ("gt", "gt_val_v12"))
+        for tail, extra in (
+            ("", ()),
+            ("_nopost", ("vertex_local_max=False", "dedup_high=0")),
+            ("_ridge", ("dedup_high=0",)),
+            ("_dedup", ("vertex_local_max=False",)),
+        )
+    },
+    # Table VI — 표현·구조를 하나씩 되돌린 실행들. 10-05 부터 학습 로그 대신 **예측 캐시를 다시
+    # 디코딩한 값**을 싣는다(후처리를 원고대로 바꿔 학습 당시 디코더와 달라졌다).
+    "g02_r3": {"cache": "G02_r3", "config": "configs.exp_r3", "decode": ()},
+    "g03_fixed": {"cache": "G03_fixed", "config": "configs.exp_fixed_order", "decode": ()},
+    "g04_canon": {"cache": "G04_canon_full", "config": "configs.exp_canonical", "decode": ()},
+    "g05_single": {"cache": "G05_single", "config": "configs.exp_single_token", "decode": ()},
+    # 비교 대상도 같은 후처리를 쓰므로 함께 바꾼 판을 둔다 — 공정 비교 조건.
+    "gte_delta_text": {
+        "cache": "G06_delta",
+        "config": "configs.exp_gte_delta",
+        "decode": ("merge_gap=0", "dedup_mode=ratio"),
+    },
     # Table VII 상단 — U 규격(train 3,000 · val 700 · 10에폭) 실행을 **현행 디코더로** 다시 잰다.
     **{name: {"cache": cache, "decode": ()} for name, cache in UNIT_CACHES.items()},
 }
-# 미리 정한 통과 조건 (검증셋 전량 · 현행 자). 어긋나면 원인을 찾기 전에 6단계로 넘어가지 않는다.
-# 천장 두 값의 출처는 Table V 다 — 후처리를 켜면 0.9404, 끄면 0.9434(중복 정리가 진짜 선을 지운 몫).
+# 미리 정한 통과 조건 (검증셋 전량 · 현행 자). 어긋나면 원인부터 찾는다.
+# 10-05 후처리를 원고대로 바꾼 뒤(merge_gap 0 · dedup ratio) 다시 잰 값 — 옛 값은 git 이력.
 EXPECTED_F1 = {
-    "stella": 0.4489,
-    "stella_nopost": 0.4031,
-    "gte": 0.4148,
-    "gte_delta": 0.3736,  # `result_0924.md` 2절 (조율 후)
+    "stella": 0.4468,
+    "stella_nopost": 0.4003,
+    "gte": 0.4142,
+    "gte_delta": 0.3513,
     "seg_dp": 0.3088,
-    "gt": 0.9404,
-    "gt_nopost": 0.9434,
-    # Table V (`result_0910b.md` C절 · val 전량)
-    "stella_ridge": 0.4250,
-    "stella_dedup": 0.4398,
-    "gt_ridge": 0.9434,
-    "gt_dedup": 0.9404,
-    # Table VII 상단 (`result_0910b.md` · U 규격 val 700장)
-    "u_cnxb": 0.3549,
-    "u_cnxl": 0.3820,
-    "u_dinov3": 0.3333,
-    "u_dinov3_lr02": 0.2924,
-    "u_swinb": 0.3056,
-    "u_swinl": 0.3009,
-    "u_freeze": 0.2573,
-    "u_ref": 0.3571,
-    "u_win9": 0.3494,
-    "u_deep4": 0.3464,
-    "u_deep3": 0.3349,
-    "u_slots3": 0.3428,
-    "u_hrnet": 0.2967,
+    "gt": 0.948,
+    "gt_nopost": 0.9503,
+    "stella_ridge": 0.422,
+    "stella_dedup": 0.4376,
+    "gt_ridge": 0.9503,
+    "gt_dedup": 0.948,
+    "u_cnxb": 0.3522,
+    "u_cnxl": 0.3795,
+    "u_dinov3": 0.3318,
+    "u_dinov3_lr02": 0.2904,
+    "u_swinb": 0.3036,
+    "u_swinl": 0.2999,
+    "u_freeze": 0.2556,
+    "u_hrnet": 0.2947,
+    "r1_ctrl": 0.3538,
+    "r1_win9": 0.354,
+    "r1_deep4": 0.3484,
+    "r1_deep3": 0.3413,
+    "g02_r3": 0.3352,
+    "g03_fixed": 0.1549,
+    "g04_canon": 0.4351,
+    "g05_single": 0.4249,
 }
 TOLERANCE = 0.001
 

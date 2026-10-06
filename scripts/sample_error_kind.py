@@ -64,6 +64,10 @@ def parse_args() -> argparse.Namespace:
         "--no-mark", action="store_true", help="문제의 선도 보통 색으로 — 폴더 끝에 _nomark"
     )
     parser.add_argument("--split", default="val")
+    parser.add_argument(
+        "--tiles", nargs="*", default=[], help="이 타일들만 본다 — 고른 장면 다시 그리기"
+    )
+    parser.add_argument("--out-suffix", default="", help="출력 폴더 이름 끝에 붙인다")
     parser.add_argument("--config", default="configs.base")
     return parser.parse_args()
 
@@ -74,6 +78,8 @@ def collect(cfg, args) -> list[tuple[str, int]]:
     labeler = kinds.label_predictions if args.side == "fp" else kinds.label_targets
     found = []
     for tile, target in target_tiles(cfg, args.split):
+        if args.tiles and tile not in args.tiles:
+            continue
         labels = labeler(read_prediction(args, tile), target)
         found += [(tile, index) for index, label in enumerate(labels) if label == args.kind]
     return found
@@ -116,7 +122,7 @@ def mean_brightness(image: np.ndarray, points: np.ndarray) -> float:
 def render_all(args, dataset, chosen: list[tuple[str, int]]) -> None:
     position = {stem: index for index, stem in enumerate(dataset.stems)}
     suffix = ("_plain" if args.plain else "") + ("_nomark" if args.no_mark else "")
-    out_dir = OUT_ROOT / f"{args.method}_{args.kind}{suffix}"
+    out_dir = OUT_ROOT / f"{args.method}_{args.kind}{suffix}{args.out_suffix}"
     out_dir.mkdir(parents=True, exist_ok=True)
     for order, (tile, index) in enumerate(chosen, start=1):
         item = dataset[position[tile]]

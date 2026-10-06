@@ -95,9 +95,11 @@ def save_row(args: argparse.Namespace, key: str, scores: dict) -> None:
 
 def build_cfg(args: argparse.Namespace):
     cfg = load_config(args.config, [])
-    apply_saved_config(
-        cfg, json.loads((Path(args.run) / "config.json").read_text(encoding="utf-8"))
-    )
+    saved = json.loads((Path(args.run) / "config.json").read_text(encoding="utf-8"))
+    # 디코더는 **지금 기본값**을 쓴다 — 실행 폴더의 옛 디코더를 그대로 읽어 후처리를 바꾼 뒤에도
+    # 표 IV 가 옛 방식으로 나왔다(10-05). 모델·데이터 설정만 실행 폴더에서 가져온다.
+    saved.pop("decode", None)
+    apply_saved_config(cfg, saved)
     for item in args.override:
         path, _, raw = item.partition("=")
         apply_override(cfg, path.split("."), raw)
