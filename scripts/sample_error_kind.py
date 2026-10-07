@@ -38,6 +38,7 @@ CROP_MIN = 220  # 잘라 낼 창의 최소 한 변(px)
 CROP_MARGIN = 40
 VIEW = 600  # 잘라 낸 칸을 키운 한 변(px)
 GAP = 10
+HIDDEN_CLASSES = (0, CLASS_NAMES.index("safety_zone"))  # figure_base 와 같다 — 그리지 않는다
 
 
 def main() -> None:
@@ -62,6 +63,9 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--no-mark", action="store_true", help="문제의 선도 보통 색으로 — 폴더 끝에 _nomark"
+    )
+    parser.add_argument(
+        "--class-color", action="store_true", help="모든 선을 종류 색으로(Fig. 1 범례) — 끝에 _cls"
     )
     parser.add_argument("--split", default="val")
     parser.add_argument(
@@ -122,6 +126,7 @@ def mean_brightness(image: np.ndarray, points: np.ndarray) -> float:
 def render_all(args, dataset, chosen: list[tuple[str, int]]) -> None:
     position = {stem: index for index, stem in enumerate(dataset.stems)}
     suffix = ("_plain" if args.plain else "") + ("_nomark" if args.no_mark else "")
+    suffix += "_cls" if args.class_color else ""
     out_dir = OUT_ROOT / f"{args.method}_{args.kind}{suffix}{args.out_suffix}"
     out_dir.mkdir(parents=True, exist_ok=True)
     for order, (tile, index) in enumerate(chosen, start=1):
@@ -138,7 +143,9 @@ def render(args, image, truth: list[dict], prediction: list[dict], index: int) -
     plain = viz.to_uint8_image(image)
     window = crop_window(problem_line(args, truth, prediction, index), plain.shape[0])
     base = _crop(plain, window)
-    if args.kind == "wrong_class":
+    if args.class_color:  # 네 행이 같은 규칙 — 종류 색 · 같은 굵기 · 표시 없음(교수 지시 10-07)
+        panels = [base, _draw_classes(base, window, truth), _draw_classes(base, window, prediction)]
+    elif args.kind == "wrong_class":
         under = _nearest(truth, np.asarray(prediction[index]["points"]))
         panels = [base, _draw(base, window, [under], 0, None, _class_color(under["class"]))]
         panels.append(
@@ -174,6 +181,16 @@ def _draw(
         points = _to_view(instances[mark]["points"], window)
         _polyline(canvas, points, EDGE, PROBLEM_PX + 4)
         _polyline(canvas, points, mark_color, PROBLEM_PX)
+    return canvas
+
+
+def _draw_classes(base, window, instances: list[dict]) -> np.ndarray:
+    """모든 선을 종류 색으로 — 논문 그림과 같이 배경·안전지대는 그리지 않는다."""
+    canvas = base.copy()
+    for item in instances:
+        if int(item["class"]) not in HIDDEN_CLASSES:
+            points = _to_view(item["points"], window)
+            _polyline(canvas, points, _class_color(item["class"]), LINE_PX)
     return canvas
 
 

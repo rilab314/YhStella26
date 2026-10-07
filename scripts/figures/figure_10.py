@@ -5,8 +5,8 @@
 네 유형은 사용자가 고르고(10-02) ④는 교수 미팅(09-30) 지시다.
 
 칸은 `scripts/sample_error_kind.py` 가 이미 그려 둔 것이다 — 원인 판정은 채점기와 같은 짝
-(`stella/eval/error_kinds.py`), 문제의 선은 흰 테두리를 두른 빨강(1행만), 정답 선은 초록 ·
-예측 선은 하늘색, 종류 혼동만 문제의 선을 종류 색으로 그린다. 여기서는 고른 칸을 쌓기만 한다.
+(`stella/eval/error_kinds.py`). 네 행 모두 모든 선을 Fig. 1 범례의 종류 색으로 같은 굵기로 그리고
+문제의 선을 따로 표시하지 않는다(`--class-color`, 교수 지시 10-07). 여기서는 고른 칸을 쌓기만 한다.
 
 사용:
     python scripts/figures/figure_10.py
@@ -21,11 +21,11 @@ from figure_base import FIGURE_ROOT, join_white
 
 E5_ROOT = Path(__file__).resolve().parents[2] / "experiment" / "data" / "e5"
 # (후보 폴더, 고른 번호) — 행 순서. 종류 혼동은 칸 위 글자가 없는 판(_plain)을 쓴다.
-ROWS = (  # 10-05 후처리를 원고대로 바꾼 뒤 같은 장면·같은 선을 새 예측으로 다시 그린 판(_new1005)
-    ("stella_drift_new1005", "02"),
-    ("stella_missed_nomark_new1005", "07"),  # 2·4행은 빨강 없이(사용자 지적 10-02)
-    ("stella_wrong_class_plain_new1005", "01"),
-    ("stella_spurious_long_nomark_new1005", "03"),
+ROWS = (  # 10-07 교수 지시: 네 행이 같은 형식 — 종류 색(Fig. 1 범례) · 같은 굵기 · 빨간 표시 없음
+    ("stella_drift_cls_1007", "02"),
+    ("stella_missed_cls_1007", "07"),
+    ("stella_wrong_class_cls_1007", "01"),
+    ("stella_spurious_long_cls_1007", "03"),
 )
 NAME = "figure_10"
 
