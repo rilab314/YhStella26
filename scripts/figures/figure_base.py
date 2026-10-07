@@ -196,14 +196,19 @@ class SampleFigure:
             return [_stem_of(folder, int(token)) for token in _tokens(entries)]
         return [line.strip() for line in entries]
 
-    def write_paper_grid(self, rows: list[list[np.ndarray]], expected: int) -> None:
-        """논문에 싣는 한 장 — 칸 안에 글자가 없다(09-23 미팅). 열·행 설명은 캡션이 한다."""
+    def write_paper_grid(self, rows: list[list[np.ndarray]], expected: int, side=None) -> None:
+        """논문에 싣는 한 장 — 칸 안에 글자가 없다(09-23 미팅). 열·행 설명은 캡션이 한다.
+
+        `side` 를 주면 격자 오른쪽에 붙인다(Fig. 1 의 종류 색 범례 — 교수 피드백 10-07).
+        """
         if len(rows) != expected:
             print(f"[{self.name}] 논문용 그림에는 {expected}줄이 필요하다 — 지금 {len(rows)}줄")
             return
         path = FIGURE_ROOT / self.name / f"{self.name}.png"
         path.parent.mkdir(parents=True, exist_ok=True)  # 없으면 cv2.imwrite 가 조용히 실패한다
         grid = join_white([join_white(row, axis=1) for row in rows], axis=0)
+        if side is not None:
+            grid = join_white([grid, side], axis=1)
         cv2.imwrite(str(path), grid[:, :, ::-1])
         print(f"[{self.name}] 논문용 그림: {path}")
 
