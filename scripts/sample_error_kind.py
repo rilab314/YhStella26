@@ -38,6 +38,8 @@ CROP_MIN = 220  # 잘라 낼 창의 최소 한 변(px)
 CROP_MARGIN = 40
 VIEW = 600  # 잘라 낸 칸을 키운 한 변(px)
 GAP = 10
+FOCUS_GAP = 3.0  # 이보다 멀면 실패 자리로 본다(px) — 채점 버퍼 ρ 와 같다
+HALO_PX, DASH_ON, DASH_OFF = 15, 22, 12  # 키운 화면 기준 띠 굵기 · 점선 길이(px)
 HIDDEN_CLASSES = (0, CLASS_NAMES.index("safety_zone"))  # figure_base 와 같다 — 그리지 않는다
 
 
@@ -66,6 +68,9 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--class-color", action="store_true", help="모든 선을 종류 색으로(Fig. 1 범례) — 끝에 _cls"
+    )
+    parser.add_argument(
+        "--ring", action="store_true", help="실패 구간에 흰 점선 띠(네 행 같은 표시) — 끝에 _ring"
     )
     parser.add_argument("--split", default="val")
     parser.add_argument(
@@ -126,7 +131,7 @@ def mean_brightness(image: np.ndarray, points: np.ndarray) -> float:
 def render_all(args, dataset, chosen: list[tuple[str, int]]) -> None:
     position = {stem: index for index, stem in enumerate(dataset.stems)}
     suffix = ("_plain" if args.plain else "") + ("_nomark" if args.no_mark else "")
-    suffix += "_cls" if args.class_color else ""
+    suffix += ("_cls" if args.class_color else "") + ("_ring" if args.ring else "")
     out_dir = OUT_ROOT / f"{args.method}_{args.kind}{suffix}{args.out_suffix}"
     out_dir.mkdir(parents=True, exist_ok=True)
     for order, (tile, index) in enumerate(chosen, start=1):
@@ -144,7 +149,14 @@ def render(args, image, truth: list[dict], prediction: list[dict], index: int) -
     window = crop_window(problem_line(args, truth, prediction, index), plain.shape[0])
     base = _crop(plain, window)
     if args.class_color:  # 네 행이 같은 규칙 — 종류 색 · 같은 굵기 · 표시 없음(교수 지시 10-07)
-        panels = [base, _draw_classes(base, window, truth), _draw_classes(base, window, prediction)]
+        marked = base.copy()
+        if args.ring:  # 실패 구간을 네 행 모두 같은 모양으로 짚는다(사용자 결정 10-07)
+            _halo(marked, _to_view(failure_path(args, truth, prediction, index), window))
+        panels = [
+            base,
+            _draw_classes(marked, window, truth),
+            _draw_classes(marked, window, prediction),
+        ]
     elif args.kind == "wrong_class":
         under = _nearest(truth, np.asarray(prediction[index]["points"]))
         panels = [base, _draw(base, window, [under], 0, None, _class_color(under["class"]))]
@@ -192,6 +204,52 @@ def _draw_classes(base, window, instances: list[dict]) -> np.ndarray:
             points = _to_view(item["points"], window)
             _polyline(canvas, points, _class_color(item["class"]), LINE_PX)
     return canvas
+
+
+def failure_path(args, truth, prediction, index) -> np.ndarray:
+    """실패 구간 — 문제의 선에서 벗어난 점 · 놓친 점 · 종류가 바뀐 점만 남긴다(타일 좌표)."""
+    line = _dense(problem_line(args, truth, prediction, index))
+    if args.kind == "wrong_class":
+        bad = _nearest_points(line, truth)[1] != int(prediction[index]["class"])
+    else:
+        gap = _nearest_points(line, truth if args.side == "fp" else prediction)[0]
+        bad = gap > FOCUS_GAP
+    if args.kind == "drift":  # 벗어남은 선 전체가 판정 대상 — 넘는 점만 짚으면 안 보인다
+        return line
+    return line[bad] if bad.sum() > 1 else line
+
+
+def _dense(points) -> np.ndarray:
+    """폴리라인을 1 px 간격 점열로."""
+    points = np.asarray(points, np.float64)
+    steps = np.r_[0, np.cumsum(np.linalg.norm(np.diff(points, axis=0), axis=1))]
+    at = np.arange(0, steps[-1] + 1)
+    return np.stack([np.interp(at, steps, points[:, 0]), np.interp(at, steps, points[:, 1])], 1)
+
+
+def _nearest_points(line: np.ndarray, instances: list[dict]) -> tuple[np.ndarray, np.ndarray]:
+    """선의 각 점에서 가장 가까운 다른 선 점까지의 (거리, 그 선의 종류)."""
+    if not instances:
+        return np.full(len(line), np.inf), np.full(len(line), -1)
+    dense = [_dense(item["points"]) for item in instances]
+    others = np.concatenate(dense)
+    labels = np.concatenate([np.full(len(d), int(i["class"])) for d, i in zip(dense, instances)])
+    distance = np.linalg.norm(line[:, None] - others[None], axis=2)
+    nearest = distance.argmin(axis=1)
+    return distance[np.arange(len(line)), nearest], labels[nearest]
+
+
+def _halo(canvas: np.ndarray, points: np.ndarray) -> None:
+    """선 밑에 까는 흰 점선 띠 — 1 px 간격 점열을 일정 길이씩 끊어 그린다."""
+    period = DASH_ON + DASH_OFF
+    length = np.r_[0, np.cumsum(np.linalg.norm(np.diff(points, axis=0), axis=1))]
+    phase = (length % period) < DASH_ON
+    jump = np.r_[True, np.linalg.norm(np.diff(points, axis=0), axis=1) > 3 * VIEW / CROP_MIN]
+    run = np.cumsum(jump | np.r_[True, phase[1:] != phase[:-1]])
+    for label in np.unique(run[phase]):
+        piece = points[(run == label) & phase]
+        if len(piece) > 1:
+            _polyline(canvas, piece, EDGE, HALO_PX)
 
 
 def _to_view(points, window: tuple[int, int, int, int]) -> np.ndarray:

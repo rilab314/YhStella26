@@ -22,10 +22,10 @@ from figure_base import FIGURE_ROOT, join_white
 E5_ROOT = Path(__file__).resolve().parents[2] / "experiment" / "data" / "e5"
 # (후보 폴더, 고른 번호) — 행 순서. 종류 혼동은 칸 위 글자가 없는 판(_plain)을 쓴다.
 ROWS = (  # 10-07 교수 지시: 네 행이 같은 형식 — 종류 색(Fig. 1 범례) · 같은 굵기 · 빨간 표시 없음
-    ("stella_drift_cls_1007", "02"),
-    ("stella_missed_cls_1007", "07"),
-    ("stella_wrong_class_cls_1007", "01"),
-    ("stella_spurious_long_cls_1007", "03"),
+    ("stella_drift_cls_ring_1007", "02"),
+    ("stella_missed_cls_ring_1007", "07"),
+    ("stella_wrong_class_cls_ring_1007", "01"),
+    ("stella_spurious_long_cls_ring_1007", "03"),
 )
 NAME = "figure_10"
 
