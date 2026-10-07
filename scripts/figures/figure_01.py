@@ -23,7 +23,7 @@
 import argparse
 
 import numpy as np
-from figure_base import INTERSECTION, OTHER, SampleFigure, add_arguments, draw
+from figure_base import HIDDEN_CLASSES, INTERSECTION, OTHER, SampleFigure, add_arguments, draw
 from PIL import Image, ImageDraw, ImageFont
 
 from stella.config_io import load_config
@@ -32,7 +32,7 @@ from stella.data.types import CLASS_COLOR, CLASS_NAMES
 GT_RANGE = {INTERSECTION: (10, 80), OTHER: (10, 25)}  # 묶음별 정답 인스턴스 수
 MIN_CLASSES = 4
 GRID_COLUMNS = 2
-# 범례 — 그림에 실제로 그려지는 종류 전부(배경 0 만 뺀다). 긴 이름은 예시처럼 두 줄로 접는다.
+# 범례 — 그림에 그리는 10 종류(배경 · 안전지대 제외, `HIDDEN_CLASSES`). 긴 이름은 두 줄로 접는다.
 LEGEND_FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 LEGEND_FONT_PX = 34
 LEGEND_WIDTH = 560
@@ -76,7 +76,7 @@ def class_legend(height: int) -> np.ndarray:
     font = ImageFont.truetype(LEGEND_FONT, LEGEND_FONT_PX)
     width, bar = LEGEND_SWATCH
     y = 10
-    for label in range(1, len(CLASS_NAMES)):
+    for label in (n for n in range(len(CLASS_NAMES)) if n not in HIDDEN_CLASSES):
         lines = _wrap(CLASS_NAMES[label])
         pen.rectangle([10, y + 12, 10 + width, y + 12 + bar], fill=tuple(CLASS_COLOR[label]))
         for number, text in enumerate(lines):

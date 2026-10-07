@@ -60,6 +60,9 @@ LABEL_FONT = cv2.FONT_HERSHEY_SIMPLEX
 SELECTED = "selected.txt"
 INTERSECTION, OTHER, ANY = "intersection", "other", "any"  # 후보 묶음
 GUIDING = CLASS_NAMES.index("guiding_line")
+# 논문 그림에 그리지 않는 종류 — 채점에서 빼는 것과 같다(`eval.exclude_classes`). 안전지대는 면이라
+# 선 과제에 맞지 않아 평가에서 빼므로 그림·범례에서도 뺀다(사용자 결정 10-07 — 논문은 10종류).
+HIDDEN_CLASSES = (0, CLASS_NAMES.index("safety_zone"))
 # 교차로로 보는 정답 유도선 수 (사용자 요청 09-29 — 후보에 교차로가 드물었다).
 # val 1,218장 중 350장이 이 조건을 넘는다. 이런 타일은 정답 선이 많아(중앙값 56개)
 # 그림마다 두던 "정답 선 25개 이하" 상한이 교차로를 거의 다 걸러 내고 있었다.
@@ -244,7 +247,8 @@ def draw(image: np.ndarray, instances: list[dict]) -> np.ndarray:
 
     1 px 은 화면에서는 보이지만 2단 지면(3.5 in)으로 줄이면 사라진다(09-16 육안 확인).
     """
-    return viz.draw_instances(image, instances, thickness=LINE_WIDTH)
+    shown = [item for item in instances if int(item["class"]) not in HIDDEN_CLASSES]
+    return viz.draw_instances(image, shown, thickness=LINE_WIDTH)
 
 
 def join_row(panels: list[np.ndarray]) -> np.ndarray:
