@@ -11,8 +11,8 @@
 **무엇을 실을지는 사람이 고른다**(미팅 결정 09-15) — 후보 100장을 보고 `selected.txt` 에 적는다.
 
 고른 4장은 `selected/` 에 한 장씩 남기고, **논문에 싣는 2×2 한 장**을 `figure_01.png` 로 따로
-만든다. 논문 그림에는 글자를 넣지 않는다(09-23 미팅) — 다만 **오른쪽에 종류 색 범례**를 붙인다
-(교수 피드백 10-07 · 예시 `~/Downloads/fig_1_sample.png`). 다른 그림은 범례 없이 캡션에서
+만든다. 논문 그림에는 글자를 넣지 않는다(09-23 미팅) — 다만 **아래에 종류 색 범례**를 붙인다
+(교수 피드백 10-07, 오른쪽 → 아래 사용자 10-08). 다른 그림은 범례 없이 캡션에서
 "선 색은 Fig. 1 과 같다"고만 적는다.
 
 사용:
@@ -34,10 +34,13 @@ MIN_CLASSES = 4
 GRID_COLUMNS = 2
 # 범례 — 그림에 그리는 10 종류(배경 · 안전지대 제외, `HIDDEN_CLASSES`). 긴 이름은 두 줄로 접는다.
 LEGEND_FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
-LEGEND_FONT_PX = 34
-LEGEND_WIDTH = 560
-LEGEND_SWATCH = (70, 18)  # 색 막대 (가로, 세로) px
-LEGEND_WRAP = 18  # 이 글자 수를 넘는 이름은 '_' 뒤에서 접는다
+LEGEND_FONT_PX = 28
+LEGEND_COLUMNS = (
+    5  # 격자 아래 한 줄에 놓는 종류 수(사용자 10-08 — 오른쪽에 두면 사진을 키우기 어렵다)
+)
+LEGEND_GAP = 14
+LEGEND_SWATCH = (44, 16)  # 색 막대 (가로, 세로) px
+LEGEND_WRAP = 15  # 이 글자 수를 넘는 이름은 '_' 뒤에서 접는다
 
 
 class Showcase(SampleFigure):
@@ -65,34 +68,36 @@ class Showcase(SampleFigure):
             draw(self.images(stem)[0], self.lines("stella", stem)) for stem in self.read_selected()
         ]
         rows = [tiles[start : start + GRID_COLUMNS] for start in range(0, len(tiles), GRID_COLUMNS)]
-        height = sum(row[0].shape[0] for row in rows) + (len(rows) - 1) * 12
-        self.write_paper_grid(rows, expected=GRID_COLUMNS, side=class_legend(height))
+        width = sum(tile.shape[1] for tile in rows[0]) + (GRID_COLUMNS - 1) * 12
+        self.write_paper_grid(rows, expected=GRID_COLUMNS, below=class_legend(width))
 
 
-def class_legend(height: int) -> np.ndarray:
-    """흰 바탕에 종류마다 색 막대 + 이름을 위에서부터 세로로."""
-    canvas = Image.new("RGB", (LEGEND_WIDTH, height), (255, 255, 255))
-    pen = ImageDraw.Draw(canvas)
+def class_legend(width: int) -> np.ndarray:
+    """흰 바탕에 종류마다 색 막대 + 이름을 격자 아래 가로로 — 5칸 × 2줄(사용자 10-08)."""
     font = ImageFont.truetype(LEGEND_FONT, LEGEND_FONT_PX)
-    width, bar = LEGEND_SWATCH
-    y = 10
-    for label in (n for n in range(len(CLASS_NAMES)) if n not in HIDDEN_CLASSES):
-        lines = _wrap(CLASS_NAMES[label])
-        pen.rectangle([10, y + 12, 10 + width, y + 12 + bar], fill=tuple(CLASS_COLOR[label]))
-        for number, text in enumerate(lines):
-            pen.text(
-                (width + 30, y + number * (LEGEND_FONT_PX + 4)), text, fill=(0, 0, 0), font=font
-            )
-        y += len(lines) * (LEGEND_FONT_PX + 4) + 16
+    labels = [n for n in range(len(CLASS_NAMES)) if n not in HIDDEN_CLASSES]
+    rows = -(-len(labels) // LEGEND_COLUMNS)
+    cell = width // LEGEND_COLUMNS
+    line = LEGEND_FONT_PX + 4
+    row_height = 2 * line + LEGEND_GAP
+    canvas = Image.new("RGB", (width, rows * row_height + LEGEND_GAP), (255, 255, 255))
+    pen = ImageDraw.Draw(canvas)
+    swatch, bar = LEGEND_SWATCH
+    for order, label in enumerate(labels):
+        x = (order % LEGEND_COLUMNS) * cell + 10
+        y = (order // LEGEND_COLUMNS) * row_height + LEGEND_GAP
+        pen.rectangle([x, y + 12, x + swatch, y + 12 + bar], fill=tuple(CLASS_COLOR[label]))
+        for number, text in enumerate(_wrap(CLASS_NAMES[label])):
+            pen.text((x + swatch + 12, y + number * line), text, fill=(0, 0, 0), font=font)
     return np.asarray(canvas)
 
 
 def _wrap(name: str) -> list[str]:
-    """'path_change_restriction_line' -> ['path_change_', '  restriction_line'] (예시대로)."""
+    """'path_change_restriction_line' -> ['path_change_', 'restriction_line']."""
     if len(name) <= LEGEND_WRAP:
         return [name]
     cut = name.rfind("_", 0, LEGEND_WRAP) + 1
-    return [name[:cut], "  " + name[cut:]]
+    return [name[:cut], name[cut:]]
 
 
 def main() -> None:
