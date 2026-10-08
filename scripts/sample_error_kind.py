@@ -34,6 +34,7 @@ TRUTH = (60, 230, 90)  # 정답 칸의 나머지 선 — 밝은 초록
 PRED = (0, 220, 255)  # 예측 칸의 나머지 선 — 밝은 하늘색
 EDGE = (255, 255, 255)
 LINE_PX, PROBLEM_PX = 3, 5  # 키운 화면 기준 굵기(px)
+ENDPOINT_PX = 2 * LINE_PX  # 끝점 원 반지름 — Fig. 1 · 8 의 굵기 대 반지름 비(2 : 4)와 같다
 CROP_MIN = 220  # 잘라 낼 창의 최소 한 변(px)
 CROP_MARGIN = 40
 VIEW = 600  # 잘라 낸 칸을 키운 한 변(px)
@@ -212,10 +213,17 @@ def _draw(
 def _draw_classes(base, window, instances: list[dict]) -> np.ndarray:
     """모든 선을 종류 색으로 — 논문 그림과 같이 배경·안전지대는 그리지 않는다."""
     canvas = base.copy()
-    for item in instances:
-        if int(item["class"]) not in HIDDEN_CLASSES:
-            points = _to_view(item["points"], window)
-            _polyline(canvas, points, _class_color(item["class"]), LINE_PX)
+    shown = [item for item in instances if int(item["class"]) not in HIDDEN_CLASSES]
+    for item in shown:
+        _polyline(canvas, _to_view(item["points"], window), _class_color(item["class"]), LINE_PX)
+    for item in shown:  # 끝점은 선을 다 그린 뒤에 — Fig. 1 · 8 과 같은 흰 테두리 원(사용자 10-08)
+        points = _to_view(item["points"], window)
+        for end in (points[0], points[-1]):
+            center = tuple(int(v) for v in np.round(end * 4))
+            cv2.circle(
+                canvas, center, ENDPOINT_PX * 4, _class_color(item["class"]), -1, cv2.LINE_AA, 2
+            )
+            cv2.circle(canvas, center, ENDPOINT_PX * 4, EDGE, 2, cv2.LINE_AA, 2)
     return canvas
 
 
