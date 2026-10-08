@@ -27,7 +27,7 @@ E5_ROOT = Path(__file__).resolve().parents[2] / "experiment" / "data" / "e5"
 ROWS = (
     ("stella_spurious_long_cls_seg_full_short1008", "01"),  # 교차로의 짧은 선 (분할 우세)
     ("stella_spurious_long_cls_seg_full_shadow1008", "01"),  # 건물 그늘 속 도로 (분할 우세)
-    ("stella_wrong_class_cls_seg_1008", "01"),  # 종류 혼동
+    ("stella_wrong_class_cls_seg_row3_1008", "03"),  # 종류 혼동 — STELLA 만 틀림(10-08)
     ("stella_spurious_long_cls_seg_1008", "03"),  # 정답 라벨 누락
 )
 NAME = "figure_10"
