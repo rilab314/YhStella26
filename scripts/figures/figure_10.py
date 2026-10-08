@@ -1,13 +1,15 @@
-"""Fig. 10 — 실패 유형 (VI-F, 2단, 3행 × 3열).
+"""논문 Fig. 9 — 실패 사례와 한계 (VI-F · VII-A, 2단, 4행 × 4열). 파일 이름은 옛 번호(10)를 따른다.
 
-열: 원본 | 정답 | STELLA — 실패 지점만 잘라 키운 칸이다. 실패가 작아 타일 전체로는 보이지 않는다.
-행: ① 그늘에서 끊김 ② 종류 혼동 ③ 정답이 틀린 사례(라벨 누락).
-옆으로 벗어남은 본문 근거가 없어 뺐다(사용자 10-08).
-유형은 사용자가 고르고(10-02) ③은 교수 미팅(09-30) 지시다.
+열: 원본 | 정답 | 분할 | STELLA — 장면마다 실패 자리를 잘라 키웠다.
+행: ① 교차로의 짧은 선 ② 건물 그늘 속 도로 (①·② 분할 우세, 옛 Fig. 11 에서)
+    ③ 종류 혼동 ④ 정답 라벨 누락 (옛 Fig. 10 에서 — ④는 교수 미팅 09-30 지시).
+옛 Fig. 10 · 11 은 그늘 장면이 겹쳐 하나로 합쳤다(사용자 10-08).
+선에서 벗어남 행은 본문 근거가 없어 뺐다.
 
-칸은 `scripts/sample_error_kind.py` 가 이미 그려 둔 것이다 — 원인 판정은 채점기와 같은 짝
-(`stella/eval/error_kinds.py`). 모든 행에서 모든 선을 Fig. 1 범례의 종류 색으로 같은 굵기로 그리고
-문제의 선을 따로 표시하지 않는다(`--class-color`, 교수 지시 10-07). 여기서는 고른 칸을 쌓기만 한다.
+칸은 `scripts/sample_error_kind.py --class-color --with-seg` 가 그려 둔 것이다
+(①·② 는 `--full --window`).
+모든 선을 Fig. 1 범례의 종류 색으로 같은 굵기로 그리고 따로 표시하지 않는다(교수 지시 10-07).
+여기서는 고른 칸을 쌓기만 한다.
 
 사용:
     python scripts/figures/figure_10.py
@@ -21,11 +23,12 @@ import numpy as np
 from figure_base import FIGURE_ROOT, join_white
 
 E5_ROOT = Path(__file__).resolve().parents[2] / "experiment" / "data" / "e5"
-# (후보 폴더, 고른 번호) — 행 순서. 종류 혼동은 칸 위 글자가 없는 판(_plain)을 쓴다.
-ROWS = (  # 10-07 교수 지시: 네 행이 같은 형식 — 종류 색(Fig. 1 범례) · 같은 굵기 · 빨간 표시 없음
-    ("stella_missed_cls_1007", "07"),
-    ("stella_wrong_class_cls_1007", "01"),
-    ("stella_spurious_long_cls_1007", "03"),
+# (후보 폴더, 고른 번호) — 행 순서. 10-08: 옛 Fig. 10 · 11 을 하나로 — 같은 색 · 같은 굵기.
+ROWS = (
+    ("stella_spurious_long_cls_seg_full_short1008", "01"),  # 교차로의 짧은 선 (분할 우세)
+    ("stella_spurious_long_cls_seg_full_shadow1008", "01"),  # 건물 그늘 속 도로 (분할 우세)
+    ("stella_wrong_class_cls_seg_1008", "01"),  # 종류 혼동
+    ("stella_spurious_long_cls_seg_1008", "03"),  # 정답 라벨 누락
 )
 NAME = "figure_10"
 

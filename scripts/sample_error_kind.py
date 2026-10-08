@@ -38,6 +38,7 @@ CROP_MIN = 220  # 잘라 낼 창의 최소 한 변(px)
 CROP_MARGIN = 40
 VIEW = 600  # 잘라 낸 칸을 키운 한 변(px)
 GAP = 10
+SEG_METHOD = "seg_dp"  # 분할 방식 예측 폴더
 HIDDEN_CLASSES = (0, CLASS_NAMES.index("safety_zone"))  # figure_base 와 같다 — 그리지 않는다
 
 
@@ -45,9 +46,12 @@ def main() -> None:
     args = parse_args()
     cfg = load_config(args.config, [])
     dataset = build_instance(cfg.data, cfg, base=GridDatasetBase, split=args.split)
-    found = collect(cfg, args)
-    chosen = choose(found, args, dataset)
-    print(f"[{args.method}] {args.side}/{args.kind} {len(found)}개 중 {len(chosen)}개를 그린다")
+    if args.full:  # 원인 판정 없이 고른 타일 전체를 그린다 — 짧은 선 · 그늘 장면
+        chosen = [(tile, -1) for tile in args.tiles]
+    else:
+        found = collect(cfg, args)
+        chosen = choose(found, args, dataset)
+        print(f"[{args.method}] {args.side}/{args.kind} {len(found)}개 중 {len(chosen)}개를 그린다")
     render_all(args, dataset, chosen)
 
 
@@ -66,6 +70,15 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--class-color", action="store_true", help="모든 선을 종류 색으로(Fig. 1 범례) — 끝에 _cls"
+    )
+    parser.add_argument(
+        "--with-seg",
+        action="store_true",
+        help="정답과 예측 사이에 분할 칸 — 끝에 _seg",
+    )
+    parser.add_argument("--full", action="store_true", help="--tiles 타일 전체(확대 없음)")
+    parser.add_argument(
+        "--window", nargs=3, type=int, default=None, help="--full 일 때 잘라 볼 창: x0 y0 한 변(px)"
     )
     parser.add_argument("--split", default="val")
     parser.add_argument(
@@ -89,8 +102,8 @@ def collect(cfg, args) -> list[tuple[str, int]]:
     return found
 
 
-def read_prediction(args, tile: str) -> list[dict]:
-    path = PAPER_ROOT / "pred" / args.method / args.split / f"{tile}.npz"
+def read_prediction(args, tile: str, method: str = "") -> list[dict]:
+    path = PAPER_ROOT / "pred" / (method or args.method) / args.split / f"{tile}.npz"
     return load_instances(path) if path.exists() else []
 
 
@@ -126,25 +139,36 @@ def mean_brightness(image: np.ndarray, points: np.ndarray) -> float:
 def render_all(args, dataset, chosen: list[tuple[str, int]]) -> None:
     position = {stem: index for index, stem in enumerate(dataset.stems)}
     suffix = ("_plain" if args.plain else "") + ("_nomark" if args.no_mark else "")
-    suffix += "_cls" if args.class_color else ""
+    suffix += ("_cls" if args.class_color else "") + ("_seg" if args.with_seg else "")
+    suffix += "_full" if args.full else ""
     out_dir = OUT_ROOT / f"{args.method}_{args.kind}{suffix}{args.out_suffix}"
     out_dir.mkdir(parents=True, exist_ok=True)
     for order, (tile, index) in enumerate(chosen, start=1):
         item = dataset[position[tile]]
-        sheet = render(
-            args, item["image"].numpy(), item["instances"], read_prediction(args, tile), index
-        )
+        lines = [item["instances"], read_prediction(args, tile)]
+        if args.with_seg:
+            lines.insert(1, read_prediction(args, tile, SEG_METHOD))
+        sheet = render(args, item["image"].numpy(), lines, index)
         cv2.imwrite(str(out_dir / f"{order:02d}_{tile}_{index}.jpg"), sheet[:, :, ::-1])
     print(f"[{args.method}] 저장 {out_dir}")
 
 
-def render(args, image, truth: list[dict], prediction: list[dict], index: int) -> np.ndarray:
-    """잘라 키운 뒤에 선을 그린다 — 먼저 그리면 흐리고 가늘다(사용자 지적 10-02)."""
+def render(args, image, lines: list[list[dict]], index: int) -> np.ndarray:
+    """잘라 키운 뒤에 선을 그린다 — 먼저 그리면 흐리고 가늘다(사용자 지적 10-02).
+
+    `lines` = [정답, (분할,) 예측]. 칸은 원본 뒤에 그 순서로 붙는다.
+    """
+    truth, prediction = lines[0], lines[-1]
     plain = viz.to_uint8_image(image)
-    window = crop_window(problem_line(args, truth, prediction, index), plain.shape[0])
+    size = plain.shape[0]
+    full = (0, 0, size, size)
+    if args.window:
+        x0, y0, side = args.window
+        full = (x0, y0, x0 + side, y0 + side)
+    window = full if args.full else crop_window(problem_line(args, truth, prediction, index), size)
     base = _crop(plain, window)
-    if args.class_color:  # 네 행이 같은 규칙 — 종류 색 · 같은 굵기 · 표시 없음(교수 지시 10-07)
-        panels = [base, _draw_classes(base, window, truth), _draw_classes(base, window, prediction)]
+    if args.class_color:  # 모든 행이 같은 규칙 — 종류 색 · 같은 굵기 · 표시 없음(교수 지시 10-07)
+        panels = [base, *(_draw_classes(base, window, items) for items in lines)]
     elif args.kind == "wrong_class":
         under = _nearest(truth, np.asarray(prediction[index]["points"]))
         panels = [base, _draw(base, window, [under], 0, None, _class_color(under["class"]))]
@@ -166,7 +190,8 @@ def render(args, image, truth: list[dict], prediction: list[dict], index: int) -
             _draw(base, window, prediction, mark_pred, PRED),
         ]
     gap = np.full((VIEW, GAP, 3), 255, np.uint8)
-    return np.concatenate([panels[0], gap, panels[1], gap, panels[2]], axis=1)
+    joined = [part for panel in panels for part in (panel, gap)][:-1]
+    return np.concatenate(joined, axis=1)
 
 
 def _draw(
