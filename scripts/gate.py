@@ -33,7 +33,8 @@ CONFIG_DIR = REPO_ROOT / "configs"
 PYTHON_BIN = str(REPO_ROOT / ".venv/bin/python")
 CACHE_DIRNAME = "pred_cache"
 RATCHET_MARGIN = 0.10  # 실측이 하한을 이만큼 웃돌면 하한을 끌어올린다
-LOAD_LIMIT = 16.0  # 32코어의 절반. 학습 중에 게이트를 돌리면 부하가 31까지 뛴다(실측)
+# 64코어의 절반. 학습 중에 게이트를 돌리면 부하가 크게 뛴다(32코어 기계에서 31까지 실측).
+LOAD_LIMIT = 32.0
 STATUS_MARK = {True: "PASS", False: "FAIL", None: "SKIP"}
 
 

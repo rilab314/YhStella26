@@ -6,8 +6,8 @@ description = "STELLA — satellite lane detection with token-based connectivity
 # 해석을 담고 있어서, 이 파일만으로는 복원 환경이 갈린다.
 requires-python = ">=3.11"
 dependencies = [
-    "torch>=2.5",
-    "torchvision>=0.20",
+    "torch>=2.7",
+    "torchvision>=0.22",
     "pytorch-lightning>=2.4",
     "torchmetrics>=1.4",
     "transformers>=4.55",
@@ -38,15 +38,15 @@ packages = ["stella", "configs"]
 package = true
 
 [[tool.uv.index]]
-name = "pytorch-cu124"
-url = "https://download.pytorch.org/whl/cu124"
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
 explicit = true
 
 # torchvision 은 코드가 직접 import 하지 않지만 timm 이 요구한다. 여기에 적어 두지 않으면
-# PyPI 의 CPU 빌드가 딸려 와 torch(cu124) 와 어긋난다 — 그래서 명시적으로 같은 인덱스에 묶는다.
+# PyPI 의 CPU 빌드가 딸려 와 torch(cu128) 와 어긋난다 — 그래서 명시적으로 같은 인덱스에 묶는다.
 [tool.uv.sources]
-torch = { index = "pytorch-cu124" }
-torchvision = { index = "pytorch-cu124" }
+torch = { index = "pytorch-cu128" }
+torchvision = { index = "pytorch-cu128" }
 
 [tool.ruff]
 line-length = 100

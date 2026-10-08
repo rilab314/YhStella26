@@ -122,7 +122,7 @@ stella/                         # 저장소 루트 (패키지명 "stella", edita
 │   ├── build_split_dataset.py  # 평평한 SEED-MAP 원본 → {train,val,test} 폴더 사본 (6.7.2절)
 │   ├── figures/                # ★ 논문 그림 — 그림 하나 = 스크립트 하나 (15절)
 │   │   ├── figure_base.py      #   SampleFigure(선별형, 상한 100장) · PlotFigure(집계형)
-│   │   └── figure_01.py ~ figure_14.py
+│   │   └── figure_01.py ~ figure_11.py
 │   ├── tables/                 # ★ 논문 표 — 표 하나 = 스크립트 하나 (15절)
 │   │   ├── table_base.py       #   PaperTable — csv + markdown
 │   │   └── table_01.py ~ table_09.py   (논문 Table I~IX)

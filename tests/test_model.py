@@ -40,6 +40,21 @@ def test_fpnlite_outputs_grid_resolution():
     assert neck(levels).shape == (1, 256, GRID, GRID)
 
 
+def test_fpnlite_upsamples_for_a_finer_grid():
+    """격자가 백본 stride 보다 촘촘하면(`grid_stride=2`) 넥이 그만큼 더 올려야 한다.
+
+    이것이 없으면 GT 는 384x384 인데 모델은 192x192 를 내서 손실 계산에서 죽는다
+    (09-06 실측 — 2-3 실험이 여기서 멈췄다). `upsample_steps=0` 은 기존 동작 그대로다.
+    """
+    channels = (96, 192, 384, 768)
+    levels = [torch.randn(1, c, GRID // (2**k), GRID // (2**k)) for k, c in enumerate(channels)]
+    finer = FPNLite(in_channels=channels, d_model=256, upsample_steps=1)
+    assert finer(levels).shape == (1, 256, GRID * 2, GRID * 2)
+    same = FPNLite(in_channels=channels, d_model=256, upsample_steps=0)
+    assert same(levels).shape == (1, 256, GRID, GRID)
+    assert not list(same.upsample.parameters())  # 0이면 층을 얹지 않는다
+
+
 def test_heads_survive_module_apply():
     """`.to()`·`.float()`은 `nn.Module._apply`를 재귀 호출한다 — 헤드가 그 이름을 가리면
     모델을 장치로 옮기는 순간 죽는다. 조립 테스트로는 안 잡혀서 여기서 직접 시험한다."""

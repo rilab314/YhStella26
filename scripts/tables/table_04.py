@@ -1,73 +1,110 @@
-"""Table IV — 데이터셋과 클래스 (VI-A, 2단). **미구현 — 설계만 적어 둔다.**
+"""Table IV — 천장 분해: 남은 격차는 어느 출력에서 오는가 (VI-B, 1단).
 
-## 무엇이 들어가나
+모델 출력의 **한 묶음만 정답으로 바꿔 끼우고** 나머지는 모델 예측 그대로 둔 채 채점한다.
+전부 바꿔 끼우면 표현의 천장이고, 하나도 안 바꾸면 모델 자신의 점수다. 각 묶음이 F1 을
+**얼마나 올리는지**(전부 예측 대비 절대 증가량)가 이 표의 논지다.
 
-클래스 11종 × 다섯 열.
+**퍼센트로 쓰지 않는다 (교수 지시 09-30)** — "격차의 28%" 처럼 쓰면 행마다 쌓아 올린 누적값으로
+읽힌다. 각 행은 서로 독립인 실험이라 전부 예측(0.4489)에서 오른 양을 그대로 적는다.
 
-    category_id | 클래스 이름 | 전체 인스턴스 수 | train 셀 수 비중 | 평균 길이(칸 / m)
+## 이 표가 말하는 것 (09-17 · val 전량 1,218장 실측)
 
-표 아래 각주로:
+**단일 병목이 없다.** 하나씩 따로 주면 다 합쳐도 격차의 44% 인데 전부 주면 100% 다 — 선 하나를
+복원하려면 위치·종류·방향·끝 판정이 **동시에** 맞아야 한다. 가장 큰 것은 종류(28%)다 — 매칭이
+종류별이라 종류를 틀리면 잘 그린 선도 통째로 오답이 된다. 다음이 정점 위치(9%)다.
 
-    GSD 0.2550 m/px · 타일 768 px = 195.8 m
-    split  train 8,979 / val 1,218 / test 2,457 (SEED-MAP **v1.2**)
-    제외 규칙  geometry_type = POLYGON (노면 기호라 선이 아니다)
-               category_id 599 · 5011 · None (전체 차선의 0.2%)
-
-## 왜 필요한가
-
-클래스별 성능(Table VIII 하단)을 해석하려면 **빈도와 길이 분포가 먼저 있어야 한다.**
-"희소 클래스라 못 찾는다"와 "짧아서 못 찾는다"는 **다른 진단**이고, 이 표가 그것을 가른다.
-그리고 이 논문의 VIII-1(짧은 선 문제)은 이 표의 "평균 길이" 열 없이는 근거가 없다.
-
-## ★ v1.2 로 바뀌었다 — 다시 재야 한다
-
-이 표는 **데이터셋 통계**라서, v1.1 → v1.2 로 바꾼 것이 직접 영향을 준다.
-
-    train  8,979장 그대로 (v1.2 는 train 타일을 하나도 지우지 않았다)
-    val    1,282 → **1,218** (−64)
-    test   2,567 → **2,457** (−110)
-
-빠진 이유: 그 검증·시험 타일이 학습 타일과 화면이 겹쳐 있었다. 타일은 196 m 정사각형인데
-80~100 m 간격으로 놓여 있어 이웃끼리 절반 넘게 겹친다 — split 경계에서 픽셀이 새고 있었다.
-
-**"전체 인스턴스 수" 열은 세 split 합계이므로 값이 바뀐다.** train 만 쓰는 열
-("train 셀 수 비중", "평균 길이")은 사실상 그대로다.
+(09-10 에 400장으로 잰 값은 정점 위치 2.0% · 전부 예측 0.4002 였다. 논문에는 전량 값을 쓴다.)
 
 ## 값의 출처
 
-    scripts/stat_labels.py 가 이미 이 통계를 낸다. 그것을 함수로 불러 쓰고,
-    표 형식만 이 스크립트가 만든다. **같은 숫자를 두 곳에서 계산하지 않는다.**
+    python scripts/ceiling_breakdown.py --run <F06d> --count 0 --rows <행> --save
+    → paper/score/ceiling_{split}/{행}.json
 
-    클래스 이름·category_id 매핑은 stella/data/types.py 의 `CATEGORY_ID_TO_LABEL`·
-    `CLASS_NAMES` 가 단일 출처다. 스크립트가 이름을 따로 적지 않는다.
+**행마다 한 파일**이다(전량 한 행에 30분쯤이라 나눠 돌린다). 모든 행이 같은 체크포인트·같은
+디코더 설정에서 나온다.
 
-## 각주의 GSD 값에 주의
+## 두 끝값이 다른 표와 맞는지 — 맞는다
 
-설계 문서 어딘가에 **0.1278 m/px** 로 적힌 곳이 남아 있다(README 등).
-**0.2550 이 맞는 값**이고, 이 표의 미터 환산·타일 크기·좌표 변환 정확도가 전부 거기 걸려 있다.
-표를 만들 때 각주의 값과 Table III 의 값이 같은지 스크립트가 검사한다.
+"전부 예측" 0.4489 는 Table III 의 STELLA 값과 같고, "전부 정답" 0.9402 는 Table V 의 천장(0.9404)과
+넷째 자리에서만 다르다(Table V 는 정답을 캐시에서 바로 디코딩하고, 이 표는 모델 출력 틀에 정답을
+얹어 디코딩한다). 표를 낼 때 이 두 값을 눈으로 대조한다.
 
-## 출력
-
-    table_04/table_04.csv · table_04.md
-
-## 상태
-
-**착수 전.** 실험이 필요 없다 — v1.2 데이터셋으로 지금 바로 만들 수 있다.
+사용:
+    python scripts/tables/table_04.py --split val
 """
 
-# from table_base import PaperTable
-#
-#
-# class DatasetClassTable(PaperTable):
-#     """클래스별 빈도·길이 분포. scripts/stat_labels.py 의 통계를 표로 만든다."""
-#
-#     name = "table_04"
-#     COLUMNS = ("category_id", "클래스", "인스턴스 수", "train 셀 비중", "평균 길이(칸)",
-#                "평균 길이(m)")
-#     GSD_M_PER_PX = 0.2550
-#     GRID_STRIDE_PX = 4
-#     SPLITS = ("train", "val", "test")
-#
-#     def collect(self):
-#         raise NotImplementedError("설계는 위 docstring 참고")
+import argparse
+import json
+
+from table_base import BLANK, SCORE_ROOT, PaperTable, change, number, read_summary
+
+# (저장 이름, 논문 행 이름). 순서가 표의 행 순서다.
+ROWS = (
+    ("none", "학습 모델 (전부 예측)"),
+    ("node", "+ 정점 위치만 정답"),
+    ("class", "+ 종류만 정답"),
+    ("coord", "+ 칸 안 위치만 정답"),
+    ("conn", "+ 연결 방향만 정답"),
+    ("end", "+ 끝 판정만 정답"),
+    ("all", "전부 정답 (표현의 천장)"),
+)
+COLUMNS = ("조건", "inst F1", "frag", "F1 증가량")
+FLOOR, CEILING = "none", "all"
+
+
+class CeilingBreakdown(PaperTable):
+    name = "table_04"
+    columns = COLUMNS
+
+    def __init__(self, split: str):
+        self.split = split
+
+    def collect(self) -> list[dict]:
+        scores = {key: self._read(key) for key, _ in ROWS}
+        return [self._row(label, scores[key], scores) for key, label in ROWS]
+
+    def _read(self, key: str) -> dict:
+        """행 하나의 점수. "전부 정답" 행만 Table V 의 천장(`gt` 방법)을 읽는다.
+
+        부분 주입 경로로 잰 값은 0.9402 라 Table V 의 0.9404 와 넷째 자리가 달랐다 — 같은 천장이
+        두 값으로 보여 헷갈렸으므로(사용자 지적 10-05) 한 출처로 맞춘다.
+        """
+        if key == CEILING:
+            return read_summary("gt", self.split).get("summary", {})
+        path = SCORE_ROOT / f"ceiling_{self.split}" / f"{key}.json"
+        if not path.exists():
+            print(f"[table_04] 행 없음: {path}")
+            return {}
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    def _row(self, label: str, score: dict, scores: dict) -> dict:
+        return {
+            "조건": label,
+            "inst F1": number(score.get("f1")),
+            "frag": number(score.get("frag")),
+            "F1 증가량": gain(score, scores[FLOOR]),
+        }
+
+
+def gain(score: dict, floor: dict) -> str:
+    """이 행 − 전부 예측 (F1 절대값). 기준 행은 "기준", 둘 중 하나라도 없으면 빈칸."""
+    if not (score and floor):
+        return BLANK
+    if score is floor:
+        return "기준"
+    return change(score["f1"], floor["f1"])
+
+
+def main() -> None:
+    args = parse_args()
+    CeilingBreakdown(args.split).run()
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--split", default="val", help="결과 표는 7단계 이후 test 로 낸다")
+    return parser.parse_args()
+
+
+if __name__ == "__main__":
+    main()

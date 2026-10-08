@@ -1,63 +1,119 @@
-"""Table II — 기호와 출력 계약 (III절, 1단). **미구현 — 설계만 적어 둔다.**
+"""Table II — 모델 출력 명세 (III-A, 1단).
 
-## 무엇이 들어가나
+**모델이 내놓는 값만** 싣는다. 열은 넷 — 슬롯 종류 · 필드 · 역할 · 범위
+(`docs/paper_outline.md` §4 Table II). GT 필드는 싣지 않는다 — 출력과 데이터 인코딩을 한 표에
+섞으면 III-A 가 헷갈린다는 지적을 받았다.
 
-모델 출력과 GT 를 **나란히** 놓아 짝을 보인다. 열 다섯 개.
+## 값의 출처 — 뜻은 상수, 이름과 개수는 코드
 
-    필드 | dtype·shape | 범위 | 원점 | 감독 방식
+역할·범위는 코드에서 나오지 않으므로 이 파일의 상수로 둔다. 대신 **코드와 어긋날 수 있는 것은
+코드에서 읽는다.**
 
-    모델 출력                     GT
-    heatmap_logit    ←→   (히트맵 타깃)
-    class_logit      ←→   class_map
-    self_coord       ←→   coord_map
-    end_logit        ←→   end_map
-    exist_logit      ←→   (conn_dirs 의 유효 슬롯 수)
-    conn_dir         ←→   conn_dirs
+    필드 이름    `stella.model.stella.ModelOutput` 에 그 필드가 실제로 있는지 확인한다
+    R (연결 슬롯 수)   config `model.num_conn_slots`
+    C (종류 수)       config `data.num_classes` (배경 포함)
 
-## 왜 필요한가
+필드가 코드에서 사라지거나 이름이 바뀌면 **표를 내지 않고 멈춘다** — 표가 조용히 틀린
+명세를 싣는 것보다 낫다.
 
-"GT 와 출력이 같은 모양"이라는 이 논문 주장의 **정밀한 형태**이고, 재현에 필요한 최소 명세다.
-그림(Fig. 4)이 그것을 보여 주고, 이 표가 그것을 못 박는다.
+## 좌표 규약은 각주로 단다
 
-## 값의 출처 — 코드에서 뽑는다
+셀 인덱스만 (행, 열), 그 밖의 2차원 벡터는 (x, y). `coord` 의 원점은 칸 좌상단, `dir` 의 원점은
+그 칸의 self 점이다. **원점이 필드마다 다르다는 점이 재현할 때 가장 자주 틀리는 곳이다.**
 
-shape·dtype 을 손으로 적으면 config 를 바꿨을 때 표가 조용히 틀린 값을 갖게 된다.
-
-    모델 출력  stella/model/stella.py 의 `ModelOutput` — 실제 텐서를 한 번 만들어 shape 을 읽는다
-    GT        stella/data/types.py 의 출력 계약 + stella/data/encode.py 의 인코더 출력
-    범위·원점  코드에서 자동으로 나오지 않는다 — 이 스크립트 안의 상수 표에 둔다
-              (예: `self_coord` 는 [0, 1), 원점은 셀 좌상단)
-    감독 방식  어느 손실이 그 필드를 보는가. stella/loss/criterion.py 의 조립을 보고 적는다
-
-**shape 은 실측, 나머지는 상수.** 어느 것이 어느 쪽인지 CSV 에 열을 두어 표시한다 —
-나중에 이 표를 고칠 사람이 "이 값은 코드에서 나오나 손으로 쓰나"를 알아야 한다.
-
-## 좌표 규약을 각주로 단다
-
-    셀 인덱스만 (i, j) = (행, 열). 그 외 모든 2차원 벡터는 (x, y) 순서.
-    셀 내 좌표의 원점 = 셀 좌상단, 연결 방향의 원점 = 셀 중심(자기 노드 점).
-    인코더는 픽셀의 면적 중심(+0.5)을 쓰고, 디코더는 출력 직전에 −0.5 해서 라벨 좌표계로 돌린다.
-
-이 각주가 없으면 재현하는 사람이 반드시 반 픽셀 어긋난다.
-
-## 출력
-
-    table_02/table_02.csv · table_02.md
-
-## 상태
-
-**착수 전.** 실험이 필요 없다 — config 하나만 있으면 지금 만들 수 있다.
+사용:
+    python scripts/tables/table_02.py
 """
 
-# from table_base import PaperTable
-#
-#
-# class OutputContractTable(PaperTable):
-#     """모델 출력과 GT 를 짝지어 놓은 명세표. shape 은 코드에서, 의미는 상수에서."""
-#
-#     name = "table_02"
-#     COLUMNS = ("필드", "dtype·shape", "범위", "원점", "감독 방식")
-#     # PAIRS = [("heatmap_logit", None), ("class_logit", "class_map"), ...]
-#
-#     def collect(self):
-#         raise NotImplementedError("설계는 위 docstring 참고")
+from dataclasses import fields
+
+from table_base import PaperTable
+
+from stella.config_io import load_config
+from stella.model.stella import ModelOutput
+
+COLUMNS = ("슬롯 종류", "필드", "역할", "범위", "코드 필드")
+# (슬롯 종류, 논문 필드 이름, 역할, 범위, ModelOutput 필드).
+# 슬롯 종류·역할의 {R}·{C} 는 config 값으로 채운다.
+SPEC = (
+    (
+        "히트맵 (격자 전 칸)",
+        "heatmap",
+        "이 칸에 선이 지나는가 — 노드 후보를 고르는 데 쓴다",
+        "확률 [0,1]",
+        "heatmap_logit",
+    ),
+    (
+        "self 슬롯 (칸당 1개)",
+        "class",
+        "어느 종류의 선인가 — 배경을 포함해 C={C}종",
+        "C차원 확률분포",
+        "class_logit",
+    ),
+    (
+        "self 슬롯 (칸당 1개)",
+        "coord",
+        "칸 안 어디를 지나는가 — 원점은 칸 좌상단",
+        "[0,1)²",
+        "self_coord",
+    ),
+    (
+        "self 슬롯 (칸당 1개)",
+        "end",
+        "이 칸이 사슬의 끝인가 — 디코더의 정지·연장 판단에 쓴다",
+        "확률 [0,1]",
+        "end_logit",
+    ),
+    (
+        "연결 슬롯 (칸당 R={R}개, 순서 없음)",
+        "exist",
+        "이 방향으로 선이 실제로 이어지는가",
+        "확률 [0,1]",
+        "exist_logit",
+    ),
+    (
+        "연결 슬롯 (칸당 R={R}개, 순서 없음)",
+        "dir",
+        "어느 방향으로 이어지는가 — 원점은 그 칸의 self 점",
+        "단위벡터, ‖d‖=1",
+        "conn_dir",
+    ),
+)
+
+
+class OutputSpec(PaperTable):
+    name = "table_02"
+    columns = COLUMNS
+
+    def __init__(self, config: str):
+        self.cfg = load_config(config, [])
+
+    def collect(self) -> list[dict]:
+        check_fields()
+        sizes = {"R": self.cfg.model.num_conn_slots, "C": self.cfg.data.num_classes}
+        return [
+            {
+                "슬롯 종류": slot.format(**sizes),
+                "필드": field,
+                "역할": role.format(**sizes),
+                "범위": value_range,
+                "코드 필드": code,
+            }
+            for slot, field, role, value_range, code in SPEC
+        ]
+
+
+def check_fields() -> None:
+    """표에 적은 필드가 모델 출력에 실제로 있어야 한다."""
+    present = {item.name for item in fields(ModelOutput)}
+    missing = [code for *_, code in SPEC if code not in present]
+    if missing:
+        raise SystemExit(f"[table_02] ModelOutput 에 없는 필드: {missing} — 표를 먼저 고친다")
+
+
+def main() -> None:
+    OutputSpec("configs.base").run()
+
+
+if __name__ == "__main__":
+    main()

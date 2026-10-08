@@ -122,7 +122,7 @@ class ChainDecoder:
         self.stats = ChainStats()
 
     def __call__(self, output) -> list[dict]:
-        vertices = self.extractor(output)
+        vertices = self._vertices(output)
         if vertices["point"].shape[0] == 0:
             self.stats.add_vertices(0, 0)
             return []
@@ -133,6 +133,10 @@ class ChainDecoder:
         resolved, counts = self.resolver(merged)  # 중복 정리 — 지우거나 이미 겹친 선끼리 잇는다
         self.stats.counter.update(counts)
         return resolved
+
+    def _vertices(self, output) -> dict:
+        """모델 출력 -> 정점 속성. 파생 판이 여기서 속성을 덧붙인다 (`graph_delta`)."""
+        return self.extractor(output)
 
     # --- ② 사슬 확장 (10.3절) ----------------------------------------------------
 
@@ -232,10 +236,7 @@ class ChainDecoder:
         self, vertices, used, slot_used, vertex, k, label, previous
     ) -> tuple | None:
         """반경 안 미사용 정점 중 게이트(정렬·마주봄·클래스·꺾임각)를 통과한 비용 최소."""
-        nearby = vertices["neighbors"][vertex]
-        nearby = nearby[nearby >= 0]
-        nearby = nearby[~used[nearby]]
-        nearby = nearby[vertices["class_prob"][nearby, label] >= self.min_class_prob]
+        nearby = self._nearby_vertices(vertices, used, vertex, label)
         if nearby.size == 0:
             return None
         heading = vertices["dir"][vertex, k]
@@ -244,12 +245,14 @@ class ChainDecoder:
         direction = delta / np.maximum(distance, 1e-9)[:, None]
         opposite, back = self._facing_slots(vertices, slot_used, nearby, heading)
         cost = self._candidate_cost(direction @ heading, distance, opposite)
-        if previous is not None:  # 직전 진행 방향에서 너무 꺾이는 후보를 버린다
-            cost = np.where(direction @ previous >= self.turn_cos, cost, np.inf)
-        best = int(cost.argmin())
-        if not np.isfinite(cost[best]):
-            return None
-        return int(nearby[best]), int(back[best])
+        return self._pick_candidate(cost, direction, previous, nearby, back)
+
+    def _nearby_vertices(self, vertices, used, vertex, label) -> np.ndarray:
+        """반경 안에서 아직 안 쓰였고 같은 종류일 만한 정점만 남긴다."""
+        nearby = vertices["neighbors"][vertex]
+        nearby = nearby[nearby >= 0]
+        nearby = nearby[~used[nearby]]
+        return nearby[vertices["class_prob"][nearby, label] >= self.min_class_prob]
 
     def _candidate_cost(self, align, distance, opposite) -> np.ndarray:
         """게이트를 통과하지 못한 후보는 inf.
@@ -274,6 +277,15 @@ class ChainDecoder:
         dots = np.where(usable, dots, np.inf)  # 쓸 슬롯이 없으면 inf -> 마주봄 게이트에서 탈락
         back = dots.argmin(axis=1)
         return dots[np.arange(nearby.size), back], back
+
+    def _pick_candidate(self, cost, direction, previous, nearby, back) -> tuple | None:
+        """꺾임각 게이트를 얹고 비용 최소를 고른다. 전부 탈락이면 None."""
+        if previous is not None:  # 직전 진행 방향에서 너무 꺾이는 후보를 버린다
+            cost = np.where(direction @ previous >= self.turn_cos, cost, np.inf)
+        best = int(cost.argmin())
+        if not np.isfinite(cost[best]):
+            return None
+        return int(nearby[best]), int(back[best])
 
     def _extensions(self, vertices, slot_used, chain) -> tuple[list, list]:
         """끝 셀에서 남은 활성 슬롯(끝방향) 쪽으로 연장점을 하나 추가한다 (결정 31).

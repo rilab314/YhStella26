@@ -1,66 +1,98 @@
-"""Fig. 11 — 대표 정성 결과 (VII-F, 2단, 4~6장면 × 3열). **미구현 — 설계만 적어 둔다.**
+"""Fig. 11 — 두 체제: 어디서 지고 어디서 이기나 (VII-B, 2단, 3행 × 4열).
 
-## 무엇을 그리나
+열: 원본 | GT | Segmentation | STELLA.
+행: ① 짧은 선이 붐비는 구간(seg 우세) ② 그늘·가림 구간(seg 우세) ③ 교차·중첩 구간(STELLA 우세).
 
-한 행 = 한 장면. 열 셋: **원본 | 원본+GT | 예측**.
+**우리가 지는 장면을 먼저 놓는다** — 리뷰어가 가장 먼저 물을 "그래서 seg 보다 무조건 낫다는
+거냐"에 그림이 먼저 답한다.
 
-## 왜 필요한가
+    python scripts/figures/figure_11.py --candidates --side seg    # 분할이 이긴 장면(1·2행용)
+    python scripts/figures/figure_11.py --candidates --side ours   # 우리가 이긴 장면(3행용)
 
-Fig. 9(baseline 비교)는 "우리가 이긴 장면"을 고른다. 그것만 실으면 "잘 된 것만 골랐다"는
-비판을 피할 수 없다. Fig. 11이 그 균형을 잡는다 — **잘 된 장면과 안 된 장면을 같은 수만큼**
-싣는다.
+**후보 순위**: (분할 F1 − STELLA F1) 또는 그 반대. 두 방법 다 정답이 충분한 타일만 본다.
+**`--side ours` 는 교차로 묶음과 그 밖의 묶음을 따로 뽑는다**(`figure_base` 의 두 묶음) — 3행이
+교차·중첩 구간이다. 분할이 이긴 쪽(1·2행: 짧은 선 · 그늘)은 교차로와 무관해 한 묶음으로 둔다.
 
-## 선별 — 사분면에서 고르게 뽑는다
-
-F1(맞았는가)과 커버리지(GT 를 얼마나 덮었는가) 두 축으로 장면을 네 무리로 가른다.
-문턱은 **test 전체의 중앙값**으로 잡는다 (임의의 숫자를 쓰지 않는다).
-
-    높은 F1 · 높은 커버리지    잘 된 경우
-    높은 F1 · 낮은 커버리지    적게 찾았지만 찾은 것은 정확 (보수적 실패)
-    낮은 F1 · 높은 커버리지    많이 덮었지만 정체성이 틀림 (갈아탐·조각남)
-    낮은 F1 · 낮은 커버리지    못 찾은 경우
-
-**네 무리에서 각각 25장씩**, 합쳐 100장을 낸다. 사람이 무리마다 1~2장씩 골라 4~6행을 만든다.
-
-공통 조건: GT 인스턴스 8~25개 (읽을 수 있는 밀도).
-
-## 매칭 렌더링 규칙 — 반드시 클래스를 보고 매칭한다
-
-예측과 GT 를 이을 때 **같은 클래스끼리만** 매칭한다. 직전 논문 심사에서 **R3-3c 가 정확히
-이것을 지적**했다 — 클래스를 무시하고 매칭하면 "맞았다"가 부풀려진다.
-평가 코드(`stella/eval/ccq.py`)와 **같은 규칙**을 쓴다.
-
-## 정렬·상한·파일명
-
-    정렬   무리 안에서 사분면 중심으로부터의 거리 오름차순
-           (그 무리의 **전형**을 위에 둔다. 극단값을 위에 두면 대표 그림이 아니게 된다)
-    상한   무리당 25장 · 합계 100장
-    이름   {순위:03d}_{무리}_{타일id}_f1-{F1×1000:03d}_cov-{커버리지×1000:03d}.png
-           무리 = hh | hl | lh | ll
-
-## 입력
-
-    예측 캐시  .../pred_cache/{실행}/test/{stem}.npz
-    split      **test**
-
-## 상태
-
-**착수 전.** baseline 이 필요 없다 — 우리 예측 캐시만 있으면 만들 수 있다.
-다만 최종 채택 설정으로 뜬 캐시여야 하므로 실험이 마무리된 뒤에 뜬다.
+**아직 자동으로 가르지 못하는 것**: "짧은 선이 붐비는 구간"과 "그늘·가림 구간"을 나누려면
+타일별 선 길이 분포와 가림 여부가 필요한데 지금 점수표에 없다. 그래서 `--side seg` 후보 안에서
+1행·2행에 쓸 장면을 **사람이 눈으로 고른다**(미팅 결정 09-15와 같은 방향이다).
 """
 
-# from figure_base import SampleFigure
-#
-#
-# class QuadrantQualitativeFigure(SampleFigure):
-#     """F1×커버리지 사분면에서 무리마다 전형적인 장면을 고른다."""
-#
-#     name = "figure_11"
-#     split = "test"
-#     GT_MIN, GT_MAX = 8, 25
-#     PER_QUADRANT = 25            # 무리당 장수 — 4무리 × 25 = 상한 100
-#     QUADRANTS = ("hh", "hl", "lh", "ll")
-#     # 문턱은 상수가 아니라 test 전체의 중앙값으로 정한다 (collect 단계에서 계산)
-#
-#     def build_figure(self, stem, sample, pred):
-#         raise NotImplementedError("설계는 위 docstring 참고")
+import argparse
+
+from figure_base import ANY, SampleFigure, add_arguments, draw
+
+from stella.config_io import load_config
+from stella.train import viz
+
+MIN_GT = 8
+SIDES = ("seg", "ours")
+# 논문용 한 장 — 분할이 이긴 장면(seg 폴더 순서대로) 위에, 우리가 이긴 장면을 아래에 쌓는다.
+# 1행은 정지선 장면이라 seg 후보 밖에서 골랐다(사용자 결정 10-02) — selected.txt 에 타일 id.
+PAPER_ROWS = 3
+
+
+class TwoRegimes(SampleFigure):
+    name = "figure_11"
+    split = "val"
+    columns = (
+        ("원본", ""),
+        ("GT", ""),  # 정답 선은 저장된 예측이 아니라 데이터셋에서 읽는다
+        ("Segmentation", "seg_dp"),
+        ("STELLA", "stella"),
+    )
+
+    def __init__(self, cfg, side: str):
+        super().__init__(cfg)
+        self.side = side
+        self.name = f"figure_11_{side}"
+        if side == "seg":
+            self.pools = (ANY,)
+
+    def score(self, stem: str, pool: str):
+        if self.scores.value("stella", stem, "n_gt") < MIN_GT:
+            return None
+        ours = self.scores.value("stella", stem, "f1")
+        seg = self.scores.value("seg_dp", stem, "f1")
+        margin = seg - ours if self.side == "seg" else ours - seg
+        if margin <= 0:
+            return None
+        if not self.in_pool(stem, pool):
+            return None
+        return margin
+
+    def write_paper(self) -> None:
+        """두 폴더에서 고른 장면을 한 줄씩 — 열은 원본 · 정답 · 분할 · STELLA, 칸 안에 글자 없음."""
+        self.name = "figure_11"
+        stems = [stem for side in SIDES for stem in self.read_selected(f"figure_11_{side}")]
+        self.write_paper_grid([self._paper_row(stem) for stem in stems], expected=PAPER_ROWS)
+
+    def _paper_row(self, stem: str) -> list:
+        image, truth = self.images(stem)
+        drawn = [
+            draw(image, self.lines(method, stem) if method else truth)
+            for _, method in self.columns[1:]
+        ]
+        return [viz.to_uint8_image(image), *drawn]
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    add_arguments(parser)
+    parser.add_argument("--side", default="seg", choices=SIDES, help="어느 쪽이 이긴 장면인가")
+    parser.add_argument(
+        "--paper", action="store_true", help="두 폴더의 고른 장면을 논문용 한 장으로"
+    )
+    args = parser.parse_args()
+    figure = TwoRegimes(load_config(args.config, []), args.side)
+    if args.paper:
+        figure.write_paper()
+        return
+    if args.candidates:
+        figure.write_candidates()
+        return
+    figure.write_selected()
+
+
+if __name__ == "__main__":
+    main()

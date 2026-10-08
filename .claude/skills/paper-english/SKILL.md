@@ -13,9 +13,10 @@ description: 논문 영어 본문을 새로 쓰거나 고칠 때 지켜야 할 �
 
 - **영문 원고 본문은 `docs/manuscript/` 아래에만 쓴다.** 이 폴더는 `.gitignore` 대상이라 저장소에
   올라가지 않는다 — 원고는 파일로 남기되 버전 관리는 사용자가 따로 한다.
-- **한글 설계안은 `docs/paper_outline.md`가 단일 출처다.** 절 구성·기여·그림/표 번호·초록 골격이
-  거기 있다. 영문 본문은 그 설계안을 옮겨 쓰는 것이지 새로 정하는 것이 아니다.
-  설계안과 다르게 쓸 이유가 생기면 먼저 설계안을 고친다.
+- **한글 원고는 `docs/html/build_paper_ko_2col.py` 가 단일 출처다**(10-06 · 교수 미팅을 거친 판).
+  절 구성·문장·표·그림 번호가 거기 있고, 원고 이력은 `docs/html/` 의 전용 git 에 항목 ID 로 남는다.
+  영문 본문은 그 한글 원고를 옮겨 쓰는 것이지 새로 정하는 것이 아니다. 다르게 쓸 이유가 생기면
+  먼저 한글 원고를 고친다. `docs/paper_outline.md` 는 옛 설계안이라 참고만 한다.
 - 구현 근거는 `docs/1_structure.md` ~ `docs/6_paper_assets.md`, 변경 내역은 `docs/history.md`.
 
 ## 0.1. 작업 순서
@@ -78,6 +79,20 @@ description: 논문 영어 본문을 새로 쓰거나 고칠 때 지켜야 할 �
   - 나쁜 예: `Unfortunately, we could not reproduce the baseline because the code is unavailable, which is beyond our control.`
   - 좋은 예: `The post-processing code of that method is not public, so we could not reproduce it on SEED-MAP.`
 
+### 1.3. 강조 문장·문장형 제목을 쓰지 않는다 (교수 지적 09-30)
+
+- **한글로는 이해되게 쓰는데 영어로 옮기면 더 수사적이고 돌려 쓴다**는 지적을 받았다. 영어판이
+  한글판보다 꾸며져 있으면 한글판에 맞춰 평이하게 고친다.
+- 문단 중간에 **포인트를 주려는 강조 문장**을 넣지 않는다. 사실을 이어서 쓴다.
+  - 나쁜 예: `The last column carries the argument of this table.` · `This is the key point.` ·
+    `The answer is clear.` · `Here lies the difference.`
+  - 좋은 예: 그 열이 무엇을 보여 주는지를 바로 쓴다 — `The last column gives the ceiling under
+    ground-truth injection. Ridge suppression does not lower it.`
+- **절·소절 제목은 명사구**로 쓴다. 질문형·문장형 제목 금지.
+  - 나쁜 예: `What Does Post-Processing Do?` · `Where We Lose and Where We Win`
+  - 좋은 예: `Effect of Post-Processing` · `Comparison with Segmentation`
+- 스스로 읽어 보고 한 번에 이해되지 않으면 다시 쓴다.
+
 ## 2. 문장 구조
 
 ### 2.1. 한 문장에 한 가지 생각
@@ -87,6 +102,11 @@ description: 논문 영어 본문을 새로 쓰거나 고칠 때 지켜야 할 �
   - `... in one scene; the other rows show failures.` → `... in one scene. The other rows show failures.`
 - 콜론(`:`)은 목록이나 패널 라벨(`Left:`, `green:`)에만 쓴다. 문장을 잇는 데 쓰지 않는다.
 - 쉼표로 절을 계속 매달지 않는다. 관계절·분사구문이 두 개 이상 붙으면 문장을 쪼갠다.
+- **관계대명사(`which`·`that`·`who`·`where`)로 잇는 절은 꼭 필요할 때만 쓴다** (교수 지적 09-30 ·
+  사용자 10-06). 대부분 두 문장으로 나누거나 형용사·전치사구로 줄인다. 한 문단에 관계절이 여러
+  개 보이면 그 문단을 다시 쓴다.
+  - 나쁜 예: `The decoder, which has no learned parameters, links slots that face each other.`
+  - 좋은 예: `The decoder has no learned parameters. It links slots that face each other.`
 
 실제 사례:
 
@@ -272,6 +292,21 @@ description: 논문 영어 본문을 새로 쓰거나 고칠 때 지켜야 할 �
 
 ## 9. 용어·표기 일관성
 
+- **분야에서 통용되는 표준 전문 용어를 그대로 쓴다** (사용자 10-06). 쉬운 말로 풀어 쓰거나 우리만의
+  말로 바꾸지 않는다 — 심사자는 표준 용어로 읽는다.
+  - 예: `backbone` · `feature pyramid network (FPN)` · `self-attention` · `window attention` ·
+    `rotary position embedding (RoPE)` · `Hungarian matching`(또는 `bipartite matching`) ·
+    `focal loss` · `cross-entropy` · `smooth L1 loss` · `non-maximum suppression (NMS)` ·
+    `ablation study` · `precision` / `recall` / `F1 score` · `ground truth (GT)` · `inference` ·
+    `polyline` · `instance` · `semantic segmentation` · `skeletonization` · `Douglas–Peucker` ·
+    `Chamfer distance` · `mixed precision` · `gradient accumulation` · `gradient checkpointing`.
+  - 한글 원고의 풀어 쓴 말은 영어에서 표준 용어로 돌린다: "능선만 남기기" → `ridge-based
+    non-maximum suppression`, "짝짓기" → `Hungarian matching`, "정답 주입 상한" → `GT-injection
+    upper bound` 처럼.
+  - **우리가 새로 만든 개념**(연결 슬롯 `connection slot`, 노드 슬롯 `node slot`, 사슬 확장
+    `chain growing`, 되가리킴 슬롯 등)은 처음 나올 때 한 문장으로 정의하고 그 이름을 끝까지 고정한다.
+    용어 대응표는 `docs/manuscript/glossary_en.md` 에 두고 원고 전체가 따른다.
+
 - **한 개념에는 한 단어만** 쓴다. 동의어로 바꿔 쓰지 않는다.
   - 예: `satellite tile`과 `satellite image`를 섞지 않는다. 입력 처리 단위를 뜻할 때만 `tile`.
   - 예: `segmentation backbones`와 `segmentation models`를 섞지 않는다.
@@ -338,3 +373,6 @@ description: 논문 영어 본문을 새로 쓰거나 고칠 때 지켜야 할 �
     못박혀 있는가?
 24. 같은 현상을 지표 두 개로 중복 보고하거나 비교 기준 없는 비율을 쓰지 않았는가? 인과를 부정문으로
     돌려 말하거나, 우리 방법 설명을 근거보다 먼저 쓰지 않았는가?
+25. 관계대명사(`which`·`that`·`who`·`where`) 절이 한 문단에 여러 개인가? 두 문장으로 나눌 수 있는가?
+26. 포인트를 주려는 강조 문장(`This is the key point.` 류)이나 질문형 제목이 남아 있는가?
+27. 표준 전문 용어 대신 풀어 쓴 말이나 자체 용어를 쓴 곳이 있는가? `glossary_en.md` 와 같은가?

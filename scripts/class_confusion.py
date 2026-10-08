@@ -46,10 +46,7 @@ def main() -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    default_cache = (
-        "/media/humpback/435806fd-079f-4ba1-ad80-109c8f6e2ec0/Ongoing/2026_stella"
-        "/pred_cache/reff_ep11_val200"
-    )
+    default_cache = "/data/ongoing/2026_stella/pred_cache/reff_ep11_val200"
     parser.add_argument("--cache", default=default_cache)
     parser.add_argument("--config", default="configs.base")
     parser.add_argument("--split", default="val")

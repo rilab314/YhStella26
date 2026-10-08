@@ -28,10 +28,7 @@ class DataConfig(ModuleConfig):
     # 80~100 m 간격이라 이웃끼리 절반 넘게 겹쳐 split 경계에서 픽셀이 새고 있었다.
     # 라벨은 형식·내용이 같다(v1.2가 지운 "타일 밖 선"은 로더가 이미 잘라 버리던 것이다).
     # **과거 실행의 성적을 다시 재지 않는다** (사용자 판단) — 규격이 갈리는 것에 주의한다.
-    root: str = (
-        "/media/humpback/435806fd-079f-4ba1-ad80-109c8f6e2ec0/Ongoing/2026_stella"
-        "/SEED_MAP_v1.2_splits"
-    )
+    root: str = "/data/ongoing/2026_stella/SEED_MAP_v1.2_splits"
     image_size: int = 768  # SEED-MAP 원본 크기와 동일 — 리사이즈 없음
     grid_stride: int = 4  # 격자 배율 s. L = image_size // grid_stride = 192
     num_classes: int = 12  # 0 = background + 차선 11종 (6.7.1절)
@@ -53,11 +50,12 @@ class DataConfig(ModuleConfig):
     # **목표 자체의 잡음이 하한을 만들고 있을 수 있다** (E23에서 검증).
     # **바꾸면 GT 캐시가 낡는다** — `seedmap`이 캐시 폴더 이름에 이 값을 붙여 분리한다.
     conn_lookahead: int = 1
+    # 분기 길이(`conn_lengths`)를 GT에 함께 싣는가 — Sat2Graph 식 (dx,dy) 회귀 대조군만 쓴다.
+    # **켜면 GT 캐시 폴더가 갈린다**(`_len` 접미사) — 기본 캐시를 건드리지 않기 위해서다.
+    conn_store_length: bool = False
     cache_gt: str = "val_test"  # "none" | "val_test" | "all" (6.4.1절)
     # 데이터셋 폴더를 건드리지 않도록 캐시는 그 옆에 둔다. 빈 문자열이면 {root}/gt_cache.
-    cache_dir: str = (
-        "/media/humpback/435806fd-079f-4ba1-ad80-109c8f6e2ec0/Ongoing/2026_stella/gt_cache"
-    )
+    cache_dir: str = "/data/ongoing/2026_stella/gt_cache"
     augment: bool = True  # 학습 split에만 적용 (6.7.6절)
     # 격자 대칭 외의 기하 증강 (가설 백로그). 0이면 끈다 — 기본은 기존 동작.
     aug_rotate_deg: float = 0.0  # +-이 각도까지 임의 회전. 타일 밖은 검게 채운다
@@ -112,6 +110,15 @@ class ModelConfig(ModuleConfig):
     grad_checkpoint: bool = True  # 윈도우 층만 재계산 (활성의 대부분이 거기 있다, 7.6절)
     head_hidden: int = 1  # 헤드 MLP의 은닉층 수. 1 = 계획서 원안(2층) (가설 백로그 C5)
     share_slot_weights: bool = True  # 연결 슬롯 R개가 MLP를 공유하는가 (가설 백로그 C5)
+    # 어텐션을 지나는 토큰 구조 (Table VI · 논지 C2).
+    # "per_slot" = 노드당 토큰 K개(자기 + 슬롯 R개) — 역할 표시를 어텐션 입구에서 더한다 (현행).
+    # "single"   = 노드당 토큰 1개로 어텐션을 통과시키고, 역할 표시는 헤드 입구에서 더한다.
+    #              슬롯끼리 서로 보는 단계가 할 일을 잃는다. 파라미터 수는 같고 계산량은 약 1/K.
+    token_mode: str = "per_slot"
+    # 연결 슬롯이 무엇을 내놓는가 (Table III · 논지 C1-(2)).
+    # "unit"  = 단위 방향만. 거리는 디코딩 때 실제 정점으로 복원한다 (현행).
+    # "delta" = 이웃 정점까지의 변위 (dx, dy) 를 그대로 회귀한다 — Sat2Graph GTE 식.
+    conn_target: str = "unit"
     node_sampling: str = "gt+pred"  # "gt+pred"(기본) | "gt" (7.4절)
     # 전체 train 8979장 실측: 평균 2121, p90 3681, p99 5893, 최대 8909 (6.7.5절).
     n_max: int = 9500
@@ -326,7 +333,10 @@ class DecodeConfig(ModuleConfig):
     # **08-19: 0 -> 24.** 반경 12 시절에는 조각들이 서로 **겹쳐** 있어 "끝점이 가깝고 마주봄"
     # 조건에 거의 걸리지 않았다(영상당 0.33건, f1 +-0.3%). 반경 5 에서는 조각이 끝과 끝으로
     # 맞닿아 실제로 터진다 — f1 0.3579 -> 0.3603, 종류별 평균 0.2808 -> 0.2828.
-    merge_gap: float = 24.0  # >0이면 끝점 간 이 거리(픽셀) 안의 조각을 병합 (A2)
+    # **10-05: 24 -> 0 (끈다).** 원고가 설명하는 후처리에는 이 단계가 없다(사용자 발견 · 결정).
+    # 끄면 우리 F1 0.4489 -> 0.4468(−0.0021)뿐이고, 같은 단계를 쓰던 Sat2Graph 는 −0.0223,
+    # 정답 주입 천장은 0.9404 -> 0.9480 으로 **오른다** — 떨어진 정답 선끼리도 잘못 잇고 있었다.
+    merge_gap: float = 0.0  # >0이면 끝점 간 이 거리(픽셀) 안의 조각을 병합 (A2)
     merge_align: float = 0.8  # 병합 정렬 하한 — 두 조각이 서로를 향하는 정도
     # "cosine" = 각도 게이트(기본) | "perp" = 예측 방향 직선에서의 수직 이탈 게이트 (A6)
     # **cosine 게이트는 거리에 무력하다** — 같은 "한 차선 옆"이라도 앞 12셀이면 45도라 막히고
@@ -365,14 +375,15 @@ class DecodeConfig(ModuleConfig):
     # 자유 구간이 원래 길이의 이 비율 이상이면 **중복이 아니라고 보고 원본을 그대로 둔다**.
     # 1.0 에 가까울수록 보수적(거의 포함된 선만 지운다). 0 이면 항상 잘라 낸다 —
     # 자르는 판은 f1 +5.5% 지만 recall −3.9% · 천장 0.946 -> 0.908 이라 **진짜 선을 지운다**.
-    # **`dedup_mode="ends"` 에서는 쓰이지 않는다** — 조각남을 규칙이 막으므로 게이트가 필요 없다.
-    # ablation(`dedup_mode=ratio`)에서만 산다.
+    # `dedup_mode="ends"` 에서는 쓰이지 않는다.
     dedup_keep_ratio: float = 0.35
     # 자르는 방식. "ratio" = 자유 구간을 조각으로 남기고 위 비율 게이트로 조각남을 막는다.
     # "ends" = 겹친 **머리·꼬리만** 자르고 가운데는 건드리지 않는다 — 선 하나가 조각으로
     # 갈라질 수 없으므로(1 -> 1 또는 0) 비율 게이트 없이도 재현율·천장이 안 깎인다.
     # 비율 게이트는 LaneStitch 원본에 없던 전역 규칙이고, "ends" 는 같은 안전성을 국소로 낸다.
-    dedup_mode: str = "ends"
+    # **10-05: ends -> ratio.** 원고 IV-B 가 설명하는 것은 ratio(겹침을 지우고 남은 자유 구간을
+    # 확정된 선의 끝에 잇는다)다. 원고에 맞춘다(사용자 결정) — 위 merge_gap 과 함께 바꿨다.
+    dedup_mode: str = "ratio"
 
 
 @dataclass(kw_only=True)
@@ -396,9 +407,10 @@ class MetricConfig(ModuleConfig):
     # 성능에서 빼는 종류. **기본값이 빈 튜플이 아닌 이유**: `_cast_tuple` 이 원소 타입을
     # 현재 값에서 읽으므로 `()` 로 두면 덮어쓴 값이 문자열로 남아 손잡이가 조용히 꺼진다.
     # 0 = background 는 인스턴스가 없어 어차피 세지 않으므로 무동작이다.
-    # 8 = guiding_line 은 **선이 아니라 영역**이라 원래 선으로 찾을 대상이 아니다(사용자 08-26).
-    # 논문 성능을 그렇게 낼 때 `--set eval.exclude_classes=(0,8)` 로 켠다.
-    exclude_classes: tuple = (0,)
+    # 10 = safety_zone 은 **선이 아니라 면으로 칠해진 영역**이라 선으로 찾을 대상이 아니다
+    #      (f1 0.056). 08-31 부터 기본으로 뺀다 — 논문 성능은 10종으로 낸다.
+    # 8 = guiding_line 은 얽혀 있어도 **남긴다** (사용자 결정 08-27).
+    exclude_classes: tuple = (0, 10)
 
 
 @dataclass(kw_only=True)
@@ -441,9 +453,7 @@ class TrainConfig(ModuleConfig):
     ckpt_top_k: int = 3
     # 최소 1노드 보장(7.4절) 덕에 미사용 파라미터가 없다 — 끄면 매 스텝 그래프 순회가 사라진다.
     find_unused_parameters: bool = False
-    output_root: str = (
-        "/media/humpback/435806fd-079f-4ba1-ad80-109c8f6e2ec0/Ongoing/2026_stella/log"
-    )
+    output_root: str = "/data/ongoing/2026_stella/log"
 
 
 @dataclass(kw_only=True)
@@ -460,8 +470,9 @@ class CpuConfig(ModuleConfig):
     torch_threads: int = 2  # 프로세스당 intra-op 스레드. 0이면 torch 기본(= 전체 코어)
     interop_threads: int = 1
     cores: str = ""  # "0-14" 처럼 주면 그 코어에만 붙는다. 비면 reserved_cores로 계산
-    # 사람 몫으로 남길 코어 수. 32코어 중 17을 남겨 **이 프로젝트는 0~14 (15코어) 만 쓴다**
-    # (사용자 지시 08-14). 같은 기계에서 사용자 본인 추론 작업이 함께 도는 것을 실측했다.
+    # 사람 몫으로 남길 코어 수. 남기는 **개수 17을 유지**한다 (사용자 지시 08-14 · 08-31 재확인)
+    # — 64코어 기계에서는 **이 프로젝트가 0~46 (47코어) 를 쓴다**.
+    # 같은 기계에서 사용자 본인 추론 작업이 함께 도는 것을 실측했다.
     reserved_cores: int = 17
 
 

@@ -1,73 +1,126 @@
-"""Table VI — 천장 분해 (VII-B, 1단). **미구현 — 설계만 적어 둔다.**
+"""Table VI — 표현·구조 ablation (VI-D, 2단) ★ 가장 중요한 표.
 
-## 무엇이 들어가나
+첫 행이 **채택한 최적 조합**이고, 아래 각 행은 그 조합에서 **왼쪽 열의 인자 하나만** 바꾼
+실행이다. 여섯 실행 모두 **F 규격(전체 데이터 · 40에폭) · 같은 백본·넥·디코더 설정**이다.
+직전 논문 심사에서 "누적식 ablation 으로는 독립 효과를 못 본다"(R1-2)는 지적을 받아 한 번에
+하나만 바꾼다.
 
-정답을 조금씩 넣어 주면서 성능이 어디까지 오르는지 잰다.
-"정답 주입"(코드 이름 `inject.py`)은 **모델 출력 자리에 GT 를 그대로 꽂는 것**이다 —
-그 조건에서 나오는 점수가 파이프라인의 천장이다.
+## 행 — 무엇을 뺐고 무엇을 넣었나
 
-| 조건 | 인스턴스 F1 | 조각 수 |
-| --- | --- | --- |
-| 옛 인코딩(클래스 그래프) + 정답 주입 | 0.63~0.69 | 1.7× |
-| **사슬 인코딩 + 정답 주입 (표현의 천장)** | (재측정) | |
-| 학습 모델 + 히트맵만 정답 | | |
-| 학습 모델 + 클래스만 정답 | | |
-| 학습 모델 + 연결 방향만 정답 | | |
-| 학습 모델 (전부 예측) | | |
+- **`(dx,dy)` 회귀 행은 뺐다** (사용자 결정 09-17). 방향 대신 좌표를 회귀하게 하면 디코더까지
+  고쳐야 해 "타깃의 효과"와 "디코더의 효과"를 가를 수 없다.
+- **각도 순서 고정 행을 넣었다** (`paper_review_0915.md` 2.1). 사진에서 계산되는 합리적 고정
+  기준이라 슬롯 수까지 같은 **가장 깨끗한 비교**다. 라벨 순서(−61%)는 기준을 잘못 고른 경우,
+  각도 섹터는 슬롯 수(2 → 6)도 함께 바뀐 경우라 이 행이 없으면 "합리적으로 고정하면 된다"는
+  반박에 답이 없다.
 
-## 왜 필요한가 — 이 표가 이 논문을 다른 논문과 구별짓는다
+## 열 — 오른쪽 세 열이 인스턴스 점수 변화에 기전을 붙인다
 
-① **"표현이 표현력을 잃지 않는가"에 직접 답한다.** 사슬로 바꾼 대가가 있는지 없는지가
-   2행에서 끝난다. 옛 인코딩 0.63~0.69 대비 사슬 인코딩 0.94 라면 표현이 이긴 것이다.
+    link_ok        한 칸에서 다음 칸으로 제대로 이어질 확률
+    dir_err (°)    예측 연결 방향이 정답에서 벗어난 각도
+    배정 모호도      두 연결 슬롯을 정답에 짝짓는 최적·차선 순열의 비용 차가 0.05 미만인 칸의 비율
+                   — 학습이 끝난 에폭의 train 값. 순서를 고정한 조건은 짝짓기가 없어
+                   **정의상 없다**(—)
 
-② **남은 격차를 헤드별로 분해해 다음 연구 방향을 데이터로 지목한다.**
-   히트맵만 정답으로 바꿨을 때 크게 오르면 병목은 검출이고, 연결 방향만 바꿨을 때 오르면
-   병목은 연결이다. **대부분의 논문이 못 하는 분석**인데 우리 구조에서는
-   `stella/model/inject.py` 하나로 거의 공짜에 얻어진다.
+## 값의 출처 — 학습 로그
 
-## 기준 수치 (2026-08 기준, 참고용)
+인스턴스 점수와 칸 진단 모두 **각 실행의 최고 에폭**(val inst F1 기준) 값이다
+(`stella.eval.runlog.best_epoch`). 예측 캐시·그림이 그 에폭의 체크포인트에서 나오므로 같은 에폭이다.
+표가 `metrics.csv` 를 직접 파싱하지 않고 판정 스크립트와 같은 판독기를 쓴다.
 
-    사슬 인코딩 + 전부 정답 주입    0.9410 (전체 val · 현행 디코더)
-    학습 모델 (전부 예측)          0.4303
-    → 지금 모델은 천장의 **46%** 다.
+**Table III 과 4째 자리가 다를 수 있다** — Table III 은 예측 캐시를 다시 디코딩한 값이고
+(GTE 0.4149), 이 표는 학습 중 검증 값이다(0.4148). 7단계(test)에서는 두 표가 같은 채점 경로를
+쓰도록 맞춘다 — 학습 로그에는 test 값이 없으므로 그때는 이 표도 예측 캐시를 떠서 잰다.
 
-**주의: 이 값들은 v1.1 val 1,282장에서 잰 것이다.** v1.2 로 바뀌며 val 이 1,218장이 됐으므로
-논문에 싣기 전에 v1.2 에서 다시 잰다. 성능에 큰 영향은 없을 것으로 보지만(빠진 64장은
-학습 타일과 겹쳐 있던 것이라 오히려 쉬운 쪽이었을 가능성이 있다), **표에 싣는 값은
-전부 같은 데이터에서 나와야 한다.**
-
-## 값의 출처
-
-    scripts/dump_predictions.py --source gt   정답 주입 캐시를 뜬다 (GPU 불필요)
-    scripts/eval_decode.py                    같은 디코더 설정으로 평가
-    부분 주입(히트맵만·클래스만·연결만)은 `inject.py` 에 어느 필드를 주입할지 고르는
-    손잡이가 필요하다. **없으면 그것부터 만든다** — 표의 3~5행이 거기 걸려 있다.
-
-    split   **test** (Table V 와 같아야 한다)
-
-## 출력
-
-    table_06/table_06.csv · table_06.md
-
-## 상태
-
-**착수 전.** 학습이 필요 없다(정답 주입은 GPU 도 필요 없다). 부분 주입 손잡이만 만들면
-지금 바로 만들 수 있는 표다 — **가장 먼저 채울 수 있는 결과 표**다.
+사용:
+    python scripts/tables/table_06.py --split val
 """
 
-# from table_base import PaperTable
-#
-#
-# class OracleDecompositionTable(PaperTable):
-#     """정답을 필드별로 주입해 가며 천장을 분해한다."""
-#
-#     name = "table_06"
-#     SPLIT = "test"
-#     CONDITIONS = (
-#         "legacy_encoding_gt", "chain_encoding_gt",
-#         "heatmap_gt", "class_gt", "conn_gt", "model_only",
-#     )
-#     METRICS = ("f1", "frag")
-#
-#     def collect(self):
-#         raise NotImplementedError("설계는 위 docstring 참고")
+import argparse
+
+from table_base import BLANK, DATA_ROOT, UNDEFINED, PaperTable, change, number
+
+from stella.eval.runlog import best_epoch, decode_signature, last_value
+
+LOG_ROOT = DATA_ROOT / "log"
+# (실험인자, 조건, 실행 폴더, 배정 모호도가 정의되는가). 첫 행이 대조군이다.
+ROWS = (
+    ("모든 인자", "최적 조합 (채택)", "260902_113253_base_F06d_cnxlarge", True),
+    ("슬롯 배정", "라벨 순서 고정 (prev / next)", "260913_001811_exp_fixed_order_G03_fixed", False),
+    ("슬롯 배정", "각도 순서 고정", "260913_233504_exp_canonical_G04_canon", False),
+    ("슬롯 배정", "각도 섹터 고정 (GTE식 60°, 슬롯 6)", "260909_130501_exp_gte_G01_gte", False),
+    ("토큰 구조", "노드당 토큰 1개", "260915_101641_exp_single_token_G05_single", True),
+    ("슬롯 수", "R = 3", "260911_192050_exp_r3_G02_r3", True),
+)
+KEYS = {
+    "inst F1": "val/inst/f1",
+    "coverage": "val/inst/coverage",
+    "frag": "val/inst/frag",
+    "link_ok": "val/cell/link_ok",
+    "dir_err (°)": "val/cell/dir_err_deg",
+}
+AMBIGUITY_KEY = "train/conn/match_ambiguity"
+COLUMNS = ("실험인자", "조건", "inst F1", "ΔF1", *list(KEYS)[1:], "배정 모호도", "최고 에폭")
+LOGGED_SPLIT = "val"
+
+
+class RepresentationAblation(PaperTable):
+    name = "table_06"
+    columns = COLUMNS
+
+    def __init__(self, split: str):
+        self.split = split
+
+    def collect(self) -> list[dict]:
+        if self.split != LOGGED_SPLIT:
+            print(f"[table_06] 학습 로그에는 {self.split} 값이 없다 — 예측 캐시를 떠서 재야 한다")
+            return [self._blank_row(factor, condition) for factor, condition, _, _ in ROWS]
+        check_decoders([run for *_, run, _ in ROWS])
+        values = [best_epoch(LOG_ROOT / run, tuple(KEYS.values())) or {} for *_, run, _ in ROWS]
+        base = values[0].get(KEYS["inst F1"])
+        rows = [self._row(row, value, base) for row, value in zip(ROWS, values, strict=True)]
+        rows[0]["ΔF1"] = BLANK if not values[0] else "기준"
+        return rows
+
+    def _row(self, row: tuple, value: dict, base) -> dict:
+        factor, condition, run, has_ambiguity = row
+        cells = {column: number(value.get(key)) for column, key in KEYS.items()}
+        cells["dir_err (°)"] = number(value.get(KEYS["dir_err (°)"]), 2)
+        return {
+            "실험인자": factor,
+            "조건": condition,
+            **cells,
+            "ΔF1": change(value.get(KEYS["inst F1"]), base),
+            "배정 모호도": ambiguity(run) if has_ambiguity else UNDEFINED,
+            "최고 에폭": str(value.get("epoch", BLANK)),
+        }
+
+    def _blank_row(self, factor: str, condition: str) -> dict:
+        return {"실험인자": factor, "조건": condition}
+
+
+def ambiguity(run: str) -> str:
+    value = last_value(LOG_ROOT / run, AMBIGUITY_KEY)
+    return BLANK if value is None else f"{value:.5f}"
+
+
+def check_decoders(runs: list[str]) -> None:
+    """실행마다 검증 디코더 설정이 같아야 표현의 차이로 읽힌다 — 다르면 경고만 찍는다."""
+    signatures = {run: decode_signature(LOG_ROOT / run) for run in runs}
+    if len({str(sorted(sig.items())) for sig in signatures.values()}) > 1:
+        print(f"[table_06] ★ 디코더 설정이 실행마다 다르다: {signatures}")
+
+
+def main() -> None:
+    args = parse_args()
+    RepresentationAblation(args.split).run()
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--split", default="val")
+    return parser.parse_args()
+
+
+if __name__ == "__main__":
+    main()

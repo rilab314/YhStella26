@@ -1,52 +1,115 @@
-"""Fig. 1 — 결과 쇼케이스 (I절 첫 쪽, 1단, 2×2). **미구현 — 설계만 적어 둔다.**
+"""Fig. 1 — 결과 쇼케이스 (I절, 1단, 2×2).
 
-## 무엇을 그리나
+서로 다른 장면 넷에 검출된 폴리라인을 클래스 색으로 그리고 양 끝점에 흰 테두리 원을 얹는다.
+독자가 첫 쪽에서 **출력물이 무엇인지** 알게 하는 그림이고, 끝점 원이 있어야 "인스턴스가 끊기지
+않았다"는 주장이 그림에서 바로 읽힌다.
 
-서로 다른 장면 4개. 원본 위성영상 위에 **검출된 폴리라인**을 클래스 색으로 그리고,
-각 선의 양 끝점에 **흰 테두리 원**을 찍는다. 옆에 클래스 색상표를 붙인다.
+**후보 순위**: F1(STELLA) 내림차순.
+**후보 자격**(설계 §3): 클래스 4종 이상 · 정답 인스턴스 10개 이상 — 너무 비거나 한 종류만 있는
+장면은 "무엇을 검출하는지"를 보여 주지 못한다. 정답 수 상한은 묶음마다 다르다
+(`figure_base` 의 두 묶음) — 교차로는 선이 많아(중앙값 56개) 80개, 그 밖의 장면은 25개.
+**무엇을 실을지는 사람이 고른다**(미팅 결정 09-15) — 후보 100장을 보고 `selected.txt` 에 적는다.
 
-한 장면 = 768×768 한 타일. 2×2 로 붙이고 사이 여백은 검정 20 px.
+고른 4장은 `selected/` 에 한 장씩 남기고, **논문에 싣는 2×2 한 장**을 `figure_01.png` 로 따로
+만든다. 논문 그림에는 글자를 넣지 않는다(09-23 미팅) — 다만 **아래에 종류 색 범례**를 붙인다
+(교수 피드백 10-07, 오른쪽 → 아래 사용자 10-08). 다른 그림은 범례 없이 캡션에서
+"선 색은 Fig. 1 과 같다"고만 적는다.
 
-## 왜 필요한가
-
-독자가 **첫 쪽에서 "이 논문의 출력물이 무엇인지"** 를 안다. 그리고 끝점 원이 있어야
-"인스턴스가 끊기지 않았다"는 이 논문의 주장이 그림에서 바로 읽힌다 — 선만 그리면
-한 차선이 네 조각 났는지 한 조각인지 구별되지 않지만, 끝점 원을 찍으면 점 개수로 세진다.
-
-## 선별 조건 (AND)
-
-    프레임 F1 >= 0.60                 쇼케이스는 "그럭저럭"이 아니라 "깨끗"해야 한다
-    포함 클래스 >= 4종                 여러 종류가 함께 살아난 장면. 한 종류만 잘 나온 것은 제외
-    GT 인스턴스 10~25개                 볼거리는 있되 선이 뭉개져 안 보이지는 않는 밀도
-
-## 정렬·상한·파일명
-
-    정렬   프레임 F1 내림차순
-    상한   100장
-    이름   {순위:03d}_{타일id}_f1-{F1×1000:03d}.png     예: 001_126.6219,37.3851_f1-742.png
-
-## 입력
-
-    예측 캐시  .../pred_cache/{실행}/val/{stem}.npz   (D 트랙 — GPU 안 씀)
-    영상       {data.root}/val/image/{stem}.png
-    split      val (방법 설명용 그림이라 test 를 아낀다)
-
-## 상태
-
-**착수 전.** 캐시만 있으면 바로 만들 수 있다 — baseline 대조군이 필요 없는 유일한 정성 그림이다.
+사용:
+    python scripts/figures/figure_01.py --candidates
+    python scripts/figures/figure_01.py
 """
 
-# from figure_base import SampleFigure
-#
-#
-# class ResultShowcaseFigure(SampleFigure):
-#     """깨끗하고 종류가 다양한 장면을 프레임 F1 순으로 고른다."""
-#
-#     name = "figure_01"
-#     split = "val"
-#     F1_MIN = 0.60          # 쇼케이스 문턱
-#     MIN_CLASSES = 4        # 함께 살아난 종류 수
-#     GT_MIN, GT_MAX = 10, 25  # 읽을 수 있는 밀도
-#
-#     def build_figure(self, stem, sample, pred):
-#         raise NotImplementedError("설계는 위 docstring 참고")
+import argparse
+
+import numpy as np
+from figure_base import HIDDEN_CLASSES, INTERSECTION, OTHER, SampleFigure, add_arguments, draw
+from PIL import Image, ImageDraw, ImageFont
+
+from stella.config_io import load_config
+from stella.data.types import CLASS_COLOR, CLASS_NAMES
+
+GT_RANGE = {INTERSECTION: (10, 80), OTHER: (10, 25)}  # 묶음별 정답 인스턴스 수
+MIN_CLASSES = 4
+GRID_COLUMNS = 2
+# 범례 — 그림에 그리는 10 종류(배경 · 안전지대 제외, `HIDDEN_CLASSES`). 긴 이름은 두 줄로 접는다.
+LEGEND_FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+LEGEND_FONT_PX = 28
+LEGEND_COLUMNS = (
+    5  # 격자 아래 한 줄에 놓는 종류 수(사용자 10-08 — 오른쪽에 두면 사진을 키우기 어렵다)
+)
+LEGEND_GAP = 14
+LEGEND_SWATCH = (44, 16)  # 색 막대 (가로, 세로) px
+LEGEND_WRAP = 15  # 이 글자 수를 넘는 이름은 '_' 뒤에서 접는다
+
+
+class Showcase(SampleFigure):
+    name = "figure_01"
+    split = "val"
+    columns = (
+        ("원본", ""),
+        ("STELLA", "stella"),
+    )
+
+    def score(self, stem: str, pool: str):
+        n_gt = self.scores.value("stella", stem, "n_gt")
+        n_class = self.scores.value("stella", stem, "n_class")
+        low, high = GT_RANGE[pool]
+        if not low <= n_gt <= high or n_class < MIN_CLASSES:
+            return None
+        if not self.in_pool(stem, pool):
+            return None
+        return self.scores.value("stella", stem, "f1")
+
+    def write_selected(self) -> None:
+        """고른 순서대로 왼쪽 위 → 오른쪽 위 → 왼쪽 아래 → 오른쪽 아래."""
+        super().write_selected()
+        tiles = [
+            draw(self.images(stem)[0], self.lines("stella", stem)) for stem in self.read_selected()
+        ]
+        rows = [tiles[start : start + GRID_COLUMNS] for start in range(0, len(tiles), GRID_COLUMNS)]
+        width = sum(tile.shape[1] for tile in rows[0]) + (GRID_COLUMNS - 1) * 12
+        self.write_paper_grid(rows, expected=GRID_COLUMNS, below=class_legend(width))
+
+
+def class_legend(width: int) -> np.ndarray:
+    """흰 바탕에 종류마다 색 막대 + 이름을 격자 아래 가로로 — 5칸 × 2줄(사용자 10-08)."""
+    font = ImageFont.truetype(LEGEND_FONT, LEGEND_FONT_PX)
+    labels = [n for n in range(len(CLASS_NAMES)) if n not in HIDDEN_CLASSES]
+    rows = -(-len(labels) // LEGEND_COLUMNS)
+    cell = width // LEGEND_COLUMNS
+    line = LEGEND_FONT_PX + 4
+    row_height = 2 * line + LEGEND_GAP
+    canvas = Image.new("RGB", (width, rows * row_height + LEGEND_GAP), (255, 255, 255))
+    pen = ImageDraw.Draw(canvas)
+    swatch, bar = LEGEND_SWATCH
+    for order, label in enumerate(labels):
+        x = (order % LEGEND_COLUMNS) * cell + 10
+        y = (order // LEGEND_COLUMNS) * row_height + LEGEND_GAP
+        pen.rectangle([x, y + 12, x + swatch, y + 12 + bar], fill=tuple(CLASS_COLOR[label]))
+        for number, text in enumerate(_wrap(CLASS_NAMES[label])):
+            pen.text((x + swatch + 12, y + number * line), text, fill=(0, 0, 0), font=font)
+    return np.asarray(canvas)
+
+
+def _wrap(name: str) -> list[str]:
+    """'path_change_restriction_line' -> ['path_change_', 'restriction_line']."""
+    if len(name) <= LEGEND_WRAP:
+        return [name]
+    cut = name.rfind("_", 0, LEGEND_WRAP) + 1
+    return [name[:cut], name[cut:]]
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    add_arguments(parser)
+    args = parser.parse_args()
+    figure = Showcase(load_config(args.config, []))
+    if args.candidates:
+        figure.write_candidates()
+        return
+    figure.write_selected()
+
+
+if __name__ == "__main__":
+    main()

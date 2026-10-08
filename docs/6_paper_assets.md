@@ -29,7 +29,7 @@
 ```
 scripts/figures/
 ├── figure_base.py    SampleFigure(샘플 선별형) · PlotFigure(집계형) + 출력 경로 규약
-└── figure_01.py ~ figure_14.py
+└── figure_01.py ~ figure_11.py
 
 scripts/tables/
 ├── table_base.py     PaperTable(csv + markdown) + 출력 경로 규약

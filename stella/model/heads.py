@@ -4,7 +4,8 @@
 각각 다른 헤드를 쓰고, 연결 슬롯은 기본적으로 R개가 **가중치를 공유**한다.
 
 끝 판정은 자기 셀의 end_logit이 담당한다 (9차 개정 — 구 설계의 슬롯별 t_logit 폐기).
-연결 슬롯은 방향만 예측한다 — 상대까지의 거리·좌표는 예측하지 않는다.
+연결 슬롯은 기본적으로 **방향만** 예측한다 — 상대까지의 거리·좌표는 예측하지 않는다.
+`conn_target="delta"`면 정규화를 끄고 **변위 (dx, dy) 를 그대로** 낸다 (Sat2Graph GTE 대조군).
 
 `hidden_layers`(MLP 깊이)와 `share_slots`(슬롯 간 가중치 공유)는 아키텍처 탐색용
 손잡이다 (가설 백로그). 기본값은 계획서 원안 그대로다.
@@ -16,6 +17,7 @@ from torch import nn
 
 NORMALIZE_EPS = 1e-6
 CONN_OUTPUT_DIM = 3  # exist 1 + dir 2
+CONN_TARGETS = ("unit", "delta")
 
 
 class SelfHead(nn.Module):
@@ -48,13 +50,26 @@ class SelfHead(nn.Module):
 
 
 class ConnHead(nn.Module):
-    """연결 슬롯 -> 존재 로짓 + 단위 방향 (원점 = 자기 노드 점, 6.1절)."""
+    """연결 슬롯 -> 존재 로짓 + 방향 (원점 = 자기 노드 점, 6.1절).
+
+    `target="delta"`면 방향 대신 변위를 낸다. **파라미터 수와 초기화는 같다** — 마지막
+    정규화 한 줄만 건너뛴다. 그래야 두 판의 차이를 표현 탓으로만 돌릴 수 있다.
+    """
 
     def __init__(
-        self, *, d_model: int, num_slots: int = 2, hidden_layers: int = 1, share_slots: bool = True
+        self,
+        *,
+        d_model: int,
+        num_slots: int = 2,
+        hidden_layers: int = 1,
+        share_slots: bool = True,
+        target: str = "unit",
     ):
         super().__init__()
+        if target not in CONN_TARGETS:
+            raise ValueError(f"conn_target 은 {CONN_TARGETS} 중 하나여야 한다: {target}")
         self.share_slots = share_slots
+        self.target = target
         count = 1 if share_slots else num_slots
         self.mlps = nn.ModuleList(
             build_mlp(d_model, CONN_OUTPUT_DIM, hidden_layers) for _ in range(count)
@@ -63,8 +78,12 @@ class ConnHead(nn.Module):
     def forward(self, tokens: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """tokens: (N, R, D) -> exist (N, R), dir (N, R, 2)."""
         raw = self._project(tokens)
-        direction = F.normalize(raw[..., 1:3], dim=-1, eps=NORMALIZE_EPS)
-        return raw[..., 0], direction
+        return raw[..., 0], self._connection(raw[..., 1:3])
+
+    def _connection(self, raw: torch.Tensor) -> torch.Tensor:
+        if self.target == "delta":
+            return raw
+        return F.normalize(raw, dim=-1, eps=NORMALIZE_EPS)
 
     def _project(self, tokens: torch.Tensor) -> torch.Tensor:
         """이름에 주의 — `_apply`는 `nn.Module`의 예약 메서드다(`.to()`가 내부에서 부른다)."""
