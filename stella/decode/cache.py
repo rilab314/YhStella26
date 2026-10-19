@@ -12,6 +12,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
+from stella.eval.instance_io import pack_instances, unpack_instances
 from stella.model.stella import ModelOutput
 
 SPARSE_KEYS = ("heat", "class_logit", "coord", "end", "exist", "dir")
@@ -86,23 +87,7 @@ def _to_numpy(value: torch.Tensor) -> np.ndarray:
     return tensor.numpy() if tensor.dtype == torch.bool else tensor.float().numpy()
 
 
-def _pack_instances(instances: list[dict]) -> dict[str, np.ndarray]:
-    lengths = [len(item["points"]) for item in instances]
-    points = (
-        np.concatenate([np.asarray(item["points"]) for item in instances]).astype(np.float32)
-        if instances
-        else np.zeros((0, 2), np.float32)
-    )
-    return {
-        "inst_points": points,
-        "inst_offset": np.concatenate([[0], np.cumsum(lengths)]).astype(np.int64),
-        "inst_class": np.array([item["class"] for item in instances], dtype=np.int64),
-    }
-
-
-def _unpack_instances(data) -> list[dict]:
-    points, offset, labels = data["inst_points"], data["inst_offset"], data["inst_class"]
-    return [
-        {"class": int(labels[k]), "points": points[offset[k] : offset[k + 1]]}
-        for k in range(len(labels))
-    ]
+# 인스턴스 묶기·풀기는 `stella/eval/instance_io.py` 가 단일 출처다 — 방법별 예측 파일(5단계)과
+# 이 캐시가 **같은 형식**이라야 그림과 표가 같은 선을 본다.
+_pack_instances = pack_instances
+_unpack_instances = unpack_instances

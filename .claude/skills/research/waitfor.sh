@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# PID가 끝날 때까지 기다린다 — improve-loop SKILL 6.5 규칙 1.
+# PID가 끝날 때까지 기다린다 — research SKILL 6.5 규칙 1.
 #
 # **왜 이 스크립트가 있나.** `while pgrep -f <패턴>` 로 기다리면 패턴이 자기 명령줄에도
 # 들어 있어 조건이 영원히 참이 된다. 실제로 그래서 무한 루프에 빠졌고, 종료하지 않았으니
 # 완료 알림도 없었고, GPU 4장이 12시간 놀았다. 숫자 PID는 자기 자신을 매칭할 수 없다.
 #
-#   사용:  bash .claude/skills/improve-loop/waitfor.sh <PID> [간격초] [설명]
+#   사용:  bash .claude/skills/research/waitfor.sh <PID> [간격초] [설명]
 #
 # **먼저 6.5 규칙 0을 확인한다** — 긴 작업은 `nohup &` 대신 그 명령 자체를 백그라운드
 # 태스크로 띄우는 것이 낫다. 그러면 종료가 곧 알림이라 이 스크립트조차 필요 없다.

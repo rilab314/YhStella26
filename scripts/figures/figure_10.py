@@ -1,67 +1,53 @@
-"""Fig. 10 — 셀 단위 연결 성공률에서 조각 수를 예측한다 (VIII절, 1단).
-**미구현 — 설계만 적어 둔다.**
+"""논문 Fig. 9 — 실패 사례와 한계 (VI-F · VII-A, 2단, 4행 × 4열). 파일 이름은 옛 번호(10)를 따른다.
 
-## 무엇을 그리나
+열: 원본 | 정답 | 분할 | STELLA — 장면마다 실패 자리를 잘라 키웠다.
+행: ① 교차로의 짧은 선 ② 건물 그늘 속 도로 (①·② 분할 우세, 옛 Fig. 11 에서)
+    ③ 종류 혼동 ④ 정답 라벨 누락 (옛 Fig. 10 에서 — ④는 교수 미팅 09-30 지시).
+옛 Fig. 10 · 11 은 그늘 장면이 겹쳐 하나로 합쳤다(사용자 10-08).
+선에서 벗어남 행은 본문 근거가 없어 뺐다.
 
-이론 곡선 하나와 실측 점들.
+칸은 `scripts/sample_error_kind.py --class-color --with-seg` 가 그려 둔 것이다
+(①·② 는 `--full --window`).
+모든 선을 Fig. 1 범례의 종류 색으로 같은 굵기로 그리고 따로 표시하지 않는다(교수 지시 10-07).
+여기서는 고른 칸을 쌓기만 한다.
 
-    곡선   E[조각 수] = 1 + 47 × (1 − link_ok)
-           `link_ok` = 셀 단위 연결 성공률 (사슬의 한 칸에서 다음 칸으로 제대로 이어질 확률).
-           47 = 사슬 하나의 평균 칸 수. "매 링크가 독립적으로 실패한다"고 가정한 식이다.
-    점     실행마다 (측정한 link_ok, 실제로 센 조각 수) 하나씩
-
-## 왜 필요한가
-
-셀 단위 진단이 인스턴스 단위 결과를 **예측한다**는 것을 보이는 그림이다.
-점들이 곡선 근처에 모이면 이 논문은 "성능이 올랐다"가 아니라 **"왜 오르는지 안다"** 가 된다.
-
-## ★ 실측 완료 — 그리고 어긋났다
-
-    파일    docs/figures/fig10_link_ok_fragmentation.png (이미 있다)
-    표본    F 규격(전체 데이터) 3개 + U 규격(3,000장·10에폭) 7개
-    결과    **점들이 곡선을 따르지 않는다.**
-            `link_ok` 가 가장 높은 F01(0.9785)의 조각 수(4.92)가 오히려 가장 크고,
-            U 규격 실행들(link_ok 0.94~0.96)은 이론값(2~3)보다 낮은 1.3~1.6 에 몰려 있다.
-
-**본문에서 이 어긋남 자체를 발견으로 쓴다** — "매 링크 실패가 독립"이라는 전제가 실제로는
-깨진다(실패가 특정 구간에 몰리거나, 사슬이 멈추는 사유가 링크 실패 말고도 여럿이다).
-디코더의 정지 사유 카운터(`stella/decode/stats.py`: end / nocand / exist / slotused)를
-같이 실으면 "왜 어긋나는가"에 부분적으로 답할 수 있다 — **표에 정지 사유 분해를 붙이는 것을
-검토한다.**
-
-## 주의 — 규격을 섞고 있다
-
-F 규격과 U 규격 점을 한 그림에 그린다. **절대값 비교가 아니라 "곡선을 따르는가"라는
-관계를 보는 그림**이라 허용되지만, 마커 모양을 규격별로 다르게 해서 구별되게 한다.
-캡션에도 규격을 밝힌다.
-
-## 입력·출력
-
-    입력   log/{실행}/metrics.csv        ← stella/eval/runlog.py 로 읽는다
-    지표   val/cell/link_ok · val/inst/frag
-    출력   figure_10/figure_10.png · .pdf
-           figure_10/figure_10.csv
-             (실행 이름, 규격, link_ok, frag, 이론값, 잔차)
-    표시   점 옆에 실행 이름. 이론곡선은 회색 점선.
-
-## 상태
-
-**실측 완료 · 재현 스크립트 미구현.** 현재 저장소의 PNG 는 세션 스크래치에서 만든 것이라
-재현 스크립트가 없다 — 그 구멍을 메운다. 새 실행이 늘면 점도 늘어야 하므로
-스크립트가 꼭 있어야 하는 그림이다.
+사용:
+    python scripts/figures/figure_10.py
+    → paper/figure/figure_10/figure_10.png
 """
 
-# from figure_base import PlotFigure
-#
-#
-# class LinkOkFragmentationFigure(PlotFigure):
-#     """셀 단위 연결 성공률 대 실측 조각 수. 이론 곡선과의 어긋남이 논지다."""
-#
-#     name = "figure_10"
-#     MEAN_CHAIN_CELLS = 47.0          # 곡선의 계수 — 사슬 하나의 평균 칸 수
-#     LINK_KEY = "val/cell/link_ok"
-#     FRAG_KEY = "val/inst/frag"
-#     width_in, height_in = 3.5, 2.6   # 1단
-#
-#     def collect(self):
-#         raise NotImplementedError("설계는 위 docstring 참고")
+from pathlib import Path
+
+import cv2
+import numpy as np
+from figure_base import FIGURE_ROOT, join_white
+
+E5_ROOT = Path(__file__).resolve().parents[2] / "experiment" / "data" / "e5"
+# (후보 폴더, 고른 번호) — 행 순서. 10-08: 옛 Fig. 10 · 11 을 하나로 — 같은 색 · 같은 굵기.
+ROWS = (
+    ("stella_spurious_long_cls_seg_full_short1008", "01"),  # 교차로의 짧은 선 (분할 우세)
+    ("stella_spurious_long_cls_seg_full_shadow1008", "01"),  # 건물 그늘 속 도로 (분할 우세)
+    ("stella_wrong_class_cls_seg_row3_1008", "03"),  # 종류 혼동 — STELLA 만 틀림(10-08)
+    ("stella_spurious_long_cls_seg_1008", "03"),  # 정답 라벨 누락
+)
+NAME = "figure_10"
+
+
+def main() -> None:
+    rows = [read_row(folder, number) for folder, number in ROWS]
+    path = FIGURE_ROOT / NAME / f"{NAME}.png"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    cv2.imwrite(str(path), join_white(rows, axis=0))
+    print(f"[{NAME}] 논문용 그림: {path}")
+
+
+def read_row(folder: str, number: str) -> np.ndarray:
+    """후보 한 장(원본 | 정답 | 예측이 이미 한 줄로 붙어 있다)."""
+    found = sorted((E5_ROOT / folder).glob(f"{number}_*.jpg"))
+    if len(found) != 1:
+        raise FileNotFoundError(f"[{NAME}] {folder} 의 {number}번을 찾지 못했다")
+    return cv2.imread(str(found[0]))
+
+
+if __name__ == "__main__":
+    main()

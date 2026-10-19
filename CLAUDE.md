@@ -16,13 +16,31 @@
 
 ## 환경
 
-- `uv` + `pyproject.toml`. Python 3.11, torch 2.6/cu124, PyTorch Lightning.
+- `uv` + `pyproject.toml`. Python 3.11, torch 2.11/cu128, PyTorch Lightning.
+  **torch 는 2.7 미만으로 내리지 않는다** — 이 기계의 GPU(Blackwell, sm_120)는 cu124 빌드에서
+  `no kernel image is available` 로 죽는다 (08-31 실측).
 - `uv sync --extra dev` 로 `.venv` 구성. 실행은 `.venv/bin/python`.
 - 저장소는 editable 설치라 `sys.path` 조작이 없다. **절대 import만** 쓴다.
   (editable 설치가 worktree를 가리키면 `python scripts/*.py`가 남의 코드로 돈다 —
   `scripts/gate.py`의 `install` 검사가 그 사고를 막는다.)
-- GPU는 RTX 4090 4장, CPU 32코어. **CPU 예산은 `cfg.cpu`가 단일 출처**다 —
-  학습은 코어 `0-21`만 쓰고 `22-31`은 사람 몫으로 비워 둔다 (`stella/runtime/cpu.py`).
+- **★ GPU 2장 학습에는 `NCCL_P2P_DISABLE=1` 을 반드시 붙인다** (09-23 실측).
+  안 붙이면 DDP 가 **첫 스텝도 못 가고 멈춘다** — 카드는 100%로 보이지만 메모리가 1 GB 에
+  머물고, 8분 뒤 NCCL watchdog 이 rank 1 을 죽여 전체가 내려간다. 두 카드 사이에 NVLink 가
+  없어 P2P 가 PCIe 로 도는 구조다. **설정과 무관하다** — 손대지 않은 `configs.exp_gte` 도 같이
+  멈췄고, 1 GPU 는 멀쩡했다. 끄면 정상 학습된다.
+  **09-15 까지의 실행(G01~G05)은 이 변수 없이 2장으로 돌았다** — 저장소·셸 어디에도 설정이 없다.
+  즉 기계의 성질이 아니라 **09-15 이후 어느 시점에 P2P 가 망가진 것**이고, 원인은 못 찾았다
+  (커널 로그 권한 없음 · 재부팅 없음 · 드라이버 580.173.02 그대로 · Xid/ECC 기록 없음).
+  `torch.cuda.can_device_access_peer` 는 **True 를 반환한다** — 가능하다고 보고하고 실제로는
+  멎는, PCIe 카드에서 알려진 형태다. **재부팅 뒤에는 다시 확인해 볼 것.**
+
+  ```bash
+  NCCL_P2P_DISABLE=1 .venv/bin/python -m stella.train.train --config ... --override train.devices=2
+  ```
+
+- GPU는 RTX PRO 6000 Blackwell 2장(96 GB/장), CPU 64코어. **CPU 예산은 `cfg.cpu`가 단일 출처**다 —
+  학습은 코어 `0-46`만 쓰고 뒤 17코어는 사람 몫으로 비워 둔다 (`stella/runtime/cpu.py`).
+  **GPU 가 4장에서 2장으로 줄었다** — arm 당 1 GPU 로 동시에 돌릴 수 있는 실험은 2개다.
 
 ## 구조
 
@@ -41,10 +59,11 @@ stella/
                     postprocess(조각 병합·RDP)·cache(희소 예측 캐시)·sweep(스윕 코어)
                     stats(정지 사유 카운터 — end/nocand/exist/slotused)
   eval/             ccq(인스턴스 F1)·geometry·cellstat(셀 단위 진단)·runlog(metrics.csv 판독)
+                    methods·per_tile·instance_io(방법별 채점) · breakdown(종류별 · 중복 선)
   train/            module·optim·viz·callbacks·train(진입점)
 scripts/            아래 "실행" 참고 — 데이터 확인 · 학습 운영 · 디코더(D) 트랙 · 진단
-  figures/          논문 그림 — figure_01~14 + figure_base (docs/6_paper_assets.md 15절)
-  tables/           논문 표   — table_01~09 + table_base
+  figures/          논문 그림 — figure_01~11 (06 은 손으로 그린 것뿐) + figure_base + check_sheet
+  tables/           논문 표   — table_01~07 + table_base
 tests/              pytest — 인코더 불변식·매칭·RoPE·디코더·후처리·지표·셀진단·CPU예산·config 해석
 experiment/         STATE.md(냉시동 진입점) · plan_MMDD.md · result_MMDD.md · queue.json · data/
 gate_baseline.json  PR 전 게이트의 검사 목록과 하한 — 코드가 아니라 데이터다
@@ -98,7 +117,7 @@ gate_baseline.json  PR 전 게이트의 검사 목록과 하한 — 코드가 �
 | 디코더(D) 트랙 | `dump_predictions.py`(예측→희소 캐시) · `eval_decode.py`(CPU만으로 스윕) · `tune_decoder.py`(좌표 하강) · `viz_cache.py`(캐시→2×3 진단 시트, 설정 바꿔 다시 그리기) |
 | 진단 | `loss_balance.py`(손실 균형·가중치 제안) · `class_confusion.py`("배경이라 부름" vs "종류 혼동") |
 | 데이터 준비 | `build_split_dataset.py`(평평한 SEED-MAP 원본 → `{train,val,test}` 폴더 사본) |
-| 논문 산출물 | `figures/figure_NN.py` · `tables/table_NN.py` — **설계(주석)만 있고 미구현** |
+| 논문 산출물 | `eval_methods.py`(방법별 채점 → `paper/score`) · `eval_breakdown.py`(종류별 표 · 중복 선 비율) · `tables/table_NN.py`(표 I~VII) · `figures/figure_NN.py`(후보 렌더링 → 사람이 고름) |
 
 ```bash
 .venv/bin/python scripts/viz_gt.py --config configs.base --split val --count 4 --out /tmp/gt
@@ -109,6 +128,14 @@ gate_baseline.json  PR 전 게이트의 검사 목록과 하한 — 코드가 �
 
 **D 트랙이 요점이다** — 예측을 한 번 캐시로 떨궈 두면 **GPU 없이** 디코더 파라미터를 스윕할 수
 있다. 학습이 GPU를 다 쓰는 동안에도 디코더 실험은 계속 돈다.
+
+## 논문 수정 (지금의 주 작업)
+
+**논문 관련 요청을 받으면 먼저 `experiment/paper_todo.md`를 읽는다** — 표·그림·본문·확인용 실험의
+할 일과 상태, 사용자가 정해야 할 질문이 한 파일에 있다. 사용자가 "다음"이라고 하면 `대기` 항목
+맨 위 하나를 끝내고 상태를 갱신한다. 결정이 필요한 것은 모아서 한 번에 객관식으로 묻는다.
+**원고(`docs/html/build_paper_ko_2col.py`)는 저장소 git 밖이다** — `docs/html/` 안의 전용 git 에
+항목 ID 를 붙여 커밋해야 나중에 되돌릴 수 있다. 영문 원고 `docs/manuscript/` 도 같은 방식의 전용 git 이 있다.
 
 ## 개선 실험 (진행 중인 작업)
 

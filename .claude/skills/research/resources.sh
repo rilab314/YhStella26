@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 자원 원장 — improve-loop SKILL 3절.
+# 자원 원장 — research SKILL 3절.
 # 이 기계는 사람이 같이 쓴다. 대화형 반응성이 실험 처리량보다 우선한다.
 # GPU 슬롯 4 / CPU 부하 상한 16(코어의 절반) / RAM 160 GB / 내 프로세스는 전부 nice 15.
 set -uo pipefail

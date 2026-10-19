@@ -1,81 +1,224 @@
-"""Table VII — 표현 ablation (VII-C, 2단) ★ 이 논문의 가장 중요한 표.
-**미구현 — 설계만 적어 둔다.**
+"""Table VII — 백본·구조 민감도 + 종류별 성능 (VI-E · VI-F, 2단).
 
-## 무엇이 들어가나
+**표현을 고정한 채 주변 설정만 흔든다** — 표현 축을 흔드는 Table VI 와 역할이 다르다.
+한 표에 블록 두 개라 파일도 둘이다(`table_07_upper` · `table_07_lower`).
 
-축 다섯 개. **축마다 한 가지만 바꾼다.**
+## 상단 — 구조 민감도 (U 규격: train 3,000장 · val 700장 · 10에폭)
 
-| 축 | 조건 | 인스턴스 F1 | 커버리지 | 조각 수 | 연결 성공률 | 방향 오차(°) | 배정 흔들림 |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| 슬롯 배정 | 고정 순서 / 각도 섹터 / **매칭** | | | | | | |
-| 연결 타깃 | (dx, dy) 회귀 / **단위 방향** | | | | | | |
-| 끝 규약 | 끝칸 채움 / **미채움** | | | | | | |
-| 슬롯 수 | R=3 / **R=2** | | | | | | |
-| 격자 | stride 8 / **stride 4** | | | | | | |
+전체 데이터로 열세 번 돌릴 수 없어 작은 규격으로 비교했다. **절대값을 Table III 과 나란히
+읽으면 안 된다** — 캡션에 규격을 밝힌다. 각 블록 안에서 첫 행 대비 변화만 읽는다.
 
-오른쪽 세 열 풀이 (논문에는 코드 이름 그대로):
-    연결 성공률   한 칸에서 다음 칸으로 제대로 이어질 확률 (`link_ok`)
-    방향 오차     예측한 연결 방향이 정답에서 몇 도 어긋났나 (`dir_err_deg`)
-    배정 흔들림   슬롯 배정이 두 순열 사이에서 얼마나 흔들리나 (`match_ambiguity`)
+- **백본 블록**: 크기가 아니라 계열이 중요하다 — Swin-L(195 M)은 채택 백본(196 M)과 크기가
+  같은데 크게 진다. "큰 모델이라 이겼다"는 반박을 막는 줄이다. 최고 백본을 찾는 것이 목적이
+  아니다(직전 심사 R2-2c) — 캡션에 그 취지를 쓴다.
+- **구조 블록**: 어텐션 창 7칸이면 충분하고, 층을 줄이면 실제로 손해다(효율 근거로 못 쓴다).
+- **연결 슬롯 3개는 여기 싣지 않는다** — 같은 축을 Table VI 가 F 규격으로 싣는다(−24.3%).
 
-## 왜 필요한가
+값의 출처는 5단계 요약 파일(`eval_methods.py --method u_*`) — 모든 행을 **현행 디코더로 다시
+디코딩한** 값이다. 학습 당시 디코더로 잰 옛 판정은 쓰지 않는다.
 
-직전 논문 심사에서 **R1-2 가 "누적식 ablation 으로는 독립 효과를 못 본다"** 고 지적했다.
-그래서 **축마다 한 가지만** 바꾼다. 다른 것을 같이 바꾼 실행은 이 표에 넣지 않는다.
+**최대 GPU 메모리 · 스텝 시간 열은 아직 비어 있다** — 같은 기계·같은 배치로 따로 재야 한다.
 
-그리고 오른쪽 세 열(셀 단위 진단)이 있어야 인스턴스 지표의 변화에 **기전**이 붙는다.
-예: 각도 섹터 조건에서 배정 흔들림이 높게 유지되고 방향 오차가 크면
-**"섹터 경계의 불연속이 방향 학습을 방해한다"가 주장이 아니라 관측이 된다.**
+## 하단 — 종류별 성능 (최종 모델 · 전량)
 
-## 규격 — U 로 재고 그렇게 밝힌다
+정답 선 수를 함께 싣는다 — 자전거도로는 27장 149개뿐이라 그 칸의 점수는 표본이 적어 흔들린다.
+독자가 그 칸을 믿을지 판단할 수 있게 한다.
 
-다섯 축 × 조건 2~3개 = 실행 12개다. F 규격(전체 데이터)으로 다 돌리면 GPU 시간이 없다.
-**U 규격(3,000장·10에폭)으로 재고 표 제목에 그렇게 쓴다.** U 규격의 절대값은 F 규격보다
-낮지만(데이터 3배 차이로 F1 이 14% 정도 난다), **축 사이의 상대 비교**는 성립한다.
+**거짓 양성(FP)을 두 갈래로 가른다** — HD map 을 사람이 고치는 관점에서 비용이 다르다.
 
-**단, Table V 의 값과 이 표의 값을 나란히 읽으면 안 된다.** 캡션에 명시한다.
-채택된 설정(오른쪽 굵은 것) 한 조건만 F 규격으로 한 번 더 재서 Table V 와 연결한다.
+    중복 FP    같은 종류의 정답 선 위에 이미 올라가 있는 여분 — 지우면 되는 값싼 오류
+    헛검출 FP   같은 종류의 어떤 정답 선 위에도 없는 것 — 사람이 확인해야 하는 비싼 오류
 
-## 각 축이 답하는 질문
+값의 출처는 `eval_breakdown.py` — **종류마다 그 종류의 예측·정답만 남겨** 채점한다. 그래서
+coverage·조각 수·FP 두 갈래가 "같은 종류끼리"의 값이고, 전체 행(전 종류 합산 채점)과 정의가
+조금 다르다(전체 행의 중복 FP 는 다른 종류의 정답 위에 올라간 것도 센다). 각주로 적는다.
 
-    슬롯 배정   순서를 없앤 것이 이득인가 (C2 — 학습 측 핵심 기여)
-    연결 타깃   거리를 섞지 않은 것이 이득인가 (C3)
-    끝 규약     끝칸을 비운 것이 이득인가 (Fig. 4 의 규약)
-    슬롯 수     R=2 로 충분한가 — 차선은 분기가 없으니 3은 낭비라는 가설
-    격자        stride 4 의 값을 하는가 (stride 8 은 계산이 4배 싸다)
-
-## 값의 출처
-
-    실행 12개의 log/{실행}/metrics.csv    ← stella/eval/runlog.py
-    비교는 **마지막 N 에폭 평균**으로 한다 (마지막 한 에폭은 크게 튄다 — 판정 규칙)
-    같은 디코더 설정으로 평가해야 한다. 실행마다 디코더가 다르면 표현의 효과가 아니다.
-
-## 함정 — 격자 축은 GT 캐시를 나눠야 한다
-
-stride 8 은 GT 맵의 크기 자체가 다르다. 캐시 폴더 이름이 같으면 stride 8 실행이
-stride 4 로 인코딩된 캐시를 조용히 읽는다. 로더가 캐시 이름에 stride 를 넣어 막고 있지만,
-**표를 만들 때 각 실행의 캐시 경로를 확인해 찍는다.**
-
-## 출력
-
-    table_07/table_07.csv · table_07.md
-
-## 상태
-
-**착수 전.** 실행 12개가 필요하다. `A1` 라운드(백본·윈도우·격자 6종)가 그중 격자 축을 다룬다.
+사용:
+    python scripts/tables/table_07.py --split val
 """
 
-# from table_base import PaperTable
-#
-#
-# class RepresentationAblationTable(PaperTable):
-#     """축마다 한 가지만 바꾼 ablation. 셀 단위 진단 세 열이 기전을 붙인다."""
-#
-#     name = "table_07"
-#     SPEC_TAG = "U"      # 3,000장·10에폭 — 캡션에 반드시 밝힌다
-#     AXES = ("slot_assign", "conn_target", "end_rule", "num_slots", "grid_stride")
-#     METRICS = ("f1", "coverage", "frag", "link_ok", "dir_err_deg", "match_ambiguity")
-#     AVG_LAST_EPOCHS = 3   # 마지막 한 에폭은 튄다 — N 에폭 평균으로 비교
-#
-#     def collect(self):
-#         raise NotImplementedError("설계는 위 docstring 참고")
+import argparse
+
+from table_base import (
+    BLANK,
+    TABLE_ROOT,
+    PaperTable,
+    change,
+    fresh,
+    number,
+    read_breakdown,
+    read_summary,
+    write_csv,
+    write_markdown,
+)
+
+# 블록마다 (제목 줄, ((조건, 방법), ...)). 블록마다 첫 행이 기준이다. 방법 이름은 `eval_methods.py`.
+# **제목 줄에 고정한 것을 한 번만 적는다 (교수 지시 09-30 · 사용자 확정 10-02)** — 구조 행은 전부
+# ConvNeXtV2-B 로 쟀는데 채택 백본은 L 이라, 적지 않으면 어느 백본의 결과인지 읽히지 않는다.
+# 칸마다 반복하면 바뀐 값이 묻혀 제목 줄로 올렸다. 백본·구조는 각 실행의 config.json 으로 확인했다.
+UPPER_BLOCKS = (
+    (
+        "백본 비교 — 어텐션 창 7 · 층 6 고정",
+        (
+            ("ConvNeXtV2-B (기준)", "u_cnxb"),
+            ("ConvNeXtV2-L (채택)", "u_cnxl"),
+            ("DINOv3-sat ViT-L", "u_dinov3"),
+            ("DINOv3-sat ViT-L (학습률 ×0.2)", "u_dinov3_lr02"),
+            ("Swin-B", "u_swinb"),
+            ("Swin-L", "u_swinl"),
+            ("ConvNeXtV2-B (동결)", "u_freeze"),
+            ("HRNet-W48 (고해상도 유지)", "u_hrnet"),
+        ),
+    ),
+    (
+        "구조 비교 — 백본 ConvNeXtV2-B 고정",
+        (
+            # 기준은 백본 블록의 첫 행과 같은 실행이다 — 구조 세 줄을 같은 학습 설정으로 다시
+            # 돌렸다(plan_1005 · R1). 같은 설정의 새 기준(r1_ctrl)은 0.3564 — 0.0015 차이.
+            ("창 7 · 층 6 (기준)", "u_cnxb"),
+            ("창 9 · 층 6", "r1_win9"),
+            ("창 7 · 층 4", "r1_deep4"),
+            ("창 7 · 층 3", "r1_deep3"),
+        ),
+    ),
+)
+UPPER_COLUMNS = ("조건", "inst F1", "ΔF1", "타일 수", "최대 메모리(GB)", "스텝(ms)")
+
+FINAL_METHOD = "stella"
+# 종류 이름 (코드 이름 → 논문 표기). 표의 행 순서는 F1 내림차순으로 정한다.
+CLASS_LABELS = {
+    "center_line": "중앙선",
+    "u_turn_zone_line": "유턴구역선",
+    "lane_line": "차선",
+    "bus_only_lane": "버스전용차로",
+    "edge_line": "길가장자리구역선",
+    "path_change_restriction_line": "진로변경제한선",
+    "no_parking_stopping_line": "주정차금지선",
+    "guiding_line": "유도선",
+    "stop_line": "정지선",
+    "bicycle_lane": "자전거도로",
+}
+LOWER_COLUMNS = (
+    "종류",
+    "코드 이름",
+    "정답 선 수",
+    "예측 선 수",
+    "inst F1",
+    "coverage",
+    "frag",
+    "중복 FP",
+    "헛검출 FP",
+)
+
+
+class Sensitivity(PaperTable):
+    """두 블록을 한 폴더에 낸다 — 폴더 단위 덮어쓰기 규약을 지키려고 `run` 을 한 번만 부른다."""
+
+    name = "table_07"
+
+    def __init__(self, split: str):
+        self.split = split
+
+    def run(self) -> None:
+        out_dir = fresh(TABLE_ROOT / self.name)
+        for suffix, columns, rows in (
+            ("upper", UPPER_COLUMNS, self.collect_upper()),
+            ("lower", LOWER_COLUMNS, self.collect_lower()),
+        ):
+            stem = f"{self.name}_{suffix}"
+            write_csv(out_dir / f"{stem}.csv", columns, rows)
+            write_markdown(out_dir / f"{stem}.md", columns, rows)
+            self.columns = columns
+            self.report_missing(rows)
+        print(f"[{self.name}] 저장 {out_dir}")
+
+    def collect_upper(self) -> list[dict]:
+        rows = []
+        for title, conditions in UPPER_BLOCKS:
+            rows.append(title_row(title))
+            base = None
+            for label, method in conditions:
+                payload = read_summary(method, "val")
+                f1 = payload.get("summary", {}).get("f1")
+                delta = "기준" if base is None else change(f1, base)
+                base = f1 if base is None else base
+                rows.append(upper_row(label, payload, delta))
+        return rows
+
+    def collect_lower(self) -> list[dict]:
+        per_class = read_breakdown(FINAL_METHOD, self.split).get("per_class", {})
+        names = sorted(
+            (name for name in CLASS_LABELS if name in per_class),
+            key=lambda name: per_class[name]["f1"],
+            reverse=True,
+        )
+        return [*(lower_row(name, per_class[name]) for name in names), self.total_row(per_class)]
+
+    def total_row(self, per_class: dict) -> dict:
+        """전체 행 — 점수는 주 비교표와 같은 전 종류 합산 채점, **개수는 전부 종류별 합**.
+
+        중복·헛검출 FP 도 종류별 합이다. 합산 채점의 두 값은 "다른 종류 정답 위"도 중복으로 세서
+        종류별 행과 기준이 달라, 행을 더한 값과 어긋났다(사용자 발견 10-05).
+        """
+        payload = read_summary(FINAL_METHOD, self.split)
+        scores = payload.get("summary", {})
+        keys = ("n_gt", "n_pred", "fp_redundant", "fp_spurious")
+        counts = {key: sum(item[key] for item in per_class.values()) for key in keys}
+        return {
+            "종류": "전체",
+            "코드 이름": "all",
+            "정답 선 수": str(counts["n_gt"]) if per_class else BLANK,
+            "예측 선 수": str(counts["n_pred"]) if per_class else BLANK,
+            "inst F1": number(scores.get("f1")),
+            "coverage": number(scores.get("coverage")),
+            "frag": number(scores.get("frag")),
+            "중복 FP": count(counts["fp_redundant"]) if per_class else BLANK,
+            "헛검출 FP": count(counts["fp_spurious"]) if per_class else BLANK,
+        }
+
+
+def title_row(title: str) -> dict:
+    """블록 제목 줄 — 조건 칸에만 글이 있고 나머지는 빈 문자열(빈칸 집계에서 빠진다)."""
+    return {column: "" for column in UPPER_COLUMNS} | {"조건": f"[{title}]"}
+
+
+def upper_row(label: str, payload: dict, delta: str) -> dict:
+    return {
+        "조건": label,
+        "inst F1": number(payload.get("summary", {}).get("f1")),
+        "ΔF1": delta if payload else BLANK,
+        "타일 수": str(payload.get("tiles", BLANK)),
+    }
+
+
+def lower_row(name: str, scores: dict) -> dict:
+    return {
+        "종류": CLASS_LABELS[name],
+        "코드 이름": name,
+        "정답 선 수": str(scores["n_gt"]),
+        "예측 선 수": str(scores["n_pred"]),
+        "inst F1": number(scores["f1"]),
+        "coverage": number(scores["coverage"]),
+        "frag": number(scores["frag"]),
+        "중복 FP": count(scores["fp_redundant"]),
+        "헛검출 FP": count(scores["fp_spurious"]),
+    }
+
+
+def count(value) -> str:
+    return BLANK if value is None else str(int(value))
+
+
+def main() -> None:
+    args = parse_args()
+    Sensitivity(args.split).run()
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--split", default="val", help="하단은 7단계 이후 test 로 낸다")
+    return parser.parse_args()
+
+
+if __name__ == "__main__":
+    main()

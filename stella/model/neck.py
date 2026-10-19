@@ -29,7 +29,7 @@ class Neck(nn.Module, Buildable):
     def from_cfg(cls, module_cfg, cfg, **kwargs):
         """호출부(StellaModel)는 모든 neck이 쓸 수 있는 런타임 값을 한꺼번에 넘긴다.
 
-        계열마다 필요한 값이 다르므로(SFP만 `upsample_steps`를 쓴다) 시그니처로 거른다.
+        계열마다 필요한 값이 다르므로(예: `out_blocks`는 FPNLite 전용) 시그니처로 거른다.
         """
         accepted = inspect.signature(cls).parameters
         return super().from_cfg(
@@ -85,19 +85,31 @@ class SFP(Neck):
 
 
 class FPNLite(Neck):
-    """멀티스케일 백본용 — 레벨별 출력을 만들지 않고 stride-4 한 레벨만 내보낸다.
+    """멀티스케일 백본용 — 레벨별 출력을 만들지 않고 가장 촘촘한 한 레벨만 내보낸다.
 
-    `out_blocks`는 출력단 3x3 블록 수다. 격자 해상도(192x192)에서 이웃 셀 문맥을 얼마나
-    섞을지를 정하며, 연결 방향 예측이 국소 문맥에 의존한다는 가설을 시험할 손잡이다.
+    `out_blocks`는 출력단 3x3 블록 수다. 격자 해상도에서 이웃 셀 문맥을 얼마나 섞을지를
+    정하며, 연결 방향 예측이 국소 문맥에 의존한다는 가설을 시험할 손잡이다.
+
+    `upsample_steps`는 **백본의 가장 촘촘한 stride 보다 격자가 더 촘촘할 때** 쓴다 —
+    stride 4 백본으로 `grid_stride=2` 격자를 낼 때가 그렇다(호출부가 계산해 넘긴다).
+    0이면 아무것도 얹지 않으므로 기존 동작(stride 4)이 그대로다.
     """
 
-    def __init__(self, *, in_channels: tuple[int, ...], d_model: int, out_blocks: int = 1):
+    def __init__(
+        self,
+        *,
+        in_channels: tuple[int, ...],
+        d_model: int,
+        out_blocks: int = 1,
+        upsample_steps: int = 0,
+    ):
         super().__init__()
         self.check_levels(in_channels, 4, "FPNLite")
         self.lateral = nn.ModuleList(
             nn.Sequential(nn.Conv2d(c, d_model, kernel_size=1), _group_norm(d_model))
             for c in in_channels
         )
+        self.upsample = nn.Sequential(*_refine_upsample(d_model, upsample_steps))
         self.output_conv = nn.Sequential(*_output_blocks(d_model, out_blocks))
 
     def forward(self, features: list[torch.Tensor]) -> torch.Tensor:
@@ -106,7 +118,24 @@ class FPNLite(Neck):
             lateral = self.lateral[level](features[level])
             upsampled = F.interpolate(merged, size=lateral.shape[-2:], mode="nearest")
             merged = lateral + upsampled
-        return self.output_conv(merged)
+        return self.output_conv(self.upsample(merged))
+
+
+def _refine_upsample(d_model: int, steps: int) -> list[nn.Module]:
+    """채널 수를 유지한 채 2배씩 `steps`번 올린다. 0이면 빈 목록 — 기존 동작을 바꾸지 않는다.
+
+    `SFP._build_upsample` 과 형태가 비슷하지만 하는 일이 다르다. 그쪽은 백본 채널을
+    `d_model` 로 **바꾸면서** 피라미드를 세우고, 이쪽은 이미 `d_model` 인 지도를 더 촘촘하게
+    **다듬기만** 한다 (steps=0 에서 1x1 투영조차 넣지 않아야 한다).
+    """
+    layers: list[nn.Module] = []
+    for _ in range(steps):
+        layers += [
+            nn.ConvTranspose2d(d_model, d_model, kernel_size=2, stride=2),
+            LayerNorm2d(d_model),
+            nn.GELU(),
+        ]
+    return layers
 
 
 def _output_blocks(d_model: int, count: int) -> list[nn.Module]:

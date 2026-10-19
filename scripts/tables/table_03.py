@@ -1,72 +1,101 @@
-"""Table III — 파라미터 전량 명세 (V절, 2단). **미구현 — 설계만 적어 둔다.**
+"""Table III — 주 비교 (VI-A, 2단) ★ 이 논문의 생사를 가르는 표.
 
-## 무엇이 들어가나
+**값의 출처는 5단계 요약 파일 하나다** — `paper/score/{방법}_{split}/summary.json`.
+그 파일은 `scripts/eval_methods.py` 가 만들고, 여섯 조건이 기존 값과 소수 넷째 자리까지
+일치하는 것을 확인했다(`experiment/result_0916b.md`).
 
-    기호 | 값 | **미터 환산** | 의미 | 어디서 정했나
+행 구성(설계 `docs/paper_outline.md` §4):
 
-    모델    격자 간격 s, 격자 한 변 L, 슬롯 수 R, 토큰 수 K, d_model, 층 수, 윈도우 w, n_max
-    디코더  radius, align_thresh, opp_thresh, end_thresh, exist_thresh, w_dist, w_opp,
-            min_class_prob, purity_thresh, end_extend, max_turn_deg, min_points, merge_gap
+    Seg + skeleton + Douglas–Peucker      분할 비교 대상
+    Sat2Graph GTE (각도 섹터 + 변위 회귀)  출력 표현만 바꾼 비교 대상 — 같은 backbone/neck
+    STELLA (ours), 후처리 없음
+    STELLA (ours) + 후처리                 채택
 
-## 왜 필요한가
+**유도선 F1 열은 뺐다**(교수 지시 09-30 — 유도선을 굳이 강조할 필요 없다).
+**Chamfer 거리 열을 더했다**(같은 지시) — 값은 `scripts/eval_chamfer.py` 가 남긴 `chamfer.json`.
+이 열에서는 분할 방식이 이긴다(9.50 vs 14.61 px) — 통째로 놓친 선이 거리를 키운다.
+본문 VI-A 에 이유를 쓴다.
 
-직전 논문 심사에서 **R3-3b 가 13개 항목을 열거하며 요구한 것이 정확히 이 표**다.
-그리고 미터 병기가 **R2-3(GSD 명시)에 동시에 답한다**.
+**#pred 는 후처리 전/후를 나란히 본다** — "후처리가 선을 줄이기만 한다"는 서술의 수치다.
 
-부수 효과가 하나 더 있다 — **의사코드에 값을 넣지 않고 기호만 쓸 수 있게 된다.**
-Algorithm 1·2 가 짧아지고, 값의 단일 출처가 이 표 하나로 생긴다.
-
-## 미터 환산
-
-    GSD = 0.2550 m/px      1픽셀이 지상에서 몇 미터인가
-    타일 768 px = 195.8 m
-    격자 한 칸 4 px = 1.02 m
-
-거리 단위 파라미터에만 미터 열을 채우고, 문턱·가중치 같은 무차원 값은 `–` 로 둔다.
-**0 과 "해당 없음"이 같은 칸에 보이면 안 된다.**
-
-## "어디서 정했나" 열이 이 표의 정직성이다
-
-세 등급으로 적는다.
-
-    설계    문서에서 정한 값 (R=2, D=2)
-    실측    데이터를 재서 정한 값 (n_max 9,500 — 실측 최대 8,909)
-    스윕    실험으로 고른 값 (radius 5, w_dist 0.072, min_points 8, merge_gap 24)
-
-**설계 문서의 값과 실측이 다르면 실측을 따른다**는 것이 이 프로젝트의 규칙이고,
-그 규칙의 결과가 이 열에 그대로 드러난다. 숨기지 않는 것이 낫다 —
-`w_dist` 는 설계 문서가 "폐기"로 적어 둔 값인데 스윕에서 되살아나 F1 을 33% 올렸다.
-
-## 값의 출처 — config 에서 뽑는다
-
-`configs/base.py`(F 규격)의 dataclass 를 직접 읽는다. **손으로 적지 않는다** —
-이 표가 논문이 보고하는 결과를 만든 그 설정과 어긋나면 표의 존재 이유가 사라진다.
-
-기호·의미·"어디서 정했나"는 코드에서 나오지 않으므로 이 스크립트 안의 상수 표에 둔다.
-**config 에 있는데 상수 표에 없는 파라미터가 나오면 경고를 찍는다** — 새 파라미터를
-추가하고 표에 넣는 것을 잊는 사고를 막는다.
-
-## 출력
-
-    table_03/table_03.csv · table_03.md
-
-## 상태
-
-**착수 전.** 실험이 필요 없다. 다만 **실험이 끝나 파라미터가 확정된 뒤에 다시 돌려야** 한다.
+사용:
+    python scripts/tables/table_03.py --split val
 """
 
-# from table_base import PaperTable
-#
-#
-# class ParameterSpecTable(PaperTable):
-#     """config 에서 값을 읽고, 기호·의미·근거는 상수 표에서 붙인다."""
-#
-#     name = "table_03"
-#     COLUMNS = ("기호", "값", "미터", "의미", "어디서 정했나")
-#     GSD_M_PER_PX = 0.2550
-#     CONFIG_MODULE = "configs.base"
-#     # SPEC = [("s", "data.grid_stride", "격자 간격", "설계", True), ...]
-#     #        (기호, config 점 경로, 의미, 근거 등급, 미터 환산 여부)
-#
-#     def collect(self):
-#         raise NotImplementedError("설계는 위 docstring 참고")
+import argparse
+import json
+
+from table_base import BLANK, SCORE_ROOT, PaperTable, number, read_summary
+
+# (논문 행 이름, 표현, 5단계 방법 이름). 비교 대상은 둘이다 — AerialLaneNet 은 뺐다
+# (교수 미팅 09-23 · `experiment/meeting_0923.md` 3절). GTE 는 **변위 회귀까지 갖춘 판**이다 —
+# 각도 섹터만 가져온 판(`gte`)은 Table VI 의 한 행으로 남는다.
+ROWS = (
+    ("Seg + skeleton + Douglas–Peucker", "면", "seg_dp"),
+    ("Sat2Graph GTE (각도 섹터 + 변위 회귀)", "셀·섹터", "gte_delta"),
+    ("STELLA (ours), 후처리 없음", "셀·매칭", "stella_nopost"),
+    ("STELLA (ours) + 후처리", "셀·매칭", "stella"),
+)
+COLUMNS = (
+    "방법",
+    "표현",
+    "inst F1",
+    "precision",
+    "recall",
+    "coverage",
+    "frag",
+    "RMS(px)",
+    "Chamfer(px)",
+    "#pred",
+)
+GSD_M = 0.255  # 픽셀 하나가 덮는 실제 거리 — RMS 를 미터로도 적을 때 쓴다
+
+
+class MainComparison(PaperTable):
+    name = "table_03"
+    columns = COLUMNS
+
+    def __init__(self, split: str):
+        self.split = split
+
+    def collect(self) -> list[dict]:
+        return [self._row(label, kind, method) for label, kind, method in ROWS]
+
+    def _row(self, label: str, kind: str, method: str) -> dict:
+        payload = read_summary(method, self.split)
+        scores = payload.get("summary", {})
+        return {
+            "방법": label,
+            "표현": kind,
+            "inst F1": number(scores.get("f1")),
+            "precision": number(scores.get("precision")),
+            "recall": number(scores.get("recall")),
+            "coverage": number(scores.get("coverage")),
+            "frag": number(scores.get("frag")),
+            "RMS(px)": number(scores.get("rms"), 2),
+            "Chamfer(px)": number(read_chamfer(method, self.split).get("chamfer"), 2),
+            "#pred": number(payload.get("pred_per_tile"), 1),
+        }
+
+
+def read_chamfer(method: str, split: str) -> dict:
+    """`scripts/eval_chamfer.py` 의 결과. 없으면 빈 dict — 표는 빈칸으로 남는다."""
+    path = SCORE_ROOT / f"{method}_{split}" / "chamfer.json"
+    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+
+
+def main() -> None:
+    args = parse_args()
+    table = MainComparison(args.split)
+    table.run()
+    print(f"[table_03] split={args.split} · 빈 칸 기호 {BLANK} · RMS 는 px (× {GSD_M} = m)")
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--split", default="val", help="결과 표는 7단계 이후 test 로 낸다")
+    return parser.parse_args()
+
+
+if __name__ == "__main__":
+    main()

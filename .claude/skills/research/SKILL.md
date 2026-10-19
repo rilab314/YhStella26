@@ -1,5 +1,5 @@
 ---
-name: improve-loop
+name: research
 description: STELLA 차선 검출 모델의 성능 개선 루프를 팀장(메인)-팀원(서브 에이전트) 체제로 운영한다. 4 GPU를 슬롯으로 관리해 실험을 동시 실행하고, 손실 균형·셀 단위 진단으로 병목을 찾고, 결과를 판정·병합·커밋하며 experiment/에 일지와 계획을 남긴다. "성능 개선", "실험 계속", "다음 실험", "improve loop" 요청이나 무인 실행에 쓴다.
 version: 4.0.0
 ---
@@ -67,7 +67,7 @@ GitHub에서 PR을 읽으므로, PR 본문은 **그 자체로 완결된 보고�
 
 ```bash
 cat experiment/STATE.md                                # 상태 (유일한 필독 일지)
-bash .claude/skills/improve-loop/resources.sh          # 지금 무엇이 돌고 있나
+bash .claude/skills/research/resources.sh          # 지금 무엇이 돌고 있나
 git log --oneline -3 && git status --short             # 최신 main인가
 ```
 
@@ -93,22 +93,22 @@ git log --oneline -3 && git status --short             # 최신 main인가
 
 ---
 
-## 3. 자원 원장 — 4 GPU / 32 CPU / 251 GB
+## 3. 자원 원장 — 2 GPU / 64 CPU / 125 GB  (08-31 새 기계 기준)
 
 > **GPU는 끝까지 쓴다. CPU·메모리는 여유를 남긴다.**
 >
 > 이 기계는 사람이 같이 쓴다 — 원격 데스크톱·에디터·Claude가 **같은 CPU** 위에서 돈다.
 > 사용자가 md 파일을 여는 것이 느려지면 안 되므로 CPU·RAM은 절반쯤 비워 둔다.
-> **반면 GPU는 사람이 쓰지 않는다. 4장을 놀리지 말고 꽉 채운다** — 슬롯이 비면 즉시 채운다.
+> **반면 GPU는 사람이 쓰지 않는다. 2장을 놀리지 말고 꽉 채운다** — 슬롯이 비면 즉시 채운다.
 > 즉 "자원을 아낀다"가 아니라 **"CPU만 아끼고 GPU는 최대로"** 다.
 
 | 자원 | 배분 규칙 |
 | --- | --- |
-| **GPU 슬롯 4** | **최대한 채운다.** U arm 1개 = 1슬롯. F = 4슬롯(배타적). D = 0슬롯 |
-| **CPU 32코어** | **코어를 미리 떼어 둔다** — `cfg.cpu.reserved_cores`(기본 10)만큼은 항상 사람 몫. 내 프로세스는 `0-21`에만 붙는다. 부하 숫자를 쫓지 말고 **내 예산(22코어) 안에 있는지**를 본다 |
+| **GPU 슬롯 2** | **최대한 채운다.** U arm 1개 = 1슬롯. F = 2슬롯(배타적). D = 0슬롯. ⚠️ VRAM 이 96 GB/장이라 **한 장에 arm 을 여럿 얹을 수 있을지 모른다** — 2단계 착수 전 실측으로 정한다 |
+| **CPU 64코어** | **코어를 미리 떼어 둔다** — `cfg.cpu.reserved_cores`(기본 17)만큼은 항상 사람 몫. 내 프로세스는 `0-46`에만 붙는다. 부하 숫자를 쫓지 말고 **내 예산(47코어) 안에 있는지**를 본다 |
 | **우선순위** | 내가 띄운 모든 무거운 프로세스는 **`nice -n 15`** — 대화형이 항상 앞선다 |
-| **RAM 251 GB** | **사용량 ≤ 160 GB (약 2/3)**. 남는 것은 페이지 캐시로 두어 파일 열기를 빠르게 |
-| **VRAM 24 GB/장** | 한 장에 학습 하나. 예측 덤프를 얹을 때만 `--memory-fraction 0.22` |
+| **RAM 125 GB** | **사용량 ≤ 80 GB (약 2/3)**. 남는 것은 페이지 캐시로 두어 파일 열기를 빠르게 |
+| **VRAM 96 GB/장** | 옛 기계(24 GB)의 4배다. 지금 규칙은 **한 장에 학습 하나** — 여러 개를 얹는 것은 실측 뒤에 |
 
 **워커 예산 (합쳐서 16을 넘기지 않는다)**
 
@@ -127,15 +127,15 @@ git log --oneline -3 && git status --short             # 최신 main인가
 | --- | --- |
 | `torch_threads` (기본 2) | 프로세스당 intra-op 스레드. **이걸 안 걸면 torch가 32코어를 다 잡는다** |
 | `interop_threads` (기본 1) | 프로세스당 inter-op 스레드 |
-| `reserved_cores` (기본 10) | 사람 몫으로 남길 코어. 학습은 나머지(0~21)에만 붙는다 |
-| `cores` | `"0-21"`처럼 직접 지정. 비면 `reserved_cores`로 계산 |
+| `reserved_cores` (기본 17) | 사람 몫으로 남길 코어. 학습은 나머지(0~46)에만 붙는다 |
+| `cores` | `"0-46"`처럼 직접 지정. 비면 `reserved_cores`로 계산 |
 
 `stella/train/train.py`와 `scripts/eval_decode.py`가 진입 직후 `CpuBudget.apply()`를 부른다.
 **코어 친화도는 자식이 물려받는다**(데이터로더 워커 포함).
 
 이미 돌고 있는 프로세스에 뒤늦게 걸려면:
 ```bash
-for pid in $(pgrep -f "stella.train.train|run_experiments.py"); do taskset -cp 0-21 $pid; done
+for pid in $(pgrep -f "stella.train.train|run_experiments.py"); do taskset -cp 0-46 $pid; done
 ```
 
 ### 3.1. 반드시 `nice`로 띄운다
@@ -200,7 +200,11 @@ done
 | GPU | 무엇 | 왜 |
 | --- | --- | --- |
 | **0·1** | **F 규격 상시 가동** — 최신 main 으로 전체 학습 | 지금까지의 성과가 전체 데이터에서도 성립하는지 **항상** 검증 중이어야 한다 |
-| 2·3 | U 규격 arm 2개 (또는 D 트랙) | 새 가설을 계속 시험한다 |
+
+⚠️ **08-31 새 기계는 GPU 2장뿐이다.** 옛 기계는 4장이라 `0·1`=F · `2·3`=U 로 나눠 썼지만,
+지금은 **F 를 띄우면 U arm 자리가 없다.** 둘 중 하나를 골라야 하고, 그 선택은 2단계 착수
+직전에 **VRAM 실측**(96 GB/장에 arm 을 몇 개 얹을 수 있나)을 보고 정한다 — 여러 개가 얹히면
+옛 배치를 그대로 되살릴 수 있다.
 
 - **사람 승인을 기다리지 않는다.** F 실행 착수는 이제 자율 판단이다.
 - F 가 끝나면 **바로 다음 F 를 띄운다** — 그동안 병합된 변경을 얹어서. 비어 두지 않는다.
@@ -320,7 +324,7 @@ while pgrep -f my_script >/dev/null; do sleep 20; done # X — 무한 루프
 nohup setsid nice -n 15 .venv/bin/python scripts/dispatch.py &
 
 # (B) 감시자 — 자원이 비면 종료하고, 그 종료 알림이 나를 깨운다
-bash .claude/skills/improve-loop/watch.sh        # run_in_background: true 로 띄운다
+bash .claude/skills/research/watch.sh        # run_in_background: true 로 띄운다
 ```
 
 `dispatch.py`는 **실험 실행과 기록까지만** 한다 — 커밋·푸시·PR·병합·삭제는 하지 않는다.

@@ -82,6 +82,10 @@ SLOT_COLOR = ((255, 0, 0), (0, 255, 0), (0, 0, 255))
 
 # collate에서 stack하지 않고 list로 유지하는 키
 LIST_KEYS = ("instances", "meta")
+# 모든 샘플이 반드시 갖는 GT 키. 캐시 판독도 이 목록으로 검사한다 (seedmap).
+TARGET_KEYS = ("class_map", "coord_map", "end_map", "conn_dirs", "length_map")
+# 설정에 따라 있을 수도 없을 수도 있는 GT 키 — 있으면 샘플·캐시에 함께 실린다.
+OPTIONAL_TARGET_KEYS = ("conn_lengths",)
 
 
 def rarity_order(num_classes: int) -> np.ndarray:
@@ -101,6 +105,7 @@ class GridDatasetBase(Dataset):
     | `coord_map` | float32 | (L, L, 2)    | 소유 선 픽셀의 무게중심, 원점 = 셀 좌상단          |
     | `end_map`   | float32 | (L, L)       | 이 셀이 사슬의 끝 셀인지 — 직접 감독 대상 (8.2절)    |
     | `conn_dirs` | float32 | (L, L, D, 2) | 연결 방향 2개 — 자기 점 -> 사슬 이웃 점 단위벡터    |
+    | `conn_lengths`| float32 | (L, L, D)  | 분기 길이(셀). **선택 키** (`conn_store_length`)   |
     | `length_map`| float32 | (L, L)       | 셀이 속한 선의 길이(소유 셀 수). 배경 0 (8.2절)     |
     | `instances` | list    | —            | 평가용 원본 폴리라인. 학습 미사용                 |
     | `meta`      | dict    | —            | filename 등                           |
@@ -123,7 +128,7 @@ def make_sample(
     """계약에 맞는 한 샘플을 만든다. image는 (H, W, 3) float32 [0, 1]."""
     chw = np.ascontiguousarray(image.transpose(2, 0, 1), dtype=np.float32)
     sample: dict[str, Any] = {"image": torch.from_numpy(chw)}
-    for key in ("class_map", "coord_map", "end_map", "conn_dirs", "length_map"):
+    for key in TARGET_KEYS + tuple(k for k in OPTIONAL_TARGET_KEYS if k in target):
         sample[key] = torch.from_numpy(np.ascontiguousarray(target[key]))
     sample["instances"] = instances
     sample["meta"] = meta

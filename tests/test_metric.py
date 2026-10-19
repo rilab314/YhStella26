@@ -4,7 +4,7 @@ import numpy as np
 
 from configs.exp_synthetic import get_config
 from stella.builder import build_instance
-from stella.eval import runlog
+from stella.eval import ccq, runlog
 
 
 def make_metric(**overrides):
@@ -99,6 +99,23 @@ def test_lane_switch_is_not_a_true_positive():
     assert float(result["correctness"]) < 0.6  # 절반만 한 선 위에 있다
 
 
+def test_prediction_on_another_line_cannot_claim_a_short_gt():
+    """짝지어진 GT 가 아닌 **다른 선** 위에 있는 예측은 TP 가 될 수 없다 (paper_outline §7-⓪).
+
+    C2 를 "가장 잘 맞는 GT 하나"로 재던 시절에는 아래가 **만점(f1=1.0)** 이었다 — 짧은 GT 를
+    통째로 놓치고 긴 GT 위에 선을 두 개 그렸는데도. 두 번째 예측이 긴 GT 기준 값으로 문턱을
+    통과한 뒤, 짝은 짧은 GT 와 맺었기 때문이다. 지금은 **짝지어진 그 GT** 기준으로 잰다.
+    """
+    metric = make_metric()
+    truth = [line(0, 100, 100), line(0, 400, 101)]  # 짧은 선 + 그 옆을 지나는 긴 선
+    on_long_line = [line(0, 400, 101), line(0, 400, 102)]  # 둘 다 긴 선 위에 있다
+    metric.update(on_long_line, truth)
+    result = metric.compute()
+    assert float(result["recall"]) == 0.5  # 짧은 선은 놓쳤다
+    assert float(result["fp_redundant"]) == 1.0  # 겹쳐 그린 쪽은 남는 예측이다
+    assert float(result["f1"]) < 0.7
+
+
 def test_single_lane_prediction_survives_the_narrow_buffer():
     """갈아탐을 잡겠다고 좁힌 버퍼가 정상 예측까지 죽이면 안 된다 (위 검사의 짝)."""
     metric = make_metric()
@@ -149,6 +166,31 @@ def test_best_checkpoint_without_scores_returns_none(tmp_path):
     assert runlog.best_checkpoint(run) is None
 
 
+def test_safety_zone_is_excluded_by_default():
+    """**기본 채점은 10종이다** — `safety_zone` 은 면으로 칠해진 영역이라 선으로 못 찾는다.
+
+    실측 f1 0.056. 08-31 기본값으로 뺐다 (paper_outline §7-⓪ 후속). `guiding_line`(8)은
+    얽혀 있어도 **남긴다**(사용자 결정 08-27) — 누가 같이 빼면 이 검사가 걸린다.
+    """
+    cfg = get_config()
+    assert cfg.eval.exclude_classes == (0, 10)
+    truth = [line(10, 500, 100, label=3), line(10, 500, 300, label=10)]
+    metric = make_metric()
+    metric.update([dict(truth[0])], truth)  # safety_zone 을 통째로 놓쳤다
+    result = metric.compute()
+    assert float(result["recall"]) == 1.0  # 빠진 종류라 놓쳐도 감점이 없다
+    assert not any(key.endswith("/safety_zone") for key in result)
+    assert any(key.endswith("/guiding_line") for key in make_guiding_result())
+
+
+def make_guiding_result():
+    """`guiding_line` 이 채점에 **남아 있는지** 확인하기 위한 최소 실행."""
+    metric = make_metric()
+    truth = [line(10, 500, 100, label=8)]
+    metric.update([dict(truth[0])], truth)
+    return metric.compute()
+
+
 def test_excluded_class_leaves_every_score():
     """제외한 종류는 **전체 점수·종류별 평균·종류별 행에서 모두** 빠진다.
 
@@ -166,3 +208,35 @@ def test_excluded_class_leaves_every_score():
     assert float(result["recall"]) == 1.0  # 8번을 빼면 남은 하나를 다 맞혔다
     assert float(result["f1"]) == 1.0
     assert not any(key.endswith("/guiding_line") for key in result)
+
+
+def test_labels_agree_with_counts():
+    """선마다 돌려준 판정이 채점 누적값과 같은 짝을 쓴다 — 확인용 그림의 전제다."""
+    metric = make_metric()
+    truth = [line(0, 400, 100), line(0, 400, 300), line(0, 400, 500)]
+    pred = [line(0, 260, 100), line(270, 400, 100), line(0, 400, 200), line(0, 400, 500)]
+    gt_labels, pred_labels = metric.label_instances(pred, truth)
+    metric.update(pred, truth)
+    result = metric.compute()
+    assert gt_labels == [ccq.TP, ccq.FN, ccq.TP]
+    assert pred_labels == [ccq.TP, ccq.FP_REDUNDANT, ccq.FP_SPURIOUS, ccq.TP]
+    assert pred_labels.count(ccq.TP) == round(float(result["precision"]) * len(pred))
+
+
+def test_labels_mark_excluded_and_degenerate_lines():
+    """제외 종류와 점 하나짜리 선은 자리를 지킨 채 `EXCLUDED` 로 남는다."""
+    metric = make_metric(exclude_classes=(10,))
+    degenerate = {"class": 3, "points": np.array([[5.0, 5.0]], dtype=np.float32)}
+    truth = [line(0, 400, 100, label=10), degenerate, line(0, 400, 300)]
+    gt_labels, pred_labels = metric.label_instances([line(0, 400, 300)], truth)
+    assert gt_labels == [ccq.EXCLUDED, ccq.EXCLUDED, ccq.TP]
+    assert pred_labels == [ccq.TP]
+
+
+def test_excluded_class_leaves_fp_split_counts():
+    """중복·헛검출 FP 개수에서도 제외 종류가 빠진다 — Table VII 전체 행이 97개 어긋났었다."""
+    metric = make_metric()
+    metric.update([line(10, 500, 300, label=10)], [line(10, 500, 100, label=3)])  # 안전지대 헛검출
+    result = metric.compute()
+    assert float(result["fp_spurious"]) == 0.0
+    assert float(result["fp_redundant"]) == 0.0

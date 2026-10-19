@@ -21,12 +21,17 @@ import numpy as np
 from stella.builder import Buildable
 from stella.data.augment import VectorAugment
 from stella.data.encode import ChainEncoder
-from stella.data.types import CATEGORY_ID_TO_LABEL, GridDatasetBase, make_sample
+from stella.data.types import (
+    CATEGORY_ID_TO_LABEL,
+    OPTIONAL_TARGET_KEYS,
+    TARGET_KEYS,
+    GridDatasetBase,
+    make_sample,
+)
 
 DEFAULT_GRID_STRIDE = 4  # 이 값일 때만 캐시 폴더 이름에 접미사가 붙지 않는다
 SPLITS = ("train", "val", "test")
 CACHED_SPLITS = {"val_test": ("val", "test"), "all": ("train", "val", "test"), "none": ()}
-TARGET_KEYS = ("class_map", "coord_map", "end_map", "conn_dirs", "length_map")
 
 
 class SeedMapDataset(GridDatasetBase, Buildable):
@@ -41,6 +46,7 @@ class SeedMapDataset(GridDatasetBase, Buildable):
         max_degree: int,
         encode_supersample: int,
         conn_lookahead: int,
+        conn_store_length: bool,
         augment: bool,
         aug_rotate_deg: float,
         aug_scale_jitter: float,
@@ -59,7 +65,9 @@ class SeedMapDataset(GridDatasetBase, Buildable):
             max_degree=max_degree,
             supersample=encode_supersample,
             conn_lookahead=conn_lookahead,
+            store_length=conn_store_length,
         )
+        self.target_keys = TARGET_KEYS + (OPTIONAL_TARGET_KEYS if conn_store_length else ())
         use_aug = augment and split == "train"
         self.augment = (
             VectorAugment(
@@ -102,6 +110,8 @@ class SeedMapDataset(GridDatasetBase, Buildable):
         parts = []
         if self.encoder.conn_lookahead != 1:
             parts.append(f"look{self.encoder.conn_lookahead}")
+        if self.encoder.store_length:
+            parts.append("len")
         if self.encoder.grid_stride != DEFAULT_GRID_STRIDE:
             parts.append(f"s{self.encoder.grid_stride}")
         return "".join(f"_{p}" for p in parts)
@@ -171,9 +181,9 @@ class SeedMapDataset(GridDatasetBase, Buildable):
             return None
         try:
             with np.load(path) as data:
-                if any(key not in data for key in TARGET_KEYS):
+                if any(key not in data for key in self.target_keys):
                     return None  # 구 인코더 캐시 — 미스로 취급하고 새 형식으로 덮어쓴다
-                target = {key: data[key] for key in TARGET_KEYS}
+                target = {key: data[key] for key in self.target_keys}
                 instances = _unpack_instances(data)
         except (OSError, ValueError, EOFError):
             return None  # 손상된 캐시는 미스로 취급하고 다시 만든다 (학습을 죽이지 않는다)

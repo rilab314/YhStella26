@@ -27,6 +27,7 @@ from stella.data.types import GridDatasetBase, collate_fn
 from stella.decode.cache import save_prediction
 from stella.eval import runlog
 from stella.model.inject import gt_model_output
+from stella.model.tta import GRID_SYMMETRIES, SLOT_MATCHED, SLOT_SINGLE, GridSymmetryTTA
 
 MODEL_PREFIX = "model."
 
@@ -48,7 +49,7 @@ def dump(args: argparse.Namespace, cfg, loader: DataLoader, out_dir: Path) -> in
         return dump_gt(loader, cfg, out_dir, args.count)
     cap_memory(args.memory_fraction, args.device)
     ckpt = args.ckpt or _latest_ckpt(args.run)
-    return dump_model(loader, cfg, out_dir, args.count, ckpt, args.device, args.allow_missing)
+    return dump_model(loader, cfg, out_dir, args.count, ckpt, args)
 
 
 def parse_args() -> argparse.Namespace:
@@ -65,6 +66,15 @@ def parse_args() -> argparse.Namespace:
     # 학습이 도는 GPU에 얹을 때 쓴다. 상한을 넘으면 **이 프로세스만** 죽고 학습은 무사하다.
     parser.add_argument("--memory-fraction", type=float, default=0.0, help="0이면 제한 없음")
     parser.add_argument("--allow-missing", action="store_true", help="가중치 불일치를 허용")
+    # 추론 시각 증강(TTA) — 격자 대칭 8가지로 추론해 평균한다 (2-5축, plan_0908).
+    parser.add_argument("--tta", action="store_true", help="8뷰 평균으로 예측한다")
+    parser.add_argument("--tta-min-views", type=int, default=1, help="노드로 남길 최소 뷰 수")
+    parser.add_argument(
+        "--tta-slot-mode",
+        default=SLOT_SINGLE,
+        choices=(SLOT_SINGLE, SLOT_MATCHED),
+        help="연결 슬롯 합치는 법 — single(한 뷰) 또는 matched(짝 맞춰 평균)",
+    )
     return parser.parse_args()
 
 
@@ -104,8 +114,10 @@ def dump_gt(loader: DataLoader, cfg, out_dir: Path, count: int) -> int:
     return written
 
 
-def dump_model(loader, cfg, out_dir: Path, count: int, ckpt: str, device: str, allow: bool) -> int:
-    model = load_model(cfg, ckpt, device, allow)
+def dump_model(loader, cfg, out_dir: Path, count: int, ckpt: str, args) -> int:
+    device = args.device
+    model = load_model(cfg, ckpt, device, args.allow_missing)
+    predict = _build_predictor(model, args)
     written = 0
     with torch.no_grad():
         for batch in loader:
@@ -113,11 +125,27 @@ def dump_model(loader, cfg, out_dir: Path, count: int, ckpt: str, device: str, a
                 break
             image = batch["image"].to(device)
             with torch.autocast(device_type=device.split(":")[0], dtype=torch.bfloat16):
-                output = model(image)
+                output = predict(image)
             single = output[0].detach_cpu()
             save_prediction(out_dir / f"{_stem(batch, written)}.npz", single, batch["instances"][0])
             written += 1
     return written
+
+
+def _build_predictor(model, args):
+    """TTA 를 켜면 8뷰 평균, 아니면 그냥 모델 한 번 — 호출부는 같은 모양으로 쓴다."""
+    if not args.tta:
+        return model
+    tta = GridSymmetryTTA(
+        symmetries=GRID_SYMMETRIES,
+        min_views=args.tta_min_views,
+        slot_mode=args.tta_slot_mode,
+    )
+    print(
+        f"[dump] TTA 켜짐 — 뷰 {len(GRID_SYMMETRIES)}가지 · 최소 뷰 {args.tta_min_views}"
+        f" · 슬롯 {args.tta_slot_mode}"
+    )
+    return lambda image: tta.predict(model, image)
 
 
 def cap_memory(fraction: float, device: str) -> None:
@@ -187,6 +215,9 @@ def write_meta(out_dir: Path, cfg, args: argparse.Namespace, count: int) -> None
         "num_slots": cfg.model.num_conn_slots,
         "split": args.split,
         "source": args.source,
+        "tta": bool(args.tta),
+        "tta_min_views": args.tta_min_views if args.tta else 0,
+        "tta_slot_mode": args.tta_slot_mode if args.tta else "",
         "run": args.run,
         "count": count,
     }
