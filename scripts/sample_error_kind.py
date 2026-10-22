@@ -18,6 +18,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from configs.schema import DATA_ROOT as _DATA_ROOT
 from stella.builder import build_instance
 from stella.config_io import load_config
 from stella.data.types import CLASS_NAMES, GridDatasetBase
@@ -26,7 +27,7 @@ from stella.eval.instance_io import load_instances
 from stella.eval.methods import target_tiles
 from stella.train import viz
 
-PAPER_ROOT = Path("/data/ongoing/2026_stella/paper")
+PAPER_ROOT = Path(_DATA_ROOT) / "paper"  # STELLA_DATA_ROOT 로 바꾼다
 OUT_ROOT = Path(__file__).resolve().parents[1] / "experiment" / "data" / "e5"
 SEED = 0
 HIGHLIGHT = (255, 40, 40)  # 문제의 선 (RGB) — 흰 테두리를 둘러 어떤 배경에서도 보이게

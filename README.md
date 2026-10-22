@@ -1,61 +1,163 @@
-# STELLA — 위성영상 차선 검출
+# STELLA — Lane Marking Detection from Satellite Imagery
 
-위성/항공 타일 영상에서 차선(도로 노면 선형 객체)을 **폴리라인 인스턴스**로 검출한다.
+STELLA detects lane markings in satellite image tiles and outputs each marking as a separate
+polyline with a class label. It is the code of the paper
+*"STELLA: A Connectivity Representation for Lane Marking Detection from Satellite Imagery"*.
 
-셀마다 self 토큰 1개와 연결 슬롯 R개를 두고, 연결 슬롯이 "이 셀에서 선이 어느 방향으로
-이어지는가"를 단위 방향 벡터로 예측한다. GT는 선(인스턴스)마다 독립된 사슬로 인코딩되고
-(셀당 분기 2개), 디코더는 클래스 확률 국소 피크에서 마주봄 확인으로 사슬을 한 노드씩
-확장하며 폴리라인을 복원한다.
+At each cell of a grid over the image, the model predicts one **self slot** and two
+**connection slots**. The self slot describes the cell: whether a line passes through it, the class
+of that line, and its exact position inside the cell. Each connection slot gives one direction in
+which the line continues. The two connection slots have no order, and they carry a direction only,
+not a distance. A decoder with no learned parameters links slots that face each other into chains,
+and each chain becomes one polyline. The ground truth is encoded in the same form, so one line
+corresponds to one chain of cells.
 
-## 설치
+## Results
+
+Test set of SEED-MAP v1.2 (2,457 tiles). Instance F1 counts a predicted line as correct only when
+it matches one ground-truth line of the same class.
+
+| Method | Instance F1 | Precision | Recall |
+| --- | --- | --- | --- |
+| Segmentation + skeletonization + Douglas–Peucker | 0.3005 | 0.2206 | 0.4713 |
+| Sat2Graph output representation (angular sectors + displacement) | 0.3551 | 0.3634 | 0.3472 |
+| **STELLA** | **0.4483** | **0.4733** | **0.4258** |
+
+The Sat2Graph row uses the same backbone, neck, grid, and training budget as STELLA.
+Only the output representation is different.
+
+## Installation
+
+The environment is managed with [uv](https://docs.astral.sh/uv/).
+Python 3.11, PyTorch 2.11 (CUDA 12.8), and PyTorch Lightning are pinned in `uv.lock`.
 
 ```bash
-uv sync --extra dev          # 새로 만들 때
-uv sync --extra dev --frozen # 잠금 파일 그대로 복원할 때 (재해석 금지)
+git clone https://github.com/rilab314/YhStella26.git
+cd YhStella26
+uv sync --extra dev --frozen
+.venv/bin/python -m pytest tests/ -q -m "not slow"   # quick check
 ```
 
-Python 3.11 / torch 2.11 (cu128) / PyTorch Lightning. 저장소는 editable 설치된다.
+PyTorch 2.7 or later is required for NVIDIA Blackwell GPUs (sm_120).
 
-**환경은 세 파일이 함께 고정한다** — `.python-version`(인터프리터 3.11) · `pyproject.toml`
-(직접 의존성과 cu128 인덱스) · `uv.lock`(전 패키지 정확한 버전). 셋 다 커밋돼 있으므로
-`--frozen`으로 동기하면 같은 환경이 그대로 복원된다. `uv.lock`이 pyproject와 어긋났는지는
-`uv lock --check`로 확인한다.
+## Data
 
-> editable 설치가 **다른 worktree**를 가리키면 `python scripts/*.py`가 남의 코드로 돈다.
-> `scripts/gate.py`의 `install` 검사가 그 사고를 막는다 — 환경을 새로 만든 뒤 한 번 돌려 본다.
-
-## 빠른 확인
+All data paths are set by one environment variable. Choose a folder and set it before running
+any script:
 
 ```bash
-.venv/bin/python -m pytest tests/ -q                # 인코더 불변식·매칭·RoPE·디코더·지표
-.venv/bin/python scripts/viz_gt.py --config configs.exp_synthetic --count 4 --out /tmp/gt
+export STELLA_DATA_ROOT=/path/to/stella_data
 ```
 
-## 학습
+The scripts then use the following layout.
+
+```
+$STELLA_DATA_ROOT/
+  SEED_MAP_v1.2_splits/{train,val,test}/{image,label}   dataset (built in step 2)
+  gt_cache/                                             encoded ground truth (created automatically)
+  pred_cache/                                           saved model predictions
+  paper/score/                                          scores written by the evaluation script
+  log/                                                  training runs
+```
+
+**1. Download SEED-MAP v1.2.** The dataset is published in the SEED-MAP repository:
+<https://github.com/rilab314/SatelliteLaneDataset2024>.
+It contains flat `image/` and `label/` folders and a `dataset.json` file with the split.
+
+**2. Arrange it into split folders.** STELLA reads the dataset as
+`{train,val,test}/{image,label}`. The script copies the files into this layout without changing them.
+
+```bash
+.venv/bin/python scripts/build_split_dataset.py \
+    --src /path/to/SEED_MAP_v1.2 \
+    --dst $STELLA_DATA_ROOT/SEED_MAP_v1.2_splits
+```
+
+The split has 8,979 training, 1,218 validation, and 2,457 test tiles. The tile lists are included in
+the reproduction package below (`splits/*.txt`) so that you can check your copy.
+
+## Reproduction package
+
+**Download:** [stella_reproduce.zip (1.6 GB, OneDrive)](https://1drv.ms/u/c/f3539410ca672e92/IQD5nRkFnCIMTLed5QFFYKt4AWC9m7fMk7ibWPaknM4Dh2k?e=Y9lveG)
+
+| Path in the archive | Contents |
+| --- | --- |
+| `checkpoints/stella_final/` | STELLA final model (`model.ckpt`, weights only) and its training configuration (`config.json`) |
+| `checkpoints/sat2graph_gte_delta/` | Sat2Graph baseline model and its training configuration |
+| `splits/` | Tile names of the training, validation, and test sets |
+| `baselines/segmentation_predictions/` | Predictions of the segmentation baseline (color-coded PNG per tile) |
+| `expected_scores.json` | Scores that a correct reproduction gives |
+
+The dataset images are not in the archive. Download them as described in [Data](#data).
+
+## Reproducing the results
+
+Unzip the archive and set its location.
+
+```bash
+export PKG=/path/to/stella_reproduce
+```
+
+Each model is evaluated in two steps. The first step runs the network on the GPU and saves its
+outputs. The second step decodes the outputs into polylines and scores them on the CPU.
+The `config.json` files keep the data paths of our machine, so the first step overrides them.
+
+**STELLA**
+
+```bash
+.venv/bin/python scripts/dump_predictions.py --config configs.base \
+    --run $PKG/checkpoints/stella_final --ckpt $PKG/checkpoints/stella_final/model.ckpt \
+    --split test --count 2457 --out $STELLA_DATA_ROOT/pred_cache/stella_test \
+    --override data.root=$STELLA_DATA_ROOT/SEED_MAP_v1.2_splits data.cache_dir=$STELLA_DATA_ROOT/gt_cache
+.venv/bin/python scripts/eval_methods.py --method stella --split test \
+    --cache $STELLA_DATA_ROOT/pred_cache/stella_test
+```
+
+**Sat2Graph baseline**
+
+```bash
+.venv/bin/python scripts/dump_predictions.py --config configs.exp_gte_delta \
+    --run $PKG/checkpoints/sat2graph_gte_delta --ckpt $PKG/checkpoints/sat2graph_gte_delta/model.ckpt \
+    --split test --count 2457 --out $STELLA_DATA_ROOT/pred_cache/sat2graph_test \
+    --override data.root=$STELLA_DATA_ROOT/SEED_MAP_v1.2_splits data.cache_dir=$STELLA_DATA_ROOT/gt_cache
+.venv/bin/python scripts/eval_methods.py --method gte_delta --split test \
+    --cache $STELLA_DATA_ROOT/pred_cache/sat2graph_test
+```
+
+**Segmentation baseline** (no network to run; the predictions are in the archive)
+
+```bash
+.venv/bin/python scripts/eval_methods.py --method seg_dp --split test \
+    --pred $PKG/baselines/segmentation_predictions/pred_test
+```
+
+Each evaluation writes `$STELLA_DATA_ROOT/paper/score/<method>_test/summary.json`.
+Compare its `f1`, `precision`, and `recall` with `expected_scores.json`.
+On one RTX PRO 6000 GPU, the first step takes about 4 minutes per model.
+The second step takes about 1 to 1.5 hours per method on one CPU core.
+
+## Training
 
 ```bash
 .venv/bin/python -m stella.train.train --config configs.base --tag myrun
 ```
 
-- `--config` : `configs/` 아래 모듈 이름 (`configs.base`, `configs.exp_synthetic`, ...)
-- `--override data.batch_size=2 train.epochs=40` : 점 경로로 config 필드를 덮어쓴다
-- `--resume <ckpt>` : 체크포인트에서 이어서 학습
+- `--config` selects a configuration module in `configs/` (`configs.base` is the final model,
+  `configs.exp_gte_delta` is the Sat2Graph baseline).
+- `--override key=value ...` changes configuration fields, for example `train.epochs=40`.
+- Each run creates `$STELLA_DATA_ROOT/log/<date>_<config>_<tag>/` with its configuration,
+  a copy of the source code, checkpoints, and `metrics.csv`.
 
-출력은 `{train.output_root}/{YYMMDD_HHMMSS}_{config}_{tag}/`에 실행마다 새로 만들어진다.
-`config.json` · 소스 전체 복사본 `src/` · `git_sha.txt` · `checkpoints/` · `metrics.csv` · `viz/`.
+The final model was trained for 40 epochs on two GPUs (`--override train.devices=2`).
+On some multi-GPU machines without NVLink, add `NCCL_P2P_DISABLE=1` before the command
+if training stops at the first step.
 
-## 데이터
+## Repository layout
 
-SEED-MAP v1.2 (768×768, GSD 0.2550 m/px). `SEED_MAP_v1.2_splits/{train,val,test}/{image,label}`
-재정리 사본(`scripts/build_split_dataset.py`)을 읽고, `label/{id}.json`이 `LINE_STRING`
-폴리라인을 담는다. train 8,979 / val 1,218 / test 2,457장.
-학습 클래스는 `category_id` 11종 + 배경.
-
-라벨은 **폴리라인 그대로** 두고 `__getitem__`에서 격자 GT로 온라인 인코딩한다.
-증강은 인코딩 전 벡터 단계에서 하므로 좌표 뒤집기 해킹이 필요 없다.
-
-합성 데이터셋(`configs.exp_synthetic`)으로 전 파이프라인을 실데이터 없이 돌려볼 수 있다.
-
-## 문서
-
-설계 근거와 결정 사항은 `docs/`에 있다 — `docs/0_design.md`가 색인이다. 코드 규약은 `CLAUDE.md`에 있다.
+```
+configs/    experiment configurations (schema.py defines every field)
+stella/     data encoding, model, losses, decoder, and evaluation
+scripts/    data preparation, prediction, evaluation, tables, and figures
+tests/      unit tests
+docs/       design notes (Korean)
+```

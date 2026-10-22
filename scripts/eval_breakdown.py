@@ -21,11 +21,12 @@ from pathlib import Path
 
 import torch
 
+from configs.schema import DATA_ROOT as _DATA_ROOT
 from stella.config_io import load_config
 from stella.eval.breakdown import ClassBreakdown, RedundancyCounter
 from stella.eval.instance_io import load_instances
 
-DATA_ROOT = Path("/data/ongoing/2026_stella")
+DATA_ROOT = Path(_DATA_ROOT)  # STELLA_DATA_ROOT 로 바꾼다 (configs.schema)
 # `scripts/eval_methods.py` 와 같은 값이다 — 경로를 바꾸면 함께 고친다.
 PAPER_ROOT = DATA_ROOT / "paper"
 CACHE_ROOT = DATA_ROOT / "pred_cache"
