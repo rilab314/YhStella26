@@ -4,7 +4,12 @@
 코드 쪽으로 의존이 생기지 않고, 따라서 순환참조가 구조적으로 불가능하다.
 """
 
+import os
 from dataclasses import dataclass, field
+
+# 데이터·캐시·실행 결과를 두는 최상위 폴더. 다른 기계에서는 환경 변수로 바꾼다(README 참고).
+# 설정하지 않으면 이 연구실 서버의 위치를 쓴다 — 기존 실행·스크립트의 동작은 그대로다.
+DATA_ROOT = os.environ.get("STELLA_DATA_ROOT", "/data/ongoing/2026_stella")
 
 
 @dataclass(kw_only=True)
@@ -28,7 +33,7 @@ class DataConfig(ModuleConfig):
     # 80~100 m 간격이라 이웃끼리 절반 넘게 겹쳐 split 경계에서 픽셀이 새고 있었다.
     # 라벨은 형식·내용이 같다(v1.2가 지운 "타일 밖 선"은 로더가 이미 잘라 버리던 것이다).
     # **과거 실행의 성적을 다시 재지 않는다** (사용자 판단) — 규격이 갈리는 것에 주의한다.
-    root: str = "/data/ongoing/2026_stella/SEED_MAP_v1.2_splits"
+    root: str = f"{DATA_ROOT}/SEED_MAP_v1.2_splits"
     image_size: int = 768  # SEED-MAP 원본 크기와 동일 — 리사이즈 없음
     grid_stride: int = 4  # 격자 배율 s. L = image_size // grid_stride = 192
     num_classes: int = 12  # 0 = background + 차선 11종 (6.7.1절)
@@ -55,7 +60,7 @@ class DataConfig(ModuleConfig):
     conn_store_length: bool = False
     cache_gt: str = "val_test"  # "none" | "val_test" | "all" (6.4.1절)
     # 데이터셋 폴더를 건드리지 않도록 캐시는 그 옆에 둔다. 빈 문자열이면 {root}/gt_cache.
-    cache_dir: str = "/data/ongoing/2026_stella/gt_cache"
+    cache_dir: str = f"{DATA_ROOT}/gt_cache"
     augment: bool = True  # 학습 split에만 적용 (6.7.6절)
     # 격자 대칭 외의 기하 증강 (가설 백로그). 0이면 끈다 — 기본은 기존 동작.
     aug_rotate_deg: float = 0.0  # +-이 각도까지 임의 회전. 타일 밖은 검게 채운다
@@ -453,7 +458,7 @@ class TrainConfig(ModuleConfig):
     ckpt_top_k: int = 3
     # 최소 1노드 보장(7.4절) 덕에 미사용 파라미터가 없다 — 끄면 매 스텝 그래프 순회가 사라진다.
     find_unused_parameters: bool = False
-    output_root: str = "/data/ongoing/2026_stella/log"
+    output_root: str = f"{DATA_ROOT}/log"
 
 
 @dataclass(kw_only=True)

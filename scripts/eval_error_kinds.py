@@ -15,12 +15,13 @@ import argparse
 import json
 from pathlib import Path
 
+from configs.schema import DATA_ROOT as _DATA_ROOT
 from stella.config_io import load_config
 from stella.eval.error_kinds import ErrorKinds
 from stella.eval.instance_io import load_instances
 from stella.eval.methods import target_tiles
 
-PAPER_ROOT = Path("/data/ongoing/2026_stella/paper")
+PAPER_ROOT = Path(_DATA_ROOT) / "paper"  # STELLA_DATA_ROOT 로 바꾼다
 OUT_ROOT = Path(__file__).resolve().parents[1] / "experiment" / "data" / "e2"
 
 

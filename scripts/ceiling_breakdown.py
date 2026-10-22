@@ -22,6 +22,7 @@ from pathlib import Path
 import torch
 from torch.utils.data import DataLoader
 
+from configs.schema import DATA_ROOT as _DATA_ROOT
 from stella.builder import build_instance
 from stella.config_io import apply_override, apply_saved_config, load_config
 from stella.data.types import GridDatasetBase, collate_fn
@@ -44,7 +45,7 @@ ROWS = (
 )
 # 표가 읽는 지표. `eval_methods.py` 의 요약 파일과 같은 이름을 쓴다.
 SAVED_METRICS = ("f1", "precision", "recall", "coverage", "frag")
-SCORE_ROOT = Path("/data/ongoing/2026_stella/paper/score")
+SCORE_ROOT = Path(_DATA_ROOT) / "paper" / "score"  # STELLA_DATA_ROOT 로 바꾼다
 
 
 def main() -> None:

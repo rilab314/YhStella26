@@ -39,12 +39,13 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from configs.schema import DATA_ROOT as _DATA_ROOT
 from stella.builder import build_instance
 from stella.data.types import CLASS_NAMES, GridDatasetBase
 from stella.eval.instance_io import load_instances
 from stella.train import viz
 
-DATA_ROOT = Path("/data/ongoing/2026_stella")
+DATA_ROOT = Path(_DATA_ROOT)  # STELLA_DATA_ROOT 로 바꾼다 (configs.schema)
 # `scripts/tables/table_base.py` 에도 같은 값이 있다 — scripts/ 는 패키지가 아니다.
 PAPER_ROOT = DATA_ROOT / "paper"
 FIGURE_ROOT = PAPER_ROOT / "figure"

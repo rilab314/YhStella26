@@ -33,7 +33,9 @@ import json
 import shutil
 from pathlib import Path
 
-DATA_ROOT = Path("/data/ongoing/2026_stella")
+from configs.schema import DATA_ROOT as _DATA_ROOT
+
+DATA_ROOT = Path(_DATA_ROOT)  # STELLA_DATA_ROOT 로 바꾼다 (configs.schema)
 # `scripts/figures/figure_base.py` 에도 같은 값이 있다. scripts/ 는 패키지가 아니라 서로
 # import 하지 못한다 — 경로를 바꾸면 두 곳을 함께 고친다.
 PAPER_ROOT = DATA_ROOT / "paper"

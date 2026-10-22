@@ -23,6 +23,7 @@ import shutil
 import time
 from pathlib import Path
 
+from configs.schema import DATA_ROOT as _DATA_ROOT
 from stella.baseline.segment_vectorize import CLASS_RGB, SegmentVectorizer
 from stella.config_io import load_config
 from stella.decode.sweep import build_cfg, read_meta, shape_of
@@ -30,7 +31,7 @@ from stella.eval.instance_io import save_instances
 from stella.eval.methods import CacheMethod, SegmentMethod
 from stella.eval.per_tile import TileScorer, write_rows
 
-DATA_ROOT = Path("/data/ongoing/2026_stella")
+DATA_ROOT = Path(_DATA_ROOT)  # STELLA_DATA_ROOT 로 바꾼다 (configs.schema)
 # `scripts/figures/figure_base.py` · `scripts/tables/table_base.py` 와 같은 값이다.
 # scripts/ 는 패키지가 아니라 서로 import 하지 못한다 — 경로를 바꾸면 세 곳을 함께 고친다.
 PAPER_ROOT = DATA_ROOT / "paper"
@@ -139,6 +140,8 @@ EXPECTED_F1 = {
     "g04_canon": 0.4351,
     "g05_single": 0.4249,
 }
+# 시험셋 전량 기대값 — Table III 의 세 행 (재현 패키지 expected_scores.json 과 같다).
+EXPECTED_TEST_F1 = {"stella": 0.4483, "gte_delta": 0.3551, "seg_dp": 0.3005}
 TOLERANCE = 0.001
 
 
@@ -149,7 +152,7 @@ def main() -> None:
     rows, summary = collect(method, cfg, args)
     elapsed = time.perf_counter() - started
     save(args, rows, summary, elapsed)
-    report(args.method, summary, len(rows), elapsed)
+    report(args, summary, len(rows), elapsed)
 
 
 def parse_args() -> argparse.Namespace:
@@ -235,10 +238,14 @@ def save(args: argparse.Namespace, rows: list[dict], summary: dict, elapsed: flo
     print(f"[{args.method}] 저장 {out_dir}")
 
 
-def report(name: str, summary: dict, tiles: int, elapsed: float) -> None:
-    """미리 정한 기대값과 대조한다 — 여기서 갈라지면 그림과 표가 서로 다른 말을 하게 된다."""
-    f1 = summary.get("f1", 0.0)
-    expected = EXPECTED_F1.get(name)
+def report(args: argparse.Namespace, summary: dict, tiles: int, elapsed: float) -> None:
+    """미리 정한 기대값과 대조한다 — 여기서 갈라지면 그림과 표가 서로 다른 말을 하게 된다.
+
+    기대값은 split 마다 따로이고 전량일 때만 뜻이 있다 — `--limit` 이면 대조하지 않는다.
+    """
+    name, f1 = args.method, summary.get("f1", 0.0)
+    table = {"val": EXPECTED_F1, "test": EXPECTED_TEST_F1}.get(args.split, {})
+    expected = None if args.limit else table.get(name)
     print(f"\n[{name}] 타일 {tiles}장 · {elapsed:.1f} s · f1 {f1:.4f}")
     if expected is None:
         return

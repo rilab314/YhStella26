@@ -15,12 +15,13 @@ import argparse
 import json
 from pathlib import Path
 
+from configs.schema import DATA_ROOT as _DATA_ROOT
 from stella.config_io import load_config
 from stella.eval.chamfer import ChamferDistance
 from stella.eval.instance_io import load_instances
 from stella.eval.methods import target_tiles
 
-PAPER_ROOT = Path("/data/ongoing/2026_stella/paper")
+PAPER_ROOT = Path(_DATA_ROOT) / "paper"  # STELLA_DATA_ROOT 로 바꾼다
 METHODS = ("seg_dp", "gte_delta", "stella_nopost", "stella")  # Table III 의 네 행
 STEP = 1.0  # 점을 찍는 간격(px) — 거리 오차가 0.5 px 안이 되는 촘촘함
 
